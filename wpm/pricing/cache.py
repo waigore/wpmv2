@@ -1,0 +1,285 @@
+"""Manages persistent Parquet-based price cache."""
+
+import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+import pandas as pd
+import pytz
+
+from wpm.config import Config
+from wpm.utils import concat_dataframes, is_within_trading_hours
+
+logger = logging.getLogger(__name__)
+
+
+class PriceCache:
+    """Manages persistent Parquet-based price cache."""
+
+    def __init__(self, cache_file: Optional[Path] = None):
+        """Initialize price cache.
+
+        Args:
+            cache_file: Path to cache file (default: Config.CACHE_FILE)
+        """
+        self.cache_file = cache_file or Config.CACHE_FILE
+        self._cache: Optional[pd.DataFrame] = None
+        self._ensure_cache_dir()
+
+    def _ensure_cache_dir(self) -> None:
+        """Ensure cache directory exists."""
+        cache_dir = self.cache_file.parent
+        if not cache_dir.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"Created cache directory: {cache_dir}")
+
+    def _load_cache(self) -> pd.DataFrame:
+        """Load price cache from Parquet file.
+
+        Returns:
+            DataFrame with columns: ticker, asset_type, price, timestamp
+        """
+        if self._cache is not None:
+            return self._cache
+
+        if not self.cache_file.exists():
+            logger.debug("Cache file does not exist, starting with empty cache")
+            self._cache = pd.DataFrame(
+                columns=["ticker", "asset_type", "price", "timestamp"]
+            )
+            return self._cache
+
+        try:
+            self._cache = pd.read_parquet(self.cache_file)
+            logger.info(f"Loaded price cache from {self.cache_file} with {len(self._cache)} entries")
+        except Exception as e:
+            logger.warning(f"Error loading cache file: {e}. Starting with empty cache")
+            self._cache = pd.DataFrame(
+                columns=["ticker", "asset_type", "price", "timestamp"]
+            )
+
+        return self._cache
+
+    def _save_cache(self) -> None:
+        """Save price cache to Parquet file."""
+        if self._cache is None:
+            return
+
+        try:
+            self._cache.to_parquet(self.cache_file, index=False)
+            logger.debug(f"Saved price cache to {self.cache_file}")
+        except Exception as e:
+            logger.warning(f"Error saving cache file: {e}")
+
+    def _is_cache_valid(self, cache_entry: pd.Series, asset_type: str) -> bool:
+        """Check if cached price is valid for a specific asset.
+
+        Args:
+            cache_entry: Cache entry (row from DataFrame)
+            asset_type: Asset type to validate against
+
+        Returns:
+            True if cache is valid, False otherwise
+        """
+        cache_timestamp = cache_entry["timestamp"]
+        
+        # Check for NaN/NaT/None values
+        if cache_timestamp is None:
+            return False
+        
+        # Handle pd.NaT and other NA values
+        try:
+            if pd.isna(cache_timestamp):
+                return False
+        except (ValueError, TypeError):
+            # If pd.isna() fails (e.g., on array-like values), treat as invalid
+            return False
+        
+        # Convert to datetime if it's a string
+        if isinstance(cache_timestamp, str):
+            try:
+                cache_timestamp = pd.to_datetime(cache_timestamp)
+            except (ValueError, TypeError):
+                return False
+        
+        # Convert pandas Timestamp to Python datetime if needed
+        try:
+            # Try pandas Timestamp conversion first (most common case)
+            if isinstance(cache_timestamp, pd.Timestamp):
+                cache_timestamp = cache_timestamp.to_pydatetime()
+            # If it's already a datetime, ensure it's timezone-aware
+            elif isinstance(cache_timestamp, datetime):
+                pass  # Already a datetime, will handle timezone below
+            else:
+                # Try to convert using pandas as fallback
+                cache_timestamp = pd.to_datetime(cache_timestamp).to_pydatetime()
+        except (ValueError, TypeError, AttributeError):
+            return False
+
+        if cache_timestamp.tzinfo is None:
+            cache_timestamp = pytz.UTC.localize(cache_timestamp)
+        else:
+            cache_timestamp = cache_timestamp.astimezone(pytz.UTC)
+
+        now = datetime.now(pytz.UTC)
+        age_minutes = (now - cache_timestamp).total_seconds() / 60
+
+        if asset_type in ("Stock", "ETF"):
+            return self._is_stock_cache_valid(cache_entry, now, cache_timestamp, age_minutes)
+
+        if asset_type == "Crypto":
+            return self._is_crypto_cache_valid(cache_entry, age_minutes)
+
+        return False
+
+    def _is_stock_cache_valid(
+        self, cache_entry: pd.Series, now: datetime, cache_timestamp: datetime, age_minutes: float
+    ) -> bool:
+        """Check if stock/ETF cache is valid based on trading hours.
+
+        Args:
+            cache_entry: Cache entry
+            now: Current time
+            cache_timestamp: Cache timestamp
+            age_minutes: Age of cache in minutes
+
+        Returns:
+            True if cache is valid, False otherwise
+        """
+        current_in_hours = is_within_trading_hours(now)
+        cache_in_hours = is_within_trading_hours(cache_timestamp)
+
+        # If both current time and cache time are outside trading hours, cache is valid
+        if not current_in_hours and not cache_in_hours:
+            logger.debug(
+                f"Cache valid for {cache_entry['ticker']}: both outside trading hours"
+            )
+            return True
+
+        # If currently in trading hours, cache must be recent
+        if not current_in_hours:
+            return False
+
+        is_valid = age_minutes < Config.CACHE_VALIDITY_MINUTES
+        logger.debug(
+            f"Cache validity for {cache_entry['ticker']}: "
+            f"{is_valid} (age: {age_minutes:.1f} min, in hours: {current_in_hours})"
+        )
+        return is_valid
+
+    def _is_crypto_cache_valid(self, cache_entry: pd.Series, age_minutes: float) -> bool:
+        """Check if crypto cache is valid based on age.
+
+        Args:
+            cache_entry: Cache entry
+            age_minutes: Age of cache in minutes
+
+        Returns:
+            True if cache is valid, False otherwise
+        """
+        is_valid = age_minutes < Config.CACHE_VALIDITY_MINUTES
+        logger.debug(
+            f"Cache validity for {cache_entry['ticker']}: "
+            f"{is_valid} (age: {age_minutes:.1f} min)"
+        )
+        return is_valid
+
+    def get_cached_price(self, ticker: str, asset_type: str) -> Optional[float]:
+        """Get cached price if valid.
+
+        Args:
+            ticker: Asset ticker
+            asset_type: Asset type
+
+        Returns:
+            Cached price if valid, None otherwise
+        """
+        cache = self._load_cache()
+
+        if cache.empty:
+            return None
+
+        matches = cache[
+            (cache["ticker"] == ticker) & (cache["asset_type"] == asset_type)
+        ]
+
+        if matches.empty:
+            logger.debug(f"No cache entry found for {ticker} ({asset_type})")
+            return None
+
+        cache_entry = matches.iloc[0]
+
+        if self._is_cache_valid(cache_entry, asset_type):
+            logger.info(
+                f"Cache hit for {ticker} ({asset_type}): ${cache_entry['price']:.2f}"
+            )
+            return float(cache_entry["price"])
+
+        logger.debug(f"Cache entry for {ticker} ({asset_type}) is invalid/expired")
+        return None
+
+    def get_stale_cached_price(self, ticker: str, asset_type: str) -> Optional[float]:
+        """Get cached price even if it's expired/invalid (stale).
+
+        Args:
+            ticker: Asset ticker
+            asset_type: Asset type
+
+        Returns:
+            Cached price if entry exists (even if stale), None if no cache entry exists at all
+        """
+        cache = self._load_cache()
+
+        if cache.empty:
+            return None
+
+        matches = cache[
+            (cache["ticker"] == ticker) & (cache["asset_type"] == asset_type)
+        ]
+
+        if matches.empty:
+            logger.debug(f"No cache entry found for {ticker} ({asset_type})")
+            return None
+
+        cache_entry = matches.iloc[0]
+        price = float(cache_entry["price"])
+        logger.debug(f"Retrieved stale cache entry for {ticker} ({asset_type}): ${price:.2f}")
+        return price
+
+    def set_cached_price(
+        self, ticker: str, asset_type: str, price: float, timestamp: Optional[datetime] = None
+    ) -> None:
+        """Set cached price.
+
+        Args:
+            ticker: Asset ticker
+            asset_type: Asset type
+            price: Price to cache
+            timestamp: Timestamp (default: current time)
+        """
+        cache = self._load_cache()
+
+        if timestamp is None:
+            timestamp = datetime.now(pytz.UTC)
+
+        new_entry = pd.DataFrame(
+            [
+                {
+                    "ticker": ticker,
+                    "asset_type": asset_type,
+                    "price": price,
+                    "timestamp": timestamp,
+                }
+            ]
+        )
+
+        cache = cache[
+            ~((cache["ticker"] == ticker) & (cache["asset_type"] == asset_type))
+        ]
+
+        cache = concat_dataframes([cache, new_entry], ignore_index=True)
+        self._cache = cache
+
+        self._save_cache()
+

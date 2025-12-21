@@ -12,7 +12,14 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `wpm/portfolio.py` - Portfolio class implementation with aggregation logic
 - `wpm/importer.py` - CSV import functionality using pandas
 - `wpm/cost_basis.py` - Cost basis calculation methods (FIFO and Average Cost)
-- `wpm/pricing.py` - Market price data retrieval module (yfinance and CoinGecko integration)
+- `wpm/pricing/` - Market price data retrieval package (yfinance and CoinGecko integration)
+  - `wpm/pricing/__init__.py` - Package initialization and public API exports
+  - `wpm/pricing/base.py` - Abstract base class for price retrievers
+  - `wpm/pricing/yahoo.py` - Yahoo Finance price retriever implementation
+  - `wpm/pricing/coingecko.py` - CoinGecko API price retriever implementation
+  - `wpm/pricing/cache.py` - Persistent Parquet-based price cache management
+  - `wpm/pricing/rate_limiter.py` - Rate limiting utility for API calls
+  - `wpm/pricing/service.py` - Service that orchestrates price retrieval with caching and rate limiting
 - `wpm/metrics.py` - Portfolio metrics and breakdown generation
 - `wpm/utils.py` - Utility functions for validation, logging setup, and helpers
 
@@ -123,7 +130,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - Configuration class accessible throughout the application
 - Sample `.env.example` file with placeholder values for sensitive configuration
 
-### wpm/pricing.py
+### wpm/pricing/
 
 **Responsibilities:**
 - Retrieve current market prices for stocks/ETFs from Yahoo Finance via yfinance
@@ -133,29 +140,108 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - Manage cache file lifecycle (load, save, expiration)
 - Validate cache entries per asset based on asset type and trading hours
 - Handle API errors and missing data gracefully
+- Orchestrate price retrieval with caching and rate limiting via service layer
 - References `wpm.config.Config` for cache directory, cache file path, cache validity duration, and CoinGecko API key
 
+#### wpm/pricing/base.py
+
+**Responsibilities:**
+- Define abstract base class for price retrievers
+- Establish interface contract for single and batch price retrieval
+
 **Key Classes:**
-- `PriceRetriever`: Base class for price retrieval
-- `YahooFinanceRetriever`: yfinance-based retriever for stocks/ETFs
-- `CoinGeckoRetriever`: CoinGecko API retriever for cryptocurrencies
-- `RateLimiter`: Rate limiting utility
+- `PriceRetriever`: Abstract base class for price retrieval (supports both single and batch retrieval)
+
+**Key Methods:**
+- `get_price(ticker, asset_type)`: Abstract method to get current price for an asset
+- `get_prices(tickers, asset_type)`: Abstract method to get current prices for multiple assets in a batch request
+
+#### wpm/pricing/yahoo.py
+
+**Responsibilities:**
+- Implement Yahoo Finance price retrieval using yfinance
+- Support both single and batch price retrieval for stocks/ETFs
+- Handle yfinance API responses and data extraction
+
+**Key Classes:**
+- `YahooFinanceRetriever`: yfinance-based retriever for stocks/ETFs (implements batch retrieval by default)
+
+**Key Methods:**
+- `get_price(ticker, asset_type)`: Get current price for a single stock/ETF
+- `get_prices(tickers, asset_type)`: Batch price retrieval using `yf.download()` to fetch multiple tickers in a single API request
+
+#### wpm/pricing/coingecko.py
+
+**Responsibilities:**
+- Implement CoinGecko API price retrieval
+- Support both single and batch price retrieval for cryptocurrencies
+- Handle ticker to CoinGecko coin ID mapping
+- Use optional API key from `wpm.config.Config` for authenticated requests
+
+**Key Classes:**
+- `CoinGeckoRetriever`: CoinGecko API retriever for cryptocurrencies (implements batch retrieval by default)
+
+**Key Methods:**
+- `get_price(ticker, asset_type)`: Get current price for a single cryptocurrency
+- `get_prices(tickers, asset_type)`: Batch price retrieval using CoinGecko's batch API endpoint to fetch multiple tickers in a single API request
+
+#### wpm/pricing/cache.py
+
+**Responsibilities:**
+- Manage persistent Parquet-based price cache
+- Handle cache file lifecycle (load, save)
+- Validate cache entries per asset based on asset type and trading hours
+- Provide methods to get valid cached prices and stale cached prices
+
+**Key Classes:**
 - `PriceCache`: Manages persistent Parquet-based price cache
 
-**Key Functions:**
-- `get_price(ticker, asset_type)`: Get current price for an asset (checks cache first, validates per asset)
-- `get_prices(tickers, asset_type)`: Batch price retrieval with rate limiting
-- `_load_cache()`: Load price cache from Parquet file
+**Key Methods:**
+- `get_cached_price(ticker, asset_type)`: Get cached price if valid (returns None if invalid or missing)
+- `get_stale_cached_price(ticker, asset_type)`: Get cached price even if expired (returns None only if no cache entry exists)
+- `set_cached_price(ticker, asset_type, price, timestamp)`: Set/update cached price with timestamp
+- `_load_cache()`: Load price cache from Parquet file (lazy loading, cached in memory)
 - `_save_cache()`: Save price cache to Parquet file
 - `_is_cache_valid(cache_entry, asset_type)`: Check if cached price is valid for a specific asset
-  - For US stocks/ETFs: Uses `wpm.utils.is_us_market_open()` and `wpm.utils.is_within_trading_hours()` to determine validity. If current time is outside trading hours and cache timestamp was outside trading hours, cache is valid. If within trading hours, cache must be less than 10 minutes old.
+  - For US stocks/ETFs: Uses `wpm.utils.is_within_trading_hours()` to determine validity. If current time is outside trading hours and cache timestamp was also outside trading hours, cache is valid. If within trading hours, cache must be less than 10 minutes old.
   - For crypto: Cache must be less than 10 minutes old regardless of time of day.
-- `_rate_limit_check()`: Internal rate limiting enforcement
+
+**Artefacts:**
+- Persistent Parquet cache file (default path from `wpm.config.Config.CACHE_FILE`, configurable via constructor parameter)
+- Cache file contains: ticker, asset_type, price, timestamp columns
+
+#### wpm/pricing/rate_limiter.py
+
+**Responsibilities:**
+- Implement rate limiting to respect API free tier limits
+- Track API call timestamps and enforce maximum calls per minute
+
+**Key Classes:**
+- `RateLimiter`: Rate limiting utility for API calls
+
+**Key Methods:**
+- `wait_if_needed()`: Wait if rate limit would be exceeded (blocks execution until rate limit allows)
+
+#### wpm/pricing/service.py
+
+**Responsibilities:**
+- Orchestrate price retrieval with caching and rate limiting
+- Coordinate between cache, rate limiter, and appropriate price retriever
+- Provide unified API for single and batch price retrieval
+
+**Key Classes:**
+- `PriceService`: Service that orchestrates price retrieval with caching and rate limiting
+
+**Key Methods:**
+- `get_price(ticker, asset_type)`: Get current price for an asset (checks cache first, validates per asset, uses appropriate retriever if cache miss)
+- `get_prices(tickers, asset_type)`: Batch price retrieval with rate limiting (uses batch API calls by default)
+  - Checks cache for all tickers first
+  - Fetches uncached tickers using batch API call from appropriate retriever
+  - For tickers that fail API retrieval: if stale cache exists, log warning and use stale price; if no cache exists, raise ValueError
+- `_get_retriever(asset_type)`: Internal method to get appropriate price retriever (YahooFinanceRetriever for Stock/ETF, CoinGeckoRetriever for Crypto)
 
 **Artefacts:**
 - Current market prices for assets
-- Persistent Parquet cache file (default path from `wpm.config.Config.CACHE_FILE`, configurable via constructor parameter)
-- Cache file contains: ticker, asset_type, price, timestamp columns
 
 ### wpm/metrics.py
 
@@ -439,9 +525,12 @@ Validity is determined per asset individually based on asset type and current ti
 - INFO: Cost basis calculation started/completed with method
 - DEBUG: FIFO queue operations, average cost calculations, sell matching
 
-**wpm/pricing.py:**
-- INFO: Price retrieval request (ticker, asset_type), rate limit wait, cache file load/save operations, per-asset cache validation results
-- DEBUG: API response details, cache hits/misses, rate limit state, per-asset cache validation checks (trading hours, age calculations), Parquet file I/O
+**wpm/pricing/:**
+- **service.py**: INFO: Price retrieval request (ticker, asset_type), batch price request with count
+- **cache.py**: INFO: Cache file load/save operations, cache hits with price, per-asset cache validation results; DEBUG: Cache entry lookups, cache validity checks (trading hours, age calculations), Parquet file I/O
+- **rate_limiter.py**: INFO: Rate limit wait duration when rate limit is reached
+- **yahoo.py**: DEBUG: API request details, price extraction results
+- **coingecko.py**: DEBUG: API request details, coin ID mapping, price extraction results
 
 **wpm/metrics.py:**
 - INFO: Metrics calculation started/completed, breakdown generation

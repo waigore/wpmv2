@@ -1,0 +1,387 @@
+# WPM Command Line Utility Specification
+
+## Purpose
+
+`wpmrun.py` is a command-line utility that serves as an orchestrator for the WPM library. It provides a user-friendly interface for importing trade data from CSV files, managing composite portfolios, and querying portfolio information interactively. The utility preserves encapsulation by delegating all business logic to the appropriate WPM modules.
+
+## File Location
+
+- `wpmrun.py` - Main command-line utility script (located at project root)
+
+## Command Line Interface
+
+### Initial Command
+
+The utility accepts one command-line argument:
+
+```
+wpmrun.py import
+```
+
+**Behavior:**
+- Scans the `import/` directory for all CSV files
+- Imports each CSV file as a separate sub-portfolio
+- Creates a composite portfolio containing all imported sub-portfolios
+- Each sub-portfolio is named based on the CSV filename (see Portfolio Naming below)
+- After import, fetches prices for all assets via PriceService (which manages cache internally)
+- Enters interactive mode after successful import
+
+**Error Handling:**
+- If no CSV files are found in `import/` directory, display an error message and exit
+- If CSV import fails for any file, display an error message and exit immediately with error code 1 (do not continue processing other files)
+- If price retrieval fails for any asset and no price data exists in cache, display an error message and exit immediately with error code 1
+- If price data exists in cache but is stale (invalid), log a warning but continue processing using the stale cache data
+
+### Portfolio Naming
+
+Portfolio names are extracted from CSV filenames by:
+1. Removing the `.csv` extension
+2. Extracting the meaningful portion after the last dash or hyphen (if present)
+3. Stripping all whitespace (leading, trailing, and internal) from the extracted portion
+4. If no dash/hyphen is found, use the full filename without extension and strip all whitespace
+
+**Examples:**
+- `Asset Trades - Crypto.csv` → `Crypto` (leading space after dash is stripped)
+- `Asset Trades - US Stocks.csv` → `USStocks` (leading space and internal space are stripped)
+- `MyPortfolio.csv` → `MyPortfolio`
+- `Trades - 2024.csv` → `2024` (leading space after dash is stripped)
+- `  Portfolio Name.csv` → `PortfolioName` (all spaces stripped)
+- `Asset -  Crypto  .csv` → `Crypto` (all spaces stripped)
+- `My  Portfolio  Name.csv` → `MyPortfolioName` (all spaces stripped)
+
+**Validation:**
+- All whitespace (leading, trailing, and internal) must be stripped from all portfolio names
+- If multiple CSV files would result in the same portfolio name (after whitespace stripping), append a numeric suffix (e.g., `Crypto`, `Crypto_2`, `Crypto_3`)
+- Portfolio names must be non-empty after extraction and whitespace stripping
+
+## Interactive Mode
+
+After successful import, the utility enters an interactive command loop. The prompt should be:
+
+```
+wpm> 
+```
+
+### Supported Commands
+
+#### `list portfolios`
+
+**Description:** Lists all sub-portfolios within the composite portfolio by name.
+
+**Output Format:**
+- One portfolio name per line
+- Sorted alphabetically
+- Example:
+  ```
+  Crypto
+  US Stocks
+  ```
+
+**Error Handling:**
+- If no portfolios exist, display: "No portfolios found."
+
+#### `show portfolio <name>`
+
+**Description:** Lists all assets in the specified sub-portfolio, including current market value.
+
+**Arguments:**
+- `<name>`: Name of the sub-portfolio (required)
+
+**Output Format:**
+- For each asset, display: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | Current Value = Market Value`
+- One asset per line
+- Sorted by ticker
+- Market Value is calculated as: `Quantity × Current Price`
+- Current Price is retrieved using batch fetching via `PriceService.get_prices()` (grouped by asset_type)
+- Prices are fetched in batches for efficiency - PriceService handles cache checking and API fetching internally
+- If price retrieval fails for an asset type, display "N/A" for Current Value for all assets of that type
+- Example:
+  ```
+  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
+  ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00
+  ```
+
+**Error Handling:**
+- If portfolio name not found, display: "Portfolio '<name>' not found."
+- If portfolio has no assets, display: "Portfolio '<name>' has no assets."
+- If price retrieval fails for an asset, display "N/A" for Current Value and continue displaying other assets
+
+#### `show all`
+
+**Description:** Lists all assets in the composite portfolio (aggregated across all sub-portfolios), including current market value.
+
+**Output Format:**
+- Same format as `show portfolio`, but showing aggregated positions
+- If the same asset appears in multiple sub-portfolios, show the combined quantity and cost basis
+- Market Value is calculated using the aggregated quantity and current price
+- Current Price is retrieved using batch fetching via `PriceService.get_prices()` (grouped by asset_type)
+- Prices are fetched in batches for efficiency - PriceService handles cache checking and API fetching internally
+- If price retrieval fails for an asset type, display "N/A" for Current Value for all assets of that type
+- Example:
+  ```
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00
+  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
+  GOOG (Stock): 50.0 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00
+  ```
+
+**Error Handling:**
+- If composite portfolio has no assets, display: "No assets found in composite portfolio."
+- If price retrieval fails for an asset, display "N/A" for Current Value and continue displaying other assets
+
+#### `breakdown [<name>] <by>`
+
+**Description:** Shows a breakdown of the portfolio by the specified dimension.
+
+**Arguments:**
+- `[<name>]`: Optional sub-portfolio name. If omitted, breakdown is for the entire composite portfolio
+- `<by>`: Breakdown dimension - one of: `asset_type`, `ticker`, `purchase_period`, or `broker`
+
+**Breakdown Types:**
+
+1. **`asset_type`**: Group by asset type (Stock, ETF, Crypto)
+   - Display: Asset Type, Total Quantity, Total Cost Basis
+   - Example:
+     ```
+     Crypto: 0.5 @ $22,500.00
+     Stock: 150.0 @ $115,000.00
+     ```
+
+2. **`ticker`**: Group by ticker symbol
+   - Display: Ticker, Quantity, Cost Basis
+   - Example:
+     ```
+     AAPL: 100.0 @ $15,000.00
+     BTC-USD: 0.5 @ $22,500.00
+     GOOG: 50.0 @ $100,000.00
+     ```
+
+3. **`purchase_period`**: Group by purchase period (default: month)
+   - Display: Period, Total Quantity, Total Cost Basis
+   - Format: YYYY-MM for months
+   - Example:
+     ```
+     2024-01: 50.0 @ $10,000.00
+     2024-02: 100.0 @ $20,000.00
+     ```
+   - Note: For purchase_period, the utility should support an optional period parameter (month/quarter/year), but for initial implementation, default to "month"
+
+4. **`broker`**: Group by broker
+   - Display: Broker, Total Quantity (per asset), Total Cost Basis
+   - Example:
+     ```
+     Coinbase: BTC-USD: 0.5 @ $22,500.00, Total: $22,500.00
+     Fidelity: AAPL: 100.0 @ $15,000.00, Total: $15,000.00
+     ```
+
+**Output Format:**
+- Clear, readable format with appropriate headers
+- Monetary values formatted with 2 decimal places and $ prefix
+- Quantities formatted appropriately (integers for whole numbers, decimals for fractional)
+
+**Error Handling:**
+- If portfolio name is provided but not found: "Portfolio '<name>' not found."
+- If breakdown type is invalid: "Invalid breakdown type '<by>'. Valid types: asset_type, ticker, purchase_period, broker"
+- If no data available for breakdown: "No data available for breakdown."
+
+#### `Quit` or `quit` or `exit`
+
+**Description:** Exits the interactive mode and terminates the program.
+
+**Behavior:**
+- Case-insensitive matching
+- Graceful exit with exit code 0
+- Display: "Exiting..."
+
+### Command Parsing
+
+- Commands are case-sensitive except for `Quit`/`quit`/`exit`
+- Arguments are separated by whitespace
+- Portfolio names with spaces must be quoted or handled appropriately
+- Invalid commands display: "Unknown command: '<command>'. Type 'help' for available commands."
+
+### Help Command (Optional Enhancement)
+
+If implemented, `help` command should display:
+- List of available commands
+- Brief description of each command
+- Usage examples
+
+## Architecture and Encapsulation
+
+### Design Principles
+
+1. **Orchestration Only**: `wpmrun.py` should NOT contain business logic. It should:
+   - Parse command-line arguments
+   - Coordinate calls to WPM modules
+   - Format output for display
+   - Handle user interaction
+
+2. **Delegation**: All business logic must be delegated to appropriate WPM modules:
+   - CSV import: `wpm.importer.import_trades_from_csv()`
+   - Portfolio creation: `wpm.portfolio.SimplePortfolio` and `wpm.portfolio.CompositePortfolio`
+   - Cost basis calculation: Handled by portfolio classes
+   - Price retrieval: `wpm.pricing.PriceService` (uses batch fetching via `get_prices()`)
+   - Breakdown generation: `wpm.metrics` functions
+   - Position aggregation: Handled by `CompositePortfolio.get_positions()`
+
+3. **Module Responsibilities**:
+   - `wpmrun.py`: CLI parsing, user interaction, output formatting, orchestration
+   - `wpm.importer`: CSV parsing and trade import
+   - `wpm.portfolio`: Portfolio management and position aggregation
+   - `wpm.pricing`: Price retrieval and caching
+   - `wpm.metrics`: Breakdown calculations
+   - `wpm.models`: Data models (Asset, Trade, Position, Portfolio)
+
+### Import Process Flow
+
+1. **CSV Discovery**:
+   - Scan `import/` directory for `.csv` files
+   - Use `pathlib.Path` for cross-platform compatibility
+
+2. **CSV Import**:
+   - For each CSV file (in order):
+     - Call `wpm.importer.import_trades_from_csv(file_path)`
+     - If import fails (raises exception), display error message and exit immediately with error code 1
+     - Create a `SimplePortfolio` with extracted name
+     - Add all imported trades to the portfolio
+     - Add portfolio as sub-portfolio to composite portfolio
+   - If any import fails, stop processing immediately and do not proceed to price fetching or interactive mode
+
+3. **Price Fetching**:
+   - After all imports complete:
+     - Get all unique assets from composite portfolio using `get_positions()`
+     - Group assets by asset_type for batch processing
+     - For each asset_type:
+       - Call `PriceService.get_prices(tickers, asset_type)` to batch fetch prices
+       - `PriceService` handles cache checking, API fetching, and stale cache fallback internally
+     - Display summary of price fetching
+
+4. **Interactive Mode Entry**:
+   - Create command loop
+   - Process user commands until `Quit`
+
+### Price Fetching Details
+
+- After import, fetch prices for all assets in the composite portfolio:
+  - Group all assets by asset_type (Stock, ETF, Crypto)
+  - For each asset_type, call `PriceService.get_prices(tickers, asset_type)` with all tickers of that type
+  - The `PriceService.get_prices()` method handles:
+    - Cache checking for all tickers
+    - Batch API fetching for uncached tickers
+    - Stale cache fallback if API fetch fails (with internal logging)
+    - Cache updates automatically
+  - If `PriceService.get_prices()` raises `ValueError` (no price data exists for any ticker):
+    - Display error message and exit immediately with error code 1
+  - PriceService manages all cache operations internally - wpmrun.py does not directly access the cache
+- Log progress: "Fetching prices for X assets..."
+- Display summary: "Prices fetched for X assets"
+
+## Error Handling
+
+### Import Errors
+
+- If a CSV file cannot be read: Display error message with filename and exit immediately with error code 1
+- If CSV structure is invalid: Display validation error message with filename and exit immediately with error code 1
+- If trade parsing fails for some rows: The importer module handles this (may raise ValidationError if no valid trades found, or return partial list with warnings logged). If importer raises an exception, exit immediately with error code 1
+- If any CSV import operation fails (raises an exception): Exit immediately with error code 1, do not process remaining files
+
+### Price Retrieval Errors
+
+- If price retrieval fails (API fetch raises exception) and no cache entry exists for the asset: Display error message with asset ticker and exit immediately with error code 1
+- If price retrieval fails but cache entry exists (even if stale): Log warning message indicating stale cache is being used for the asset, use the stale cached price, and continue processing remaining assets
+- If cache entry exists but is invalid/stale and API fetch succeeds: Update cache with new price, continue normally
+- Price retrieval failures during interactive mode: Log warning, continue (don't block command execution)
+
+### Interactive Mode Errors
+
+- Invalid commands: Display error message, continue loop
+- Invalid portfolio names: Display error message, continue loop
+- Invalid breakdown types: Display error message, continue loop
+- Price retrieval failures during interactive mode: Log warning, continue (don't block command execution)
+
+### General Error Handling
+
+- Use try-except blocks appropriately
+- Log errors using `wpm.utils.setup_logging()`
+- Display user-friendly error messages
+- Never expose internal exceptions to users
+- Exit gracefully on fatal errors
+
+## Logging
+
+- Initialize logging using `wpm.utils.setup_logging()`
+- Log at INFO level for:
+  - Import start/completion
+  - Portfolio creation
+  - Price fetching operations
+  - Command execution
+- Log at WARNING level for:
+  - Import errors
+  - Price retrieval failures
+  - Invalid user input
+- Log at ERROR level for:
+  - Fatal errors that cause exit
+
+## Output Formatting
+
+### Display Format
+
+- Use clear, readable formatting
+- Align columns where appropriate
+- Format currency with $ prefix and 2 decimal places
+- Format quantities appropriately (integers vs decimals)
+- Use consistent spacing and indentation
+
+### Example Output
+
+```
+wpm> list portfolios
+Crypto
+US Stocks
+
+wpm> show portfolio Crypto
+BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
+ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
+
+wpm> show all
+AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00
+BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
+ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
+GOOG (Stock): 50.0 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00
+
+wpm> breakdown Crypto asset_type
+Crypto: 10.5 @ $47,500.00
+
+wpm> breakdown ticker
+AAPL: 100.0 @ $15,000.00
+BTC-USD: 0.5 @ $22,500.00
+ETH-USD: 10.0 @ $25,000.00
+GOOG: 50.0 @ $100,000.00
+
+wpm> Quit
+Exiting...
+```
+
+## Dependencies
+
+- All WPM modules (`wpm.importer`, `wpm.portfolio`, `wpm.pricing`, `wpm.metrics`, `wpm.models`, `wpm.config`, `wpm.utils`)
+- Standard library: `argparse`, `pathlib`, `sys`
+
+## Testing Considerations
+
+- Unit tests should mock WPM module calls
+- Test command parsing and validation
+- Test error handling scenarios
+- Test output formatting
+- Integration tests with actual CSV files (in test fixtures)
+
+## Future Enhancements (Out of Scope)
+
+- Additional commands (e.g., `add trade`, `remove portfolio`)
+- Export functionality
+- Interactive portfolio editing
+- Price alerts
+- Performance metrics display
+- Graphical output/visualizations
+

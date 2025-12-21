@@ -28,4 +28,5 @@ class Config:
     
     # Sensitive configuration (loaded from .env file via os.getenv)
     COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")  # Optional - None if not set
+    COINGECKO_API_IS_DEMO = os.getenv("COINGECKO_API_IS_DEMO", "false").lower() in ("true", "1", "yes")  # Optional - defaults to False
 
