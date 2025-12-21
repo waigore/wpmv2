@@ -8,6 +8,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 
 - `wpm/__init__.py` - Package initialization and public API exports
 - `wpm/models.py` - Core data models (Asset, Trade, Position, Portfolio)
+- `wpm/config.py` - Application-level configuration module
 - `wpm/portfolio.py` - Portfolio class implementation with aggregation logic
 - `wpm/importer.py` - CSV import functionality using pandas
 - `wpm/cost_basis.py` - Cost basis calculation methods (FIFO and Average Cost)
@@ -91,16 +92,48 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 **Artefacts:**
 - Position objects with calculated cost basis and quantities
 
+### wpm/config.py
+
+**Responsibilities:**
+- Manage application-level configuration
+- Load sensitive configuration (API keys, access tokens) from `.env` file using python-dotenv
+- Define storage configuration (cache directories, file paths) as class variables
+- Provide centralized configuration access for other modules
+
+**Key Classes:**
+- `Config`: Configuration class containing all application settings
+
+**Configuration Categories:**
+1. **Sensitive Configuration (from .env file):**
+   - `COINGECKO_API_KEY`: Optional API key for CoinGecko API (loaded via `os.getenv()`)
+   - Loaded using `python-dotenv`'s `load_dotenv()` function at module import time
+   - Missing `.env` file is handled gracefully (optional values default to None)
+
+2. **Storage Configuration (class variables):**
+   - `CACHE_DIR`: Default cache directory path (`Path.home() / ".wpm"`)
+   - `CACHE_FILE`: Default cache file path (`CACHE_DIR / "price_cache.parquet"`)
+   - `CACHE_VALIDITY_MINUTES`: Cache validity threshold in minutes (default: 10)
+
+**Usage:**
+- Other modules import `Config` class and access configuration via class attributes
+- Example: `from wpm.config import Config; cache_file = Config.CACHE_FILE`
+- Sensitive values are automatically loaded from `.env` file if present
+
+**Artefacts:**
+- Configuration class accessible throughout the application
+- Sample `.env.example` file with placeholder values for sensitive configuration
+
 ### wpm/pricing.py
 
 **Responsibilities:**
 - Retrieve current market prices for stocks/ETFs from Yahoo Finance via yfinance
-- Retrieve current market prices for cryptocurrencies from CoinGecko API
+- Retrieve current market prices for cryptocurrencies from CoinGecko API (with optional API key from `wpm.config.Config`)
 - Implement rate limiting to respect API free tier limits
 - Cache price data persistently using Parquet file format to minimize API calls across program runs
 - Manage cache file lifecycle (load, save, expiration)
 - Validate cache entries per asset based on asset type and trading hours
 - Handle API errors and missing data gracefully
+- References `wpm.config.Config` for cache directory, cache file path, cache validity duration, and CoinGecko API key
 
 **Key Classes:**
 - `PriceRetriever`: Base class for price retrieval
@@ -121,7 +154,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 
 **Artefacts:**
 - Current market prices for assets
-- Persistent Parquet cache file (default: `~/.wpm/price_cache.parquet` or configurable path)
+- Persistent Parquet cache file (default path from `wpm.config.Config.CACHE_FILE`, configurable via constructor parameter)
 - Cache file contains: ticker, asset_type, price, timestamp columns
 
 ### wpm/metrics.py
@@ -319,6 +352,7 @@ Validity is determined per asset individually based on asset type and current ti
 - **pyarrow** (>=10.0.0): Parquet file format support for persistent price caching
 - **pandas_market_calendars** (>=4.3.0): US market calendar with holidays and trading hours
 - **pytz** (>=2023.3): Timezone handling for trading hours calculations
+- **python-dotenv** (>=1.0.0): Environment variable management from .env files
 
 ### Development Dependencies
 - **pytest** (>=7.0.0): Testing framework
