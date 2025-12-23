@@ -3,6 +3,7 @@
 import logging
 from collections import defaultdict
 from datetime import datetime
+from decimal import Decimal
 from typing import Dict, List
 
 from wpm.models import Asset, Portfolio, Position, Trade
@@ -60,7 +61,7 @@ def breakdown_by_asset_type(portfolio: Portfolio) -> Dict[str, Dict]:
 
     positions = portfolio.get_positions()
     breakdown: Dict[str, Dict] = defaultdict(
-        lambda: {"positions": [], "total_quantity": 0.0, "total_cost_basis": 0.0}
+        lambda: {"positions": [], "total_quantity": Decimal('0'), "total_cost_basis": 0.0}
     )
 
     for asset, position in positions.items():
@@ -127,7 +128,7 @@ def breakdown_by_purchase_period(
     buy_trades = [t for t in trades if t.is_buy()]
 
     breakdown: Dict[str, Dict] = defaultdict(
-        lambda: {"trades": [], "total_quantity": 0.0, "total_cost_basis": 0.0}
+        lambda: {"trades": [], "total_quantity": Decimal('0'), "total_cost_basis": 0.0}
     )
 
     for trade in buy_trades:
@@ -170,7 +171,7 @@ def breakdown_by_broker(portfolio: Portfolio) -> Dict[str, Dict]:
     breakdown: Dict[str, Dict] = defaultdict(
         lambda: {
             "trades": [],
-            "total_quantity": defaultdict(float),
+            "total_quantity": defaultdict(lambda: Decimal('0')),
             "total_cost_basis": 0.0,
         }
     )
@@ -214,7 +215,8 @@ def calculate_market_value(
             continue
 
         price = prices[asset]
-        market_value = position.quantity * price
+        # Convert Decimal quantity to float for market value calculation
+        market_value = float(position.quantity) * price
         total_market_value += market_value
 
         logger.debug(

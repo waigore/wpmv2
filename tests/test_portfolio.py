@@ -2,6 +2,7 @@
 
 import pytest
 from datetime import date
+from decimal import Decimal
 
 from wpm.models import Asset, PortfolioError, Trade
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
@@ -74,7 +75,7 @@ class TestSimplePortfolio:
 
         assert asset in positions
         position = positions[asset]
-        assert position.quantity == 10.0
+        assert position.quantity == Decimal('10.0')
         assert position.cost_basis == 1500.0
 
     def test_get_total_cost_basis(self):
@@ -124,7 +125,7 @@ class TestSimplePortfolio:
         position = portfolio.get_position(asset)
 
         assert position is not None
-        assert position.quantity == 10.0
+        assert position.quantity == Decimal('10.0')
 
     def test_get_position_for_nonexistent_asset(self):
         """Test getting position for asset not in portfolio."""
@@ -233,8 +234,8 @@ class TestCompositePortfolio:
 
         positions = composite.get_positions()
         assert len(positions) == 2
-        assert positions[asset1].quantity == 10.0
-        assert positions[asset2].quantity == 5.0
+        assert positions[asset1].quantity == Decimal('10.0')
+        assert positions[asset2].quantity == Decimal('5.0')
 
     def test_aggregate_same_asset_from_multiple_sub_portfolios(self):
         """Test aggregating same asset from multiple sub-portfolios."""
@@ -271,7 +272,7 @@ class TestCompositePortfolio:
         positions = composite.get_positions()
         assert len(positions) == 1
         position = positions[asset]
-        assert position.quantity == 15.0
+        assert position.quantity == Decimal('15.0')
         assert position.cost_basis == 2300.0  # 10*150 + 5*160
 
     def test_get_total_cost_basis_composite(self):

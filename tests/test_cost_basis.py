@@ -2,6 +2,7 @@
 
 import pytest
 from datetime import date
+from decimal import Decimal
 
 from wpm.cost_basis import calculate_average_cost_basis, calculate_fifo_cost_basis
 from wpm.models import Asset, Trade
@@ -26,7 +27,7 @@ class TestFIFOCostBasis:
         assert asset in positions
         position = positions[asset]
 
-        assert position.quantity == 10.0
+        assert position.quantity == Decimal('10.0')
         assert position.cost_basis == 1500.0
         assert position.cost_basis_method == "fifo"
         assert position.average_cost == 150.0
@@ -56,7 +57,7 @@ class TestFIFOCostBasis:
         positions = calculate_fifo_cost_basis(trades)
         position = positions[asset]
 
-        assert position.quantity == 15.0
+        assert position.quantity == Decimal('15.0')
         assert position.cost_basis == 2300.0  # 10*150 + 5*160
         assert position.average_cost == pytest.approx(153.33, abs=0.01)
 
@@ -85,7 +86,7 @@ class TestFIFOCostBasis:
         positions = calculate_fifo_cost_basis(trades)
         position = positions[asset]
 
-        assert position.quantity == 5.0
+        assert position.quantity == Decimal('5.0')
         assert position.cost_basis == 750.0  # Remaining 5 shares at $150 each
         assert position.average_cost == 150.0
 
@@ -122,7 +123,7 @@ class TestFIFOCostBasis:
         positions = calculate_fifo_cost_basis(trades)
         position = positions[asset]
 
-        assert position.quantity == 7.0
+        assert position.quantity == Decimal('7.0')
         # Sold 8 shares: 10@150 + 5@160, so 8@150 were sold, remaining: 2@150 + 5@160
         assert position.cost_basis == pytest.approx(1100.0, abs=0.01)  # 2*150 + 5*160
 
@@ -152,10 +153,10 @@ class TestFIFOCostBasis:
         positions = calculate_fifo_cost_basis(trades)
         assert len(positions) == 2
 
-        assert positions[asset1].quantity == 10.0
+        assert positions[asset1].quantity == Decimal('10.0')
         assert positions[asset1].cost_basis == 1500.0
 
-        assert positions[asset2].quantity == 5.0
+        assert positions[asset2].quantity == Decimal('5.0')
         assert positions[asset2].cost_basis == 1000.0
 
     def test_sell_more_than_owned(self):
@@ -208,7 +209,7 @@ class TestAverageCostBasis:
         assert asset in positions
         position = positions[asset]
 
-        assert position.quantity == 10.0
+        assert position.quantity == Decimal('10.0')
         assert position.cost_basis == 1500.0
         assert position.cost_basis_method == "average"
         assert position.average_cost == 150.0
@@ -238,7 +239,7 @@ class TestAverageCostBasis:
         positions = calculate_average_cost_basis(trades)
         position = positions[asset]
 
-        assert position.quantity == 15.0
+        assert position.quantity == Decimal('15.0')
         assert position.cost_basis == 2300.0  # 10*150 + 5*160
         assert position.average_cost == pytest.approx(153.33, abs=0.01)
 
@@ -267,7 +268,7 @@ class TestAverageCostBasis:
         positions = calculate_average_cost_basis(trades)
         position = positions[asset]
 
-        assert position.quantity == 5.0
+        assert position.quantity == Decimal('5.0')
         assert position.cost_basis == 750.0  # 5 shares * $150 average cost
         assert position.average_cost == 150.0  # Average cost maintained
 
@@ -304,7 +305,7 @@ class TestAverageCostBasis:
         positions = calculate_average_cost_basis(trades)
         position = positions[asset]
 
-        assert position.quantity == 7.0
+        assert position.quantity == Decimal('7.0')
         # Average cost was 153.33, sold 8 shares
         # Remaining cost basis: (15*153.33) - (8*153.33) = 7*153.33
         assert position.cost_basis == pytest.approx(1073.33, abs=0.01)
@@ -325,7 +326,7 @@ class TestAverageCostBasis:
         ]
 
         positions = calculate_average_cost_basis(trades)
-        assert asset not in positions or positions[asset].quantity == 0.0
+        assert asset not in positions or positions[asset].quantity == Decimal('0')
 
     def test_empty_trades(self):
         """Test cost basis calculation with empty trade list."""

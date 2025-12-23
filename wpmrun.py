@@ -206,18 +206,36 @@ def format_currency(value: float) -> str:
     return f"${value:,.2f}"
 
 
-def format_quantity(value: float) -> str:
+def format_quantity(value) -> str:
     """Format quantity value appropriately.
 
+    Handles Decimal and float values, rounding to 8 decimal places
+    (standard for crypto precision) and removes trailing zeros.
+
     Args:
-        value: Quantity value to format
+        value: Quantity value to format (Decimal or float)
 
     Returns:
         Formatted string (integer if whole number, decimal otherwise)
     """
-    if value == int(value):
-        return str(int(value))
-    return str(value)
+    from decimal import Decimal
+    
+    # Convert Decimal to float for formatting
+    if isinstance(value, Decimal):
+        float_value = float(value)
+    else:
+        float_value = float(value)
+    
+    # Round to 8 decimal places to handle floating point precision issues
+    rounded = round(float_value, 8)
+    
+    # If it's effectively a whole number after rounding, return as integer
+    if abs(rounded - round(rounded)) < 1e-10:
+        return str(int(round(rounded)))
+    
+    # Format with up to 8 decimal places and strip trailing zeros
+    formatted = f"{rounded:.8f}".rstrip('0').rstrip('.')
+    return formatted
 
 
 def format_position_line(position: Position, price: Optional[float]) -> str:
@@ -238,7 +256,8 @@ def format_position_line(position: Position, price: Optional[float]) -> str:
     cost_basis = format_currency(position.cost_basis)
 
     if price is not None:
-        market_value = position.quantity * price
+        # Convert Decimal quantity to float for market value calculation
+        market_value = float(position.quantity) * price
         current_value_str = format_currency(market_value)
         return (
             f"{ticker} ({asset_type}): {quantity} @ {avg_cost} = {cost_basis} | "

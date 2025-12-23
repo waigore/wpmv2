@@ -2,6 +2,7 @@
 
 import pytest
 from datetime import date, timedelta
+from decimal import Decimal
 
 from wpm.models import Asset, Position, Trade, ValidationError
 
@@ -72,7 +73,7 @@ class TestTrade:
         assert trade.date == date(2024, 1, 15)
         assert trade.action == "Buy"
         assert trade.price == 150.0
-        assert trade.quantity == 10.0
+        assert trade.quantity == Decimal('10.0')
 
     def test_trade_action_normalization(self):
         """Test trade action normalization."""
@@ -228,7 +229,7 @@ class TestPosition:
             cost_basis_method="fifo",
         )
 
-        assert position.quantity == 10.0
+        assert position.quantity == Decimal('10.0')
         assert position.cost_basis == 1500.0
         assert position.cost_basis_method == "fifo"
 

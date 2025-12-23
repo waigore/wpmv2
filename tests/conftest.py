@@ -2,6 +2,7 @@
 
 import pytest
 from datetime import date
+from decimal import Decimal
 
 from wpm.models import Asset, Trade
 

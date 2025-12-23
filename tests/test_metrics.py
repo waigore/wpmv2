@@ -2,6 +2,7 @@
 
 import pytest
 from datetime import date
+from decimal import Decimal
 
 from wpm.metrics import (
     breakdown_by_asset_type,
@@ -81,7 +82,7 @@ class TestBreakdownByAssetType:
         breakdown = breakdown_by_asset_type(portfolio)
 
         assert "Stock" in breakdown
-        assert breakdown["Stock"]["total_quantity"] == 10.0
+        assert breakdown["Stock"]["total_quantity"] == Decimal('10.0')
         assert breakdown["Stock"]["total_cost_basis"] == 1500.0
         assert len(breakdown["Stock"]["positions"]) == 1
 
@@ -116,8 +117,8 @@ class TestBreakdownByAssetType:
 
         assert "Stock" in breakdown
         assert "Crypto" in breakdown
-        assert breakdown["Stock"]["total_quantity"] == 10.0
-        assert breakdown["Crypto"]["total_quantity"] == 0.1
+        assert breakdown["Stock"]["total_quantity"] == Decimal('10.0')
+        assert breakdown["Crypto"]["total_quantity"] == Decimal('0.1')
 
 
 class TestBreakdownByTicker:
@@ -154,8 +155,8 @@ class TestBreakdownByTicker:
 
         assert "GOOG" in breakdown
         assert "AAPL" in breakdown
-        assert breakdown["GOOG"].quantity == 10.0
-        assert breakdown["AAPL"].quantity == 5.0
+        assert breakdown["GOOG"].quantity == Decimal('10.0')
+        assert breakdown["AAPL"].quantity == Decimal('5.0')
 
 
 class TestBreakdownByPurchasePeriod:
@@ -191,8 +192,8 @@ class TestBreakdownByPurchasePeriod:
 
         assert "2024-01" in breakdown
         assert "2024-02" in breakdown
-        assert breakdown["2024-01"]["total_quantity"] == 10.0
-        assert breakdown["2024-02"]["total_quantity"] == 5.0
+        assert breakdown["2024-01"]["total_quantity"] == Decimal('10.0')
+        assert breakdown["2024-02"]["total_quantity"] == Decimal('5.0')
 
     def test_breakdown_by_quarter(self):
         """Test breakdown by quarter."""
@@ -223,7 +224,7 @@ class TestBreakdownByPurchasePeriod:
         breakdown = breakdown_by_purchase_period(portfolio, period="quarter")
 
         assert "2024-Q1" in breakdown
-        assert breakdown["2024-Q1"]["total_quantity"] == 15.0
+        assert breakdown["2024-Q1"]["total_quantity"] == Decimal('15.0')
 
     def test_breakdown_by_year(self):
         """Test breakdown by year."""
@@ -244,7 +245,7 @@ class TestBreakdownByPurchasePeriod:
         breakdown = breakdown_by_purchase_period(portfolio, period="year")
 
         assert "2024" in breakdown
-        assert breakdown["2024"]["total_quantity"] == 10.0
+        assert breakdown["2024"]["total_quantity"] == Decimal('10.0')
 
     def test_breakdown_invalid_period(self):
         """Test breakdown with invalid period."""

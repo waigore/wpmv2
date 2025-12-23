@@ -97,30 +97,6 @@ class YahooFinanceRetriever(PriceRetriever):
 
         return prices
 
-    def _process_single_ticker_data(self, data: pd.DataFrame, ticker: str) -> Dict[str, float]:
-        """Process single ticker DataFrame from yfinance download.
-
-        Args:
-            data: DataFrame with single-level columns
-            ticker: Ticker symbol
-
-        Returns:
-            Dictionary mapping ticker to price
-        """
-        prices: Dict[str, float] = {}
-
-        if not ticker:
-            return prices
-
-        try:
-            price = self._extract_price_from_ticker_data(data, ticker)
-            if price is not None:
-                prices[ticker] = price
-        except Exception as e:
-            logger.warning(f"Error processing price for {ticker}: {str(e)}")
-
-        return prices
-
     def get_prices(self, tickers: List[str], asset_type: str) -> Dict[str, float]:
         """Get current prices from Yahoo Finance for multiple tickers in a single batch request.
 
@@ -144,15 +120,8 @@ class YahooFinanceRetriever(PriceRetriever):
                 logger.warning(f"No price data available for any of the requested tickers: {tickers}")
                 return {}
 
-            # Check if we have MultiIndex columns (multiple tickers) or single level (one ticker)
-            has_multiindex = isinstance(data.columns, pd.MultiIndex)
-
-            if has_multiindex:
-                return self._process_multiindex_data(data, tickers)
-
-            # Single ticker: columns are single level
-            ticker = tickers[0]
-            return self._process_single_ticker_data(data, ticker)
+            # yf.download with group_by="ticker" always returns MultiIndex columns, even for single ticker
+            return self._process_multiindex_data(data, tickers)
 
         except Exception as e:
             logger.warning(f"Error in batch price retrieval from Yahoo Finance: {str(e)}")

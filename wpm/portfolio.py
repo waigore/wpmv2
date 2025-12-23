@@ -1,6 +1,7 @@
 """Portfolio class implementation with aggregation logic."""
 
 import logging
+from decimal import Decimal
 from typing import Dict, List, Optional
 
 from wpm.cost_basis import calculate_average_cost_basis, calculate_fifo_cost_basis
@@ -132,7 +133,7 @@ class CompositePortfolio(Portfolio):
                 if asset not in aggregated_positions:
                     aggregated_positions[asset] = Position(
                         asset=asset,
-                        quantity=0.0,
+                        quantity=Decimal('0'),
                         cost_basis=0.0,
                         cost_basis_method=position.cost_basis_method,
                     )

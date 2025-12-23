@@ -136,11 +136,18 @@ class TestYahooFinanceRetriever:
 
     @patch("wpm.pricing.yahoo.yf")
     def test_get_prices_single_ticker(self, mock_yf):
-        """Test batch retrieval with single ticker."""
+        """Test batch retrieval with single ticker (MultiIndex columns)."""
+        # yf.download always returns MultiIndex columns, even for single ticker
+        arrays = [["GOOG", "GOOG"], ["Close", "Open"]]
+        tuples = list(zip(*arrays))
         mock_data = pd.DataFrame(
-            {"Close": [150.0, 151.0, 152.0]},
+            {
+                ("GOOG", "Close"): [150.0, 151.0, 152.0],
+                ("GOOG", "Open"): [149.0, 150.0, 151.0],
+            },
             index=pd.date_range("2024-01-15", periods=3, freq="1min"),
         )
+        mock_data.columns = pd.MultiIndex.from_tuples(tuples, names=["Ticker", "Price"])
         mock_yf.download.return_value = mock_data
         retriever = YahooFinanceRetriever()
         prices = retriever.get_prices(["GOOG"], "Stock")
@@ -199,19 +206,6 @@ class TestYahooFinanceRetriever:
         prices = retriever.get_prices(["GOOG"], "Stock")
         assert prices == {}
 
-    def test_process_single_ticker_data_no_ticker(self):
-        """Test processing single ticker data with no ticker."""
-        retriever = YahooFinanceRetriever()
-        data = pd.DataFrame({"Close": [150.0]})
-        prices = retriever._process_single_ticker_data(data, None)
-        assert prices == {}
-
-    def test_process_single_ticker_data_exception(self):
-        """Test processing single ticker data with exception."""
-        retriever = YahooFinanceRetriever()
-        data = pd.DataFrame()  # Empty will cause exception in extraction
-        prices = retriever._process_single_ticker_data(data, "GOOG")
-        assert prices == {}
 
 
 class TestCoinGeckoRetriever:
@@ -276,6 +270,7 @@ class TestCoinGeckoRetriever:
     def test_init_with_api_key(self, mock_api_class, mock_config):
         """Test CoinGeckoRetriever initialization with API key."""
         mock_config.COINGECKO_API_KEY = "test_key"
+        mock_config.COINGECKO_API_IS_DEMO = False
         retriever = CoinGeckoRetriever()
         mock_api_class.assert_called_once_with(api_key="test_key")
 

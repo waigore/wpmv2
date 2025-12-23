@@ -208,6 +208,7 @@ __marimo__/
 
 # User directories
 import/
+logs/
 
 # Macbook specific files
 .DS_Store

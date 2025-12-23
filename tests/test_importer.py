@@ -3,6 +3,7 @@
 import pytest
 import pandas as pd
 from datetime import date
+from decimal import Decimal
 import tempfile
 import os
 
@@ -94,7 +95,7 @@ class TestParseTradeRow:
         assert trade.broker == "IBKR"
         assert trade.order_type == "Limit"
         assert trade.price == 150.0
-        assert trade.quantity == 10.0
+        assert trade.quantity == Decimal('10.0')
 
     def test_parse_row_without_optional_type(self):
         """Test parsing row without optional Type column."""
@@ -218,10 +219,10 @@ class TestImportTradesFromCSV:
             assert len(trades) == 2
 
             assert trades[0].asset.ticker == "GOOG"
-            assert trades[0].quantity == 10.0
+            assert trades[0].quantity == Decimal('10.0')
 
             assert trades[1].asset.ticker == "AAPL"
-            assert trades[1].quantity == 5.0
+            assert trades[1].quantity == Decimal('5.0')
         finally:
             os.unlink(temp_path)
 

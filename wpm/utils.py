@@ -180,7 +180,7 @@ def is_us_market_open(timestamp: Optional[datetime] = None) -> bool:
 
     schedule = NYSE_CALENDAR.schedule(start_date=now_et_date, end_date=now_et_date)
 
-    if schedule.empty:
+    if schedule.empty or now_et_date not in schedule.index:
         return False
 
     market_open_et = schedule.loc[now_et_date, "market_open"].time()
@@ -215,8 +215,33 @@ def is_within_trading_hours(timestamp: datetime) -> bool:
     if schedule.empty:
         return False
 
-    market_open_et = schedule.loc[timestamp_date, "market_open"].time()
-    market_close_et = schedule.loc[timestamp_date, "market_close"].time()
+    # Try to access the schedule entry safely - handle both date and Timestamp index types
+    try:
+        # Check if date exists in index (handle both date and Timestamp types)
+        date_in_index = False
+        if not schedule.empty:
+            # Convert timestamp_date to pd.Timestamp for comparison if needed
+            timestamp_pd = pd.Timestamp(timestamp_date)
+            # Check both date and Timestamp forms
+            date_in_index = (timestamp_date in schedule.index) or (timestamp_pd in schedule.index) or any(
+                (hasattr(idx, 'date') and idx.date() == timestamp_date) or idx == timestamp_date 
+                for idx in schedule.index
+            )
+        
+        if not date_in_index:
+            return False
 
-    return market_open_et <= timestamp_time < market_close_et
+        # Try accessing with date first, then with Timestamp
+        try:
+            market_open_et = schedule.loc[timestamp_date, "market_open"].time()
+            market_close_et = schedule.loc[timestamp_date, "market_close"].time()
+        except KeyError:
+            # If date doesn't work, try with pd.Timestamp
+            timestamp_pd = pd.Timestamp(timestamp_date)
+            market_open_et = schedule.loc[timestamp_pd, "market_open"].time()
+            market_close_et = schedule.loc[timestamp_pd, "market_close"].time()
+
+        return market_open_et <= timestamp_time < market_close_et
+    except (KeyError, IndexError) as e:
+        return False
 

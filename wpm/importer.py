@@ -1,6 +1,7 @@
 """CSV import functionality using pandas."""
 
 import logging
+from decimal import Decimal
 from typing import List
 
 import pandas as pd
@@ -74,7 +75,8 @@ def parse_trade_row(row: pd.Series) -> Trade:
 
         price = float(row["Price (USD)"])
 
-        quantity = float(row["Quantity"])
+        # Parse quantity as Decimal to avoid floating point precision issues
+        quantity = Decimal(str(row["Quantity"]))
 
         trade = Trade(
             date=trade_date,

@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
 from wpm.utils import validate_asset_type, validate_ticker
@@ -61,7 +62,7 @@ class Trade:
     broker: str
     order_type: Optional[str] = None
     price: float = field(default=0.0)
-    quantity: float = field(default=0.0)
+    quantity: Decimal = field(default_factory=lambda: Decimal('0'))
 
     def __post_init__(self):
         """Validate trade fields after initialization."""
@@ -93,13 +94,20 @@ class Trade:
         if not isinstance(self.price, (int, float)) or self.price <= 0:
             raise ValidationError("Price must be a positive number greater than 0")
 
-        if not isinstance(self.quantity, (int, float)) or self.quantity <= 0:
+        # Convert quantity to Decimal if it's a float or int
+        if isinstance(self.quantity, (int, float)):
+            quantity_decimal = Decimal(str(self.quantity))
+            object.__setattr__(self, "quantity", quantity_decimal)
+        elif not isinstance(self.quantity, Decimal):
+            raise ValidationError("Quantity must be a Decimal, int, or float")
+        
+        if self.quantity <= 0:
             raise ValidationError("Quantity must be a positive number greater than 0")
 
     @property
     def total_value(self) -> float:
         """Calculate total value of the trade (price * quantity)."""
-        return self.price * self.quantity
+        return float(self.quantity) * self.price
 
     def is_buy(self) -> bool:
         """Check if trade is a buy transaction."""
@@ -115,7 +123,7 @@ class Position:
     """Represents current holdings for a specific asset within a portfolio."""
 
     asset: Asset
-    quantity: float
+    quantity: Decimal
     cost_basis: float
     cost_basis_method: str
 
@@ -124,7 +132,14 @@ class Position:
         if not isinstance(self.asset, Asset):
             raise ValidationError("Asset must be an Asset object")
 
-        if not isinstance(self.quantity, (int, float)) or self.quantity < 0:
+        # Convert quantity to Decimal if it's a float or int
+        if isinstance(self.quantity, (int, float)):
+            quantity_decimal = Decimal(str(self.quantity))
+            object.__setattr__(self, "quantity", quantity_decimal)
+        elif not isinstance(self.quantity, Decimal):
+            raise ValidationError("Quantity must be a Decimal, int, or float")
+        
+        if self.quantity < 0:
             raise ValidationError("Quantity must be a non-negative number")
 
         if not isinstance(self.cost_basis, (int, float)) or self.cost_basis < 0:
@@ -137,7 +152,7 @@ class Position:
         """Calculate average cost per unit."""
         if self.quantity == 0:
             return 0.0
-        return self.cost_basis / self.quantity
+        return self.cost_basis / float(self.quantity)
 
     @property
     def average_cost(self) -> float:
