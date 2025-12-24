@@ -576,7 +576,7 @@ def run_interactive_mode(
 
 
 def main() -> None:
-    """Main entry point for wpmrun.py."""
+    """Main entry point for wpm CLI."""
     # Initialize logging
     setup_logging()
 

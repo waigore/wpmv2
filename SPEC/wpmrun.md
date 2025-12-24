@@ -2,11 +2,12 @@
 
 ## Purpose
 
-`wpmrun.py` is a command-line utility that serves as an orchestrator for the WPM library. It provides a user-friendly interface for importing trade data from CSV files, managing composite portfolios, and querying portfolio information interactively. The utility preserves encapsulation by delegating all business logic to the appropriate WPM modules.
+The `wpm` command-line utility serves as an orchestrator for the WPM library. It provides a user-friendly interface for importing trade data from CSV files, managing composite portfolios, and querying portfolio information interactively. The utility preserves encapsulation by delegating all business logic to the appropriate WPM modules.
 
 ## File Location
 
-- `wpmrun.py` - Main command-line utility script (located at project root)
+- `src/wpm/cli.py` - Main command-line utility module (located in package source)
+- Console script entry point: `wpm` (configured via `pyproject.toml`)
 
 ## Command Line Interface
 
@@ -15,8 +16,10 @@
 The utility accepts one command-line argument:
 
 ```
-wpmrun.py import
+wpm import
 ```
+
+**Note:** The `wpm` command is available after installing the package (via console script entry point defined in `pyproject.toml`). Alternatively, it can be run as a Python module: `python -m wpm.cli import`
 
 **Behavior:**
 - Scans the `import/` directory for all CSV files
@@ -117,7 +120,7 @@ wpm>
 - Market Value is calculated using the aggregated quantity and current price
 - Current Price is retrieved using batch fetching via `PriceService.get_prices()` (grouped by asset_type)
 - Prices are fetched in batches for efficiency - PriceService handles cache checking and API fetching internally
-- If price retrieval fails for an asset type, display "N/A" for Current Value for all assets of that type
+- If price retrieval fails for an asset type, logs a warning and displays "N/A" for Current Value for all assets of that type, but continues processing other asset types
 - Example:
   ```
   AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00
@@ -127,7 +130,7 @@ wpm>
 
 **Error Handling:**
 - If composite portfolio has no assets, display: "No assets found in composite portfolio."
-- If price retrieval fails for an asset, display "N/A" for Current Value and continue displaying other assets
+- If price retrieval fails for an asset type, logs a warning and displays "N/A" for Current Value for all assets of that type, but continues processing other asset types
 
 #### `breakdown [<name>] <by>`
 
@@ -167,12 +170,14 @@ wpm>
    - Note: For purchase_period, the utility should support an optional period parameter (month/quarter/year), but for initial implementation, default to "month"
 
 4. **`broker`**: Group by broker
-   - Display: Broker, Total Quantity (per asset), Total Cost Basis
+   - Display: Broker name, per-asset quantities (if available), Total Cost Basis
+   - Format: `Broker: Ticker: Quantity, Ticker: Quantity, ..., Total: Cost Basis`
    - Example:
      ```
-     Coinbase: BTC-USD: 0.5 @ $22,500.00, Total: $22,500.00
-     Fidelity: AAPL: 100.0 @ $15,000.00, Total: $15,000.00
+     Coinbase: BTC-USD: 0.5, ETH-USD: 10, Total: $47,500.00
+     Fidelity: AAPL: 100, GOOG: 50, Total: $115,000.00
      ```
+   - If no per-asset quantities are available, displays: `Broker: Total: Cost Basis`
 
 **Output Format:**
 - Clear, readable format with appropriate headers
@@ -180,9 +185,11 @@ wpm>
 - Quantities formatted appropriately (integers for whole numbers, decimals for fractional)
 
 **Error Handling:**
+- If breakdown type is missing: "Error: Breakdown type required. Valid types: asset_type, ticker, purchase_period, broker"
 - If portfolio name is provided but not found: "Portfolio '<name>' not found."
 - If breakdown type is invalid: "Invalid breakdown type '<by>'. Valid types: asset_type, ticker, purchase_period, broker"
 - If no data available for breakdown: "No data available for breakdown."
+- If an exception occurs during breakdown generation: Logs error and displays "No data available for breakdown."
 
 #### `Quit` or `quit` or `exit`
 
@@ -195,23 +202,27 @@ wpm>
 
 ### Command Parsing
 
-- Commands are case-sensitive except for `Quit`/`quit`/`exit`
+- Commands are case-insensitive for `quit`/`exit` (handled via `.lower()`)
+- Other commands are case-sensitive (e.g., `list`, `show`, `breakdown`)
 - Arguments are separated by whitespace
-- Portfolio names with spaces must be quoted or handled appropriately
-- Invalid commands display: "Unknown command: '<command>'. Type 'help' for available commands."
+- Portfolio names with spaces are handled as single tokens (no quoting needed if no spaces in name)
+- Invalid commands display: "Unknown command: '<user_input>'. Type 'help' for available commands."
+- Empty input is ignored (continues loop)
 
-### Help Command (Optional Enhancement)
+### Keyboard Interrupts
 
-If implemented, `help` command should display:
-- List of available commands
-- Brief description of each command
-- Usage examples
+- **Ctrl+D (EOF)**: Displays "Exiting..." and exits gracefully with exit code 0
+- **Ctrl+C (KeyboardInterrupt)**: Displays "Exiting..." and exits gracefully with exit code 0
+
+### Help Command
+
+Currently, the `help` command is mentioned in error messages but is not implemented. The error message suggests typing 'help', but this command does not exist yet and will result in "Unknown command" error.
 
 ## Architecture and Encapsulation
 
 ### Design Principles
 
-1. **Orchestration Only**: `wpmrun.py` should NOT contain business logic. It should:
+1. **Orchestration Only**: The CLI module (`wpm.cli`) should NOT contain business logic. It should:
    - Parse command-line arguments
    - Coordinate calls to WPM modules
    - Format output for display
@@ -226,7 +237,7 @@ If implemented, `help` command should display:
    - Position aggregation: Handled by `CompositePortfolio.get_positions()`
 
 3. **Module Responsibilities**:
-   - `wpmrun.py`: CLI parsing, user interaction, output formatting, orchestration
+   - `wpm.cli` (formerly `wpmrun.py`): CLI parsing, user interaction, output formatting, orchestration
    - `wpm.importer`: CSV parsing and trade import
    - `wpm.portfolio`: Portfolio management and position aggregation
    - `wpm.pricing`: Price retrieval and caching
@@ -236,17 +247,21 @@ If implemented, `help` command should display:
 ### Import Process Flow
 
 1. **CSV Discovery**:
-   - Scan `import/` directory for `.csv` files
+   - Scan `import/` directory for `.csv` files (relative to current working directory)
    - Use `pathlib.Path` for cross-platform compatibility
+   - Sort files alphabetically for consistent processing order
 
 2. **CSV Import**:
-   - For each CSV file (in order):
-     - Call `wpm.importer.import_trades_from_csv(file_path)`
-     - If import fails (raises exception), display error message and exit immediately with error code 1
+   - For each CSV file (in sorted order):
+     - Extract portfolio name using `extract_portfolio_name()` function (handles duplicates with numeric suffixes)
+     - Call `wpm.importer.import_trades_from_csv(file_path)` with string path
+     - If import fails (raises exception), display error message with filename and exit immediately with error code 1
      - Create a `SimplePortfolio` with extracted name
-     - Add all imported trades to the portfolio
-     - Add portfolio as sub-portfolio to composite portfolio
+     - Add all imported trades to the portfolio using `portfolio.add_trade()`
+     - Add portfolio as sub-portfolio to composite portfolio using `composite.add_sub_portfolio()`
+     - Log success with number of trades imported
    - If any import fails, stop processing immediately and do not proceed to price fetching or interactive mode
+   - Log final summary with total number of sub-portfolios created
 
 3. **Price Fetching**:
    - After all imports complete:
@@ -273,7 +288,7 @@ If implemented, `help` command should display:
     - Cache updates automatically
   - If `PriceService.get_prices()` raises `ValueError` (no price data exists for any ticker):
     - Display error message and exit immediately with error code 1
-  - PriceService manages all cache operations internally - wpmrun.py does not directly access the cache
+  - PriceService manages all cache operations internally - the CLI module does not directly access the cache
 - Log progress: "Fetching prices for X assets..."
 - Display summary: "Prices fetched for X assets"
 
@@ -329,44 +344,56 @@ If implemented, `help` command should display:
 
 - Use clear, readable formatting
 - Align columns where appropriate
-- Format currency with $ prefix and 2 decimal places
-- Format quantities appropriately (integers vs decimals)
+- Format currency with $ prefix, 2 decimal places, and thousands separators (e.g., "$1,234.56")
+- Format quantities appropriately:
+  - Integers for whole numbers (e.g., "100")
+  - Decimals for fractional values, rounded to 8 decimal places maximum (standard for crypto precision)
+  - Trailing zeros are removed (e.g., "0.5" not "0.50000000")
+  - Handles both Decimal and float types
 - Use consistent spacing and indentation
 
 ### Example Output
 
 ```
+Entering interactive mode. Type 'Quit' to exit.
 wpm> list portfolios
 Crypto
-US Stocks
+USStocks
 
 wpm> show portfolio Crypto
 BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
-ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
+ETH-USD (Crypto): 10 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
 
 wpm> show all
-AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00
+AAPL (Stock): 100 @ $150.00 = $15,000.00 | Current Value = $16,000.00
 BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
-ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
-GOOG (Stock): 50.0 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00
+ETH-USD (Crypto): 10 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
+GOOG (Stock): 50 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00
 
 wpm> breakdown Crypto asset_type
 Crypto: 10.5 @ $47,500.00
 
 wpm> breakdown ticker
-AAPL: 100.0 @ $15,000.00
+AAPL: 100 @ $15,000.00
 BTC-USD: 0.5 @ $22,500.00
-ETH-USD: 10.0 @ $25,000.00
-GOOG: 50.0 @ $100,000.00
+ETH-USD: 10 @ $25,000.00
+GOOG: 50 @ $100,000.00
 
-wpm> Quit
+wpm> breakdown broker
+Coinbase: BTC-USD: 0.5, ETH-USD: 10, Total: $47,500.00
+Fidelity: AAPL: 100, GOOG: 50, Total: $115,000.00
+
+wpm> quit
 Exiting...
 ```
 
+**Note:** The "Entering interactive mode. Type 'Quit' to exit." message is displayed when interactive mode starts.
+
 ## Dependencies
 
-- All WPM modules (`wpm.importer`, `wpm.portfolio`, `wpm.pricing`, `wpm.metrics`, `wpm.models`, `wpm.config`, `wpm.utils`)
-- Standard library: `argparse`, `pathlib`, `sys`
+- All WPM modules (`wpm.importer`, `wpm.portfolio`, `wpm.pricing`, `wpm.metrics`, `wpm.models`, `wpm.utils`)
+- Standard library: `argparse`, `logging`, `pathlib`, `sys`, `typing` (Dict, List, Optional, Set)
+- `decimal.Decimal` for quantity formatting (handled internally)
 
 ## Testing Considerations
 
