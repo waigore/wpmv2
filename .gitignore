@@ -212,3 +212,4 @@ logs/
 
 # Macbook specific files
 .DS_Store
+src/wpm/VERSION.txt

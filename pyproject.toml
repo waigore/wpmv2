@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wpm"
+dynamic = ["version"]
+description = "Wealth Portfolio Manager - Simple portfolio manager and planner (Python library + CLI)"
+readme = "README.md"
+requires-python = ">=3.13"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "waigore"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "pandas>=1.5.0",
+    "yfinance>=0.2.0",
+    "pycoingecko>=3.1.0",
+    "pyarrow>=10.0.0",
+    "pandas-market-calendars>=4.3.0",
+    "pytz>=2023.3",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+]
+
+[project.scripts]
+wpm = "wpm.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+version = {file = ["src/wpm/VERSION.txt"]}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools-scm]
+# Auto-generate version from git commit SHA
+# Format: {next_version}.dev{dev_num}+g{sha}
+# Example: 0.1.0.dev1+g1234567
+write_to = "src/wpm/_version.py"
+version_scheme = "release-branch-semver"
+local_scheme = "node-and-date"
+fallback_version = "0.1.0"
+
+[tool.pytest.ini_options]
+addopts = "--cov=wpm --cov-report=term-missing --cov-report=html"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.coverage.run]
+source = ["src/wpm"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+]
+
+[tool.coverage.report]
+precision = 0
+skip_covered = false
+skip_empty = false
+
