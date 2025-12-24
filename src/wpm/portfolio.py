@@ -2,10 +2,13 @@
 
 import logging
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from wpm.cost_basis import calculate_average_cost_basis, calculate_fifo_cost_basis
 from wpm.models import Asset, Portfolio, Position, PortfolioError, Trade
+
+if TYPE_CHECKING:
+    from wpm.pricing import PriceService
 
 logger = logging.getLogger(__name__)
 
@@ -176,4 +179,55 @@ class CompositePortfolio(Portfolio):
         for sub_portfolio in self._sub_portfolios.values():
             all_trades.extend(sub_portfolio.get_all_trades())
         return all_trades
+
+
+def fetch_price_map(
+    portfolio: Portfolio, price_service: "PriceService"
+) -> Dict[Asset, Optional[float]]:
+    """Fetch prices for all assets in portfolio and return a price map.
+
+    Extracts assets from portfolio positions, groups them by asset type for
+    batch processing, and fetches prices via PriceService. Handles exceptions
+    gracefully by setting None for assets that fail to fetch.
+
+    Args:
+        portfolio: Portfolio containing assets (SimplePortfolio or CompositePortfolio)
+        price_service: Price service for retrieving prices
+
+    Returns:
+        Dictionary mapping Asset to Optional[float] price (None if price unavailable)
+    """
+    positions = portfolio.get_positions()
+    assets = list(positions.keys())
+
+    if not assets:
+        logger.debug("No assets found in portfolio, returning empty price map")
+        return {}
+
+    # Group assets by asset_type for batch processing
+    assets_by_type: Dict[str, List[Asset]] = {}
+    for asset in assets:
+        asset_type = asset.asset_type
+        if asset_type not in assets_by_type:
+            assets_by_type[asset_type] = []
+        assets_by_type[asset_type].append(asset)
+
+    # Fetch prices in batches by asset type
+    price_map: Dict[Asset, Optional[float]] = {}
+    for asset_type, asset_list in assets_by_type.items():
+        tickers = [asset.ticker for asset in asset_list]
+        try:
+            prices = price_service.get_prices(tickers, asset_type)
+            # Map tickers back to assets
+            for asset in asset_list:
+                price_map[asset] = prices.get(asset.ticker)
+        except Exception as e:
+            logger.warning(
+                f"Price retrieval failed for {asset_type} assets: {e}"
+            )
+            # Set None for all assets of this type
+            for asset in asset_list:
+                price_map[asset] = None
+
+    return price_map
 

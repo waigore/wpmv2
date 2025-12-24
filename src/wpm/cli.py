@@ -8,18 +8,19 @@ updates price caches, and provides an interactive command interface.
 import argparse
 import logging
 import sys
+from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
-from wpm.importer import import_trades_from_csv
+from wpm.importer import import_csv_files
 from wpm.metrics import (
     breakdown_by_asset_type,
     breakdown_by_broker,
     breakdown_by_purchase_period,
     breakdown_by_ticker,
 )
-from wpm.models import Asset, Position
-from wpm.portfolio import CompositePortfolio, SimplePortfolio
+from wpm.models import Asset, Position, ValidationError
+from wpm.portfolio import CompositePortfolio, fetch_price_map, SimplePortfolio
 from wpm.pricing import PriceService
 from wpm.utils import setup_logging
 
@@ -48,100 +49,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def extract_portfolio_name(filename: str, existing_names: Set[str]) -> str:
-    """Extract and normalize portfolio name from CSV filename.
-
-    Args:
-        filename: CSV filename (with or without .csv extension)
-        existing_names: Set of already used portfolio names
-
-    Returns:
-        Normalized portfolio name (whitespace stripped, duplicates handled)
-
-    Raises:
-        ValueError: If resulting name is empty
-    """
-    # Remove .csv extension
-    name = filename
-    if name.lower().endswith(".csv"):
-        name = name[:-4]
-
-    # Extract portion after last dash/hyphen if present
-    if "-" in name:
-        name = name.rsplit("-", 1)[-1]
-
-    # Strip ALL whitespace (leading, trailing, internal)
-    name = "".join(name.split())
-
-    if not name:
-        raise ValueError(f"Portfolio name cannot be empty after extraction from '{filename}'")
-
-    # Handle duplicates by appending numeric suffix
-    base_name = name
-    counter = 1
-    while name in existing_names:
-        name = f"{base_name}_{counter}"
-        counter += 1
-
-    return name
-
-
-def import_csv_files(import_dir: Path) -> CompositePortfolio:
-    """Import CSV files and create composite portfolio.
-
-    Args:
-        import_dir: Directory containing CSV files
-
-    Returns:
-        CompositePortfolio containing all imported sub-portfolios
-
-    Raises:
-        SystemExit: If no CSV files found or any import fails
-    """
-    logger.info(f"Scanning directory for CSV files: {import_dir}")
-
-    csv_files = sorted(import_dir.glob("*.csv"))
-
-    if not csv_files:
-        print(f"Error: No CSV files found in '{import_dir}' directory", file=sys.stderr)
-        logger.error(f"No CSV files found in {import_dir}")
-        sys.exit(1)
-
-    logger.info(f"Found {len(csv_files)} CSV file(s)")
-
-    composite = CompositePortfolio("Composite")
-    existing_names: Set[str] = set()
-
-    for csv_file in csv_files:
-        logger.info(f"Processing CSV file: {csv_file}")
-
-        try:
-            # Extract portfolio name
-            portfolio_name = extract_portfolio_name(csv_file.name, existing_names)
-            existing_names.add(portfolio_name)
-
-            # Import trades
-            trades = import_trades_from_csv(str(csv_file))
-
-            # Create portfolio and add trades
-            portfolio = SimplePortfolio(portfolio_name)
-            for trade in trades:
-                portfolio.add_trade(trade)
-
-            # Add to composite
-            composite.add_sub_portfolio(portfolio)
-            logger.info(f"Successfully imported {len(trades)} trades into portfolio '{portfolio_name}'")
-
-        except Exception as e:
-            error_msg = f"Error importing CSV file '{csv_file}': {str(e)}"
-            print(error_msg, file=sys.stderr)
-            logger.error(error_msg, exc_info=True)
-            sys.exit(1)
-
-    logger.info(f"Successfully created composite portfolio with {len(existing_names)} sub-portfolio(s)")
-    return composite
-
-
 def fetch_prices_for_portfolio(
     portfolio: CompositePortfolio, price_service: PriceService
 ) -> None:
@@ -163,35 +70,35 @@ def fetch_prices_for_portfolio(
 
     logger.info(f"Fetching prices for {len(assets)} assets...")
 
-    # Group assets by asset_type for batch processing
-    assets_by_type: Dict[str, List[str]] = {}
-    for asset in assets:
-        asset_type = asset.asset_type
-        if asset_type not in assets_by_type:
-            assets_by_type[asset_type] = []
-        assets_by_type[asset_type].append(asset.ticker)
+    # Use helper function to fetch prices
+    price_map = fetch_price_map(portfolio, price_service)
 
-    # Batch fetch prices for each asset type
-    for asset_type, tickers in assets_by_type.items():
-        try:
-            # PriceService.get_prices() handles cache checking, API fetching,
-            # and stale cache fallback internally
-            prices = price_service.get_prices(tickers, asset_type)
-            logger.info(
-                f"Successfully retrieved prices for {len(prices)} {asset_type} assets"
-            )
-        except ValueError as e:
-            # ValueError is raised when no price data exists (no API response and no cache)
-            error_msg = f"Error: {str(e)}"
-            print(error_msg, file=sys.stderr)
-            logger.error(error_msg)
-            sys.exit(1)
+    # Check for any missing prices and exit if found (this function requires all prices)
+    missing_prices = [asset for asset, price in price_map.items() if price is None]
+    if not missing_prices:
+        # Display summary
+        total = len(assets)
+        summary = f"Prices fetched for {total} assets"
+        print(summary)
+        logger.info(summary)
+        return
 
-    # Display summary
-    total = len(assets)
-    summary = f"Prices fetched for {total} assets"
-    print(summary)
-    logger.info(summary)
+    # Group missing assets by type for error message
+    missing_by_type: Dict[str, List[str]] = defaultdict(list)
+    for asset in missing_prices:
+        missing_by_type[asset.asset_type].append(asset.ticker)
+
+    error_parts = [
+        f"{', '.join(tickers)} ({asset_type})"
+        for asset_type, tickers in missing_by_type.items()
+    ]
+    error_msg = (
+        f"Error: No price data available for: {', '.join(error_parts)}. "
+        f"API retrieval failed and no cache entry exists."
+    )
+    print(error_msg, file=sys.stderr)
+    logger.error(error_msg)
+    sys.exit(1)
 
 
 def format_currency(value: float) -> str:
@@ -310,30 +217,8 @@ def cmd_show_portfolio(
         print(f"Portfolio '{name}' has no assets.")
         return
 
-    # Group assets by asset_type for batch price retrieval
-    assets_by_type: Dict[str, List[Asset]] = {}
-    for asset in positions.keys():
-        asset_type = asset.asset_type
-        if asset_type not in assets_by_type:
-            assets_by_type[asset_type] = []
-        assets_by_type[asset_type].append(asset)
-
-    # Fetch prices in batches by asset type
-    price_map: Dict[Asset, Optional[float]] = {}
-    for asset_type, asset_list in assets_by_type.items():
-        tickers = [asset.ticker for asset in asset_list]
-        try:
-            prices = price_service.get_prices(tickers, asset_type)
-            # Map tickers back to assets
-            for asset in asset_list:
-                price_map[asset] = prices.get(asset.ticker)
-        except Exception as e:
-            logger.warning(
-                f"Price retrieval failed for {asset_type} assets: {e}"
-            )
-            # Set None for all assets of this type
-            for asset in asset_list:
-                price_map[asset] = None
+    # Fetch prices using helper function
+    price_map = fetch_price_map(portfolio, price_service)
 
     # Sort positions by ticker and display
     sorted_positions = sorted(positions.items(), key=lambda x: x[0].ticker)
@@ -357,30 +242,8 @@ def cmd_show_all(
         print("No assets found in composite portfolio.")
         return
 
-    # Group assets by asset_type for batch price retrieval
-    assets_by_type: Dict[str, List[Asset]] = {}
-    for asset in positions.keys():
-        asset_type = asset.asset_type
-        if asset_type not in assets_by_type:
-            assets_by_type[asset_type] = []
-        assets_by_type[asset_type].append(asset)
-
-    # Fetch prices in batches by asset type
-    price_map: Dict[Asset, Optional[float]] = {}
-    for asset_type, asset_list in assets_by_type.items():
-        tickers = [asset.ticker for asset in asset_list]
-        try:
-            prices = price_service.get_prices(tickers, asset_type)
-            # Map tickers back to assets
-            for asset in asset_list:
-                price_map[asset] = prices.get(asset.ticker)
-        except Exception as e:
-            logger.warning(
-                f"Price retrieval failed for {asset_type} assets: {e}"
-            )
-            # Set None for all assets of this type
-            for asset in asset_list:
-                price_map[asset] = None
+    # Fetch prices using helper function
+    price_map = fetch_price_map(composite, price_service)
 
     # Sort positions by ticker and display
     sorted_positions = sorted(positions.items(), key=lambda x: x[0].ticker)
@@ -585,7 +448,16 @@ def main() -> None:
 
     if args.command == "import":
         # Import CSV files
-        composite = import_csv_files(IMPORT_DIR)
+        try:
+            composite = import_csv_files(IMPORT_DIR)
+        except ValueError as e:
+            print(f"Error: {str(e)}", file=sys.stderr)
+            logger.error(str(e))
+            sys.exit(1)
+        except ValidationError as e:
+            print(f"Error: {str(e)}", file=sys.stderr)
+            logger.error(str(e), exc_info=True)
+            sys.exit(1)
 
         # Fetch prices for all assets
         price_service = PriceService()

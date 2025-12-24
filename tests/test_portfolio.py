@@ -3,9 +3,10 @@
 import pytest
 from datetime import date
 from decimal import Decimal
+from unittest.mock import Mock, MagicMock
 
 from wpm.models import Asset, PortfolioError, Trade
-from wpm.portfolio import CompositePortfolio, SimplePortfolio
+from wpm.portfolio import CompositePortfolio, fetch_price_map, SimplePortfolio
 
 
 class TestSimplePortfolio:
@@ -371,4 +372,261 @@ class TestCompositePortfolio:
         positions = outer.get_positions()
         assert asset in positions
         assert positions[asset].quantity == 10.0
+
+
+class TestFetchPriceMap:
+    """Tests for fetch_price_map helper function."""
+
+    def test_fetch_price_map_empty_portfolio(self):
+        """Test fetch_price_map with empty portfolio."""
+        portfolio = SimplePortfolio(name="Empty")
+        price_service = Mock()
+        
+        price_map = fetch_price_map(portfolio, price_service)
+        
+        assert price_map == {}
+        price_service.get_prices.assert_not_called()
+
+    def test_fetch_price_map_single_asset_type(self):
+        """Test fetch_price_map with single asset type (Stock)."""
+        portfolio = SimplePortfolio(name="Test")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            price=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+        
+        price_service = Mock()
+        price_service.get_prices.return_value = {"GOOG": 160.0}
+        
+        price_map = fetch_price_map(portfolio, price_service)
+        
+        assert len(price_map) == 1
+        assert price_map[asset] == 160.0
+        price_service.get_prices.assert_called_once_with(["GOOG"], "Stock")
+
+    def test_fetch_price_map_multiple_asset_types(self):
+        """Test fetch_price_map with multiple asset types (Stock, Crypto)."""
+        portfolio = SimplePortfolio(name="Test")
+        
+        stock_asset = Asset(ticker="GOOG", asset_type="Stock")
+        stock_trade = Trade(
+            date=date(2024, 1, 15),
+            asset=stock_asset,
+            action="Buy",
+            broker="IBKR",
+            price=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(stock_trade)
+        
+        crypto_asset = Asset(ticker="BTC-USD", asset_type="Crypto")
+        crypto_trade = Trade(
+            date=date(2024, 1, 15),
+            asset=crypto_asset,
+            action="Buy",
+            broker="IBKR",
+            price=50000.0,
+            quantity=0.5,
+        )
+        portfolio.add_trade(crypto_trade)
+        
+        price_service = Mock()
+        price_service.get_prices.side_effect = [
+            {"GOOG": 160.0},  # First call for Stock
+            {"BTC-USD": 51000.0},  # Second call for Crypto
+        ]
+        
+        price_map = fetch_price_map(portfolio, price_service)
+        
+        assert len(price_map) == 2
+        assert price_map[stock_asset] == 160.0
+        assert price_map[crypto_asset] == 51000.0
+        assert price_service.get_prices.call_count == 2
+        price_service.get_prices.assert_any_call(["GOOG"], "Stock")
+        price_service.get_prices.assert_any_call(["BTC-USD"], "Crypto")
+
+    def test_fetch_price_map_partial_failure(self):
+        """Test fetch_price_map with partial price retrieval failures."""
+        portfolio = SimplePortfolio(name="Test")
+        
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        trade1 = Trade(
+            date=date(2024, 1, 15),
+            asset=asset1,
+            action="Buy",
+            broker="IBKR",
+            price=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade1)
+        
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        trade2 = Trade(
+            date=date(2024, 1, 16),
+            asset=asset2,
+            action="Buy",
+            broker="IBKR",
+            price=200.0,
+            quantity=5.0,
+        )
+        portfolio.add_trade(trade2)
+        
+        price_service = Mock()
+        # First asset type succeeds, second fails
+        price_service.get_prices.side_effect = [
+            {"GOOG": 160.0, "AAPL": 210.0},  # Both succeed
+            Exception("API error"),  # This shouldn't happen with current grouping
+        ]
+        
+        price_map = fetch_price_map(portfolio, price_service)
+        
+        # Both assets are in the same asset type, so both should be fetched together
+        assert len(price_map) == 2
+        assert price_map[asset1] == 160.0
+        assert price_map[asset2] == 210.0
+
+    def test_fetch_price_map_complete_failure(self):
+        """Test fetch_price_map when all price retrieval fails."""
+        portfolio = SimplePortfolio(name="Test")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            price=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+        
+        price_service = Mock()
+        price_service.get_prices.side_effect = Exception("API error")
+        
+        price_map = fetch_price_map(portfolio, price_service)
+        
+        assert len(price_map) == 1
+        assert price_map[asset] is None
+
+    def test_fetch_price_map_mixed_success_failure(self):
+        """Test fetch_price_map with mixed success and failure across asset types."""
+        portfolio = SimplePortfolio(name="Test")
+        
+        stock_asset = Asset(ticker="GOOG", asset_type="Stock")
+        stock_trade = Trade(
+            date=date(2024, 1, 15),
+            asset=stock_asset,
+            action="Buy",
+            broker="IBKR",
+            price=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(stock_trade)
+        
+        crypto_asset = Asset(ticker="BTC-USD", asset_type="Crypto")
+        crypto_trade = Trade(
+            date=date(2024, 1, 15),
+            asset=crypto_asset,
+            action="Buy",
+            broker="IBKR",
+            price=50000.0,
+            quantity=0.5,
+        )
+        portfolio.add_trade(crypto_trade)
+        
+        price_service = Mock()
+        price_service.get_prices.side_effect = [
+            {"GOOG": 160.0},  # Stock succeeds
+            Exception("Crypto API error"),  # Crypto fails
+        ]
+        
+        price_map = fetch_price_map(portfolio, price_service)
+        
+        assert len(price_map) == 2
+        assert price_map[stock_asset] == 160.0
+        assert price_map[crypto_asset] is None
+
+    def test_fetch_price_map_composite_portfolio(self):
+        """Test fetch_price_map with CompositePortfolio."""
+        composite = CompositePortfolio(name="Composite")
+        
+        sub1 = SimplePortfolio(name="Sub1")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        sub1.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                price=150.0,
+                quantity=10.0,
+            )
+        )
+        
+        sub2 = SimplePortfolio(name="Sub2")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        sub2.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                price=200.0,
+                quantity=5.0,
+            )
+        )
+        
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+        
+        price_service = Mock()
+        price_service.get_prices.return_value = {"GOOG": 160.0, "AAPL": 210.0}
+        
+        price_map = fetch_price_map(composite, price_service)
+        
+        assert len(price_map) == 2
+        assert price_map[asset1] == 160.0
+        assert price_map[asset2] == 210.0
+        price_service.get_prices.assert_called_once_with(["GOOG", "AAPL"], "Stock")
+
+    def test_fetch_price_map_missing_ticker_in_response(self):
+        """Test fetch_price_map when a ticker is missing from price service response."""
+        portfolio = SimplePortfolio(name="Test")
+        
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        trade1 = Trade(
+            date=date(2024, 1, 15),
+            asset=asset1,
+            action="Buy",
+            broker="IBKR",
+            price=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade1)
+        
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        trade2 = Trade(
+            date=date(2024, 1, 16),
+            asset=asset2,
+            action="Buy",
+            broker="IBKR",
+            price=200.0,
+            quantity=5.0,
+        )
+        portfolio.add_trade(trade2)
+        
+        price_service = Mock()
+        # Only return price for one ticker
+        price_service.get_prices.return_value = {"GOOG": 160.0}
+        
+        price_map = fetch_price_map(portfolio, price_service)
+        
+        assert len(price_map) == 2
+        assert price_map[asset1] == 160.0
+        assert price_map[asset2] is None  # Missing ticker results in None
 

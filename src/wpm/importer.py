@@ -2,11 +2,13 @@
 
 import logging
 from decimal import Decimal
-from typing import List
+from pathlib import Path
+from typing import List, Set
 
 import pandas as pd
 
 from wpm.models import Asset, Trade, ValidationError
+from wpm.portfolio import CompositePortfolio, SimplePortfolio
 from wpm.utils import normalize_date, validate_asset_type
 
 logger = logging.getLogger(__name__)
@@ -146,4 +148,91 @@ def import_trades_from_csv(file_path: str) -> List[Trade]:
         )
 
     return trades
+
+
+def extract_portfolio_name(filename: str, existing_names: Set[str]) -> str:
+    """Extract and normalize portfolio name from CSV filename.
+
+    Args:
+        filename: CSV filename (with or without .csv extension)
+        existing_names: Set of already used portfolio names
+
+    Returns:
+        Normalized portfolio name (whitespace stripped, duplicates handled)
+
+    Raises:
+        ValueError: If resulting name is empty
+    """
+    # Remove .csv extension
+    name = filename
+    if name.lower().endswith(".csv"):
+        name = name[:-4]
+
+    # Extract portion after last dash/hyphen if present
+    if "-" in name:
+        name = name.rsplit("-", 1)[-1]
+
+    # Strip ALL whitespace (leading, trailing, internal)
+    name = "".join(name.split())
+
+    if not name:
+        raise ValueError(f"Portfolio name cannot be empty after extraction from '{filename}'")
+
+    # Handle duplicates by appending numeric suffix
+    base_name = name
+    counter = 1
+    while name in existing_names:
+        name = f"{base_name}_{counter}"
+        counter += 1
+
+    return name
+
+
+def import_csv_files(import_dir: Path) -> CompositePortfolio:
+    """Import CSV files and create composite portfolio.
+
+    Args:
+        import_dir: Directory containing CSV files
+
+    Returns:
+        CompositePortfolio containing all imported sub-portfolios
+
+    Raises:
+        ValueError: If no CSV files found in directory
+        ValidationError: If CSV import fails
+    """
+    logger.info(f"Scanning directory for CSV files: {import_dir}")
+
+    csv_files = sorted(import_dir.glob("*.csv"))
+
+    if not csv_files:
+        logger.error(f"No CSV files found in {import_dir}")
+        raise ValueError(f"No CSV files found in '{import_dir}' directory")
+
+    logger.info(f"Found {len(csv_files)} CSV file(s)")
+
+    composite = CompositePortfolio("Composite")
+    existing_names: Set[str] = set()
+
+    for csv_file in csv_files:
+        logger.info(f"Processing CSV file: {csv_file}")
+
+        # Extract portfolio name
+        portfolio_name = extract_portfolio_name(csv_file.name, existing_names)
+        existing_names.add(portfolio_name)
+
+        # Import trades
+        trades = import_trades_from_csv(str(csv_file))
+
+        # Create portfolio and add trades
+        portfolio = SimplePortfolio(portfolio_name)
+        for trade in trades:
+            portfolio.add_trade(trade)
+
+        # Add to composite
+        composite.add_sub_portfolio(portfolio)
+        logger.info(f"Successfully imported {len(trades)} trades into portfolio '{portfolio_name}'")
+
+    logger.info(f"Successfully created composite portfolio with {len(existing_names)} sub-portfolio(s)")
+    return composite
 

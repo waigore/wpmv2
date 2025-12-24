@@ -23,7 +23,7 @@ from wpm.cost_basis import (
     calculate_average_cost_basis,
     calculate_fifo_cost_basis,
 )
-from wpm.importer import import_trades_from_csv
+from wpm.importer import import_csv_files, import_trades_from_csv
 from wpm.metrics import (
     breakdown_by_asset_type,
     breakdown_by_broker,
@@ -47,6 +47,7 @@ __all__ = [
     "SimplePortfolio",
     "CompositePortfolio",
     # Import
+    "import_csv_files",
     "import_trades_from_csv",
     # Cost basis
     "calculate_fifo_cost_basis",
