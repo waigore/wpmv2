@@ -30,7 +30,8 @@ class TestValidateCSVStructure:
                 "Asset Type": ["Stock"],
                 "Action": ["Buy"],
                 "Broker": ["IBKR"],
-                "Type": ["Limit"],
+                "Order Instruction": ["Limit"],
+                "Trade Type": ["Discretionary"],
                 "Price (USD)": [150.0],
                 "Quantity": [10.0],
             }
@@ -63,7 +64,7 @@ class TestValidateCSVStructure:
                 "Asset Type": ["Stock"],
                 "Action": ["Buy"],
                 "Broker": ["IBKR"],
-                # Type is optional
+                # Order Instruction and Trade Type are optional
                 "Price (USD)": [150.0],
                 "Quantity": [10.0],
             }
@@ -83,7 +84,8 @@ class TestParseTradeRow:
                 "Asset Type": "Stock",
                 "Action": "Buy",
                 "Broker": "IBKR",
-                "Type": "Limit",
+                "Order Instruction": "Limit",
+                "Trade Type": "Discretionary",
                 "Price (USD)": 150.0,
                 "Quantity": 10.0,
             }
@@ -96,12 +98,13 @@ class TestParseTradeRow:
         assert trade.asset.asset_type == "Stock"
         assert trade.action == "Buy"
         assert trade.broker == "IBKR"
-        assert trade.order_type == "Limit"
+        assert trade.order_instruction == "Limit"
+        assert trade.trade_type == "Discretionary"
         assert trade.price == 150.0
         assert trade.quantity == Decimal('10.0')
 
-    def test_parse_row_without_optional_type(self):
-        """Test parsing row without optional Type column."""
+    def test_parse_row_without_optional_fields(self):
+        """Test parsing row without optional Order Instruction and Trade Type columns."""
         row = pd.Series(
             {
                 "Date": "2024-01-15",
@@ -115,7 +118,46 @@ class TestParseTradeRow:
         )
 
         trade = parse_trade_row(row)
-        assert trade.order_type is None
+        assert trade.order_instruction is None
+        assert trade.trade_type is None
+
+    def test_parse_row_with_only_order_instruction(self):
+        """Test parsing row with only Order Instruction."""
+        row = pd.Series(
+            {
+                "Date": "2024-01-15",
+                "Asset Name/Ticker": "GOOG",
+                "Asset Type": "Stock",
+                "Action": "Buy",
+                "Broker": "IBKR",
+                "Order Instruction": "Limit",
+                "Price (USD)": 150.0,
+                "Quantity": 10.0,
+            }
+        )
+
+        trade = parse_trade_row(row)
+        assert trade.order_instruction == "Limit"
+        assert trade.trade_type is None
+
+    def test_parse_row_with_only_trade_type(self):
+        """Test parsing row with only Trade Type."""
+        row = pd.Series(
+            {
+                "Date": "2024-01-15",
+                "Asset Name/Ticker": "GOOG",
+                "Asset Type": "Stock",
+                "Action": "Buy",
+                "Broker": "IBKR",
+                "Trade Type": "Recurring buy",
+                "Price (USD)": 150.0,
+                "Quantity": 10.0,
+            }
+        )
+
+        trade = parse_trade_row(row)
+        assert trade.order_instruction is None
+        assert trade.trade_type == "Recurring buy"
 
     def test_parse_row_with_equity_type(self):
         """Test parsing row with Equity type (should map to Stock)."""
@@ -211,10 +253,10 @@ class TestImportTradesFromCSV:
         """Test importing valid CSV file."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write(
-                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Type,Price (USD),Quantity\n"
+                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Order Instruction,Trade Type,Price (USD),Quantity\n"
             )
-            f.write("2024-01-15,GOOG,Stock,Buy,IBKR,Limit,150.0,10.0\n")
-            f.write("2024-02-15,AAPL,Stock,Buy,IBKR,Market,200.0,5.0\n")
+            f.write("2024-01-15,GOOG,Stock,Buy,IBKR,Limit,Discretionary,150.0,10.0\n")
+            f.write("2024-02-15,AAPL,Stock,Buy,IBKR,Market,Recurring buy,200.0,5.0\n")
             temp_path = f.name
 
         try:
@@ -222,9 +264,13 @@ class TestImportTradesFromCSV:
             assert len(trades) == 2
 
             assert trades[0].asset.ticker == "GOOG"
+            assert trades[0].order_instruction == "Limit"
+            assert trades[0].trade_type == "Discretionary"
             assert trades[0].quantity == Decimal('10.0')
 
             assert trades[1].asset.ticker == "AAPL"
+            assert trades[1].order_instruction == "Market"
+            assert trades[1].trade_type == "Recurring buy"
             assert trades[1].quantity == Decimal('5.0')
         finally:
             os.unlink(temp_path)
@@ -233,9 +279,9 @@ class TestImportTradesFromCSV:
         """Test importing CSV with Equity type."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write(
-                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Type,Price (USD),Quantity\n"
+                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Order Instruction,Trade Type,Price (USD),Quantity\n"
             )
-            f.write("2024-01-15,GOOG,Equity,Buy,IBKR,Limit,150.0,10.0\n")
+            f.write("2024-01-15,GOOG,Equity,Buy,IBKR,Limit,Discretionary,150.0,10.0\n")
             temp_path = f.name
 
         try:
@@ -245,8 +291,8 @@ class TestImportTradesFromCSV:
         finally:
             os.unlink(temp_path)
 
-    def test_import_csv_without_optional_type_column(self):
-        """Test importing CSV without optional Type column."""
+    def test_import_csv_without_optional_columns(self):
+        """Test importing CSV without optional Order Instruction and Trade Type columns."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write(
                 "Date,Asset Name/Ticker,Asset Type,Action,Broker,Price (USD),Quantity\n"
@@ -257,7 +303,8 @@ class TestImportTradesFromCSV:
         try:
             trades = import_trades_from_csv(temp_path)
             assert len(trades) == 1
-            assert trades[0].order_type is None
+            assert trades[0].order_instruction is None
+            assert trades[0].trade_type is None
         finally:
             os.unlink(temp_path)
 
@@ -265,11 +312,11 @@ class TestImportTradesFromCSV:
         """Test importing CSV with some invalid rows."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write(
-                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Type,Price (USD),Quantity\n"
+                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Order Instruction,Trade Type,Price (USD),Quantity\n"
             )
-            f.write("2024-01-15,GOOG,Stock,Buy,IBKR,Limit,150.0,10.0\n")
-            f.write("invalid-date,GOOG,Stock,Buy,IBKR,Limit,150.0,10.0\n")
-            f.write("2024-02-15,AAPL,Stock,Buy,IBKR,Market,200.0,5.0\n")
+            f.write("2024-01-15,GOOG,Stock,Buy,IBKR,Limit,Discretionary,150.0,10.0\n")
+            f.write("invalid-date,GOOG,Stock,Buy,IBKR,Limit,Discretionary,150.0,10.0\n")
+            f.write("2024-02-15,AAPL,Stock,Buy,IBKR,Market,Recurring buy,200.0,5.0\n")
             temp_path = f.name
 
         try:
@@ -301,7 +348,7 @@ class TestImportTradesFromCSV:
         """Test importing empty CSV file."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write(
-                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Type,Price (USD),Quantity\n"
+                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Order Instruction,Trade Type,Price (USD),Quantity\n"
             )
             temp_path = f.name
 

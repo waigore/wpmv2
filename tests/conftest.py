@@ -33,7 +33,7 @@ def sample_buy_trade(sample_asset_stock):
         asset=sample_asset_stock,
         action="Buy",
         broker="IBKR",
-        order_type="Limit",
+        order_instruction="Limit",
         price=150.0,
         quantity=10.0,
     )
@@ -47,7 +47,7 @@ def sample_sell_trade(sample_asset_stock):
         asset=sample_asset_stock,
         action="Sell",
         broker="IBKR",
-        order_type="Market",
+        order_instruction="Market",
         price=160.0,
         quantity=5.0,
     )

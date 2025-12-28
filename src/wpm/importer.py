@@ -71,9 +71,13 @@ def parse_trade_row(row: pd.Series) -> Trade:
 
         broker = str(row["Broker"]).strip()
 
-        order_type = None
-        if "Type" in row and pd.notna(row["Type"]):
-            order_type = str(row["Type"]).strip()
+        order_instruction = None
+        if "Order Instruction" in row and pd.notna(row["Order Instruction"]):
+            order_instruction = str(row["Order Instruction"]).strip()
+
+        trade_type = None
+        if "Trade Type" in row and pd.notna(row["Trade Type"]):
+            trade_type = str(row["Trade Type"]).strip()
 
         price = float(row["Price (USD)"])
 
@@ -85,7 +89,8 @@ def parse_trade_row(row: pd.Series) -> Trade:
             asset=asset,
             action=action,
             broker=broker,
-            order_type=order_type,
+            order_instruction=order_instruction,
+            trade_type=trade_type,
             price=price,
             quantity=quantity,
         )

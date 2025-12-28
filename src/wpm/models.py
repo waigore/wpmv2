@@ -60,7 +60,8 @@ class Trade:
     asset: Asset
     action: str
     broker: str
-    order_type: Optional[str] = None
+    order_instruction: Optional[str] = None
+    trade_type: Optional[str] = None
     price: float = field(default=0.0)
     quantity: Decimal = field(default_factory=lambda: Decimal('0'))
 
@@ -87,9 +88,13 @@ class Trade:
         if not self.broker or not isinstance(self.broker, str):
             raise ValidationError("Broker must be a non-empty string")
 
-        if self.order_type is not None:
-            if not isinstance(self.order_type, str) or not self.order_type.strip():
-                raise ValidationError("Order type must be a non-empty string if provided")
+        if self.order_instruction is not None:
+            if not isinstance(self.order_instruction, str) or not self.order_instruction.strip():
+                raise ValidationError("Order instruction must be a non-empty string if provided")
+
+        if self.trade_type is not None:
+            if not isinstance(self.trade_type, str) or not self.trade_type.strip():
+                raise ValidationError("Trade type must be a non-empty string if provided")
 
         if not isinstance(self.price, (int, float)) or self.price <= 0:
             raise ValidationError("Price must be a positive number greater than 0")

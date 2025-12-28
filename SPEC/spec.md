@@ -317,7 +317,9 @@ Represents a single buy or sell transaction.
   - Validation: Must be "Buy" or "Sell" (case-insensitive, normalized to title case)
 - `broker` (str, required): Broker/platform where trade was executed
   - Validation: Non-empty string
-- `order_type` (str, optional): Type of order (e.g., "Limit", "Market", "Lump sum", "Recurring buy", "DRIP")
+- `order_instruction` (str, optional): How the order was placed (e.g., "Limit", "Market", "Lump sum", "DRIP")
+  - Validation: Non-empty string if provided
+- `trade_type` (str, optional): The category/strategy of the trade (e.g., "Discretionary", "Recurring buy", "DRIP")
   - Validation: Non-empty string if provided
 - `price` (float, required): Price per unit in USD
   - Validation: Positive number, greater than 0
@@ -417,7 +419,8 @@ Validity is determined per asset individually based on asset type and current ti
 - `Asset Type`: One of "Stock", "ETF", or "Crypto"
 - `Action`: "Buy" or "Sell"
 - `Broker`: Broker/platform name
-- `Type`: Order type (e.g., "Limit", "Market", "Lump sum", etc.)
+- `Order Instruction` (optional): How the order was placed (e.g., "Limit", "Market", "Lump sum", "DRIP")
+- `Trade Type` (optional): The category/strategy of the trade (e.g., "Discretionary", "Recurring buy", "DRIP")
 - `Price (USD)`: Price per unit in USD
 - `Quantity`: Number of units
 
@@ -427,7 +430,7 @@ Validity is determined per asset individually based on asset type and current ti
 - Asset Type must be valid (Stock, ETF, or Crypto)
 - Action must be Buy or Sell
 - Price and Quantity must be numeric and positive
-- Missing optional fields (like Type) are allowed
+- Missing optional fields (like Order Instruction and Trade Type) are allowed
 
 ## External Dependencies
 

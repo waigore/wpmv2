@@ -190,8 +190,33 @@ class TestTrade:
                 quantity=-10.0,
             )
 
-    def test_trade_optional_order_type(self):
-        """Test trade with optional order_type."""
+    def test_trade_optional_order_instruction(self):
+        """Test trade with optional order_instruction."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        trade_with_instruction = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            order_instruction="Limit",
+            price=150.0,
+            quantity=10.0,
+        )
+        assert trade_with_instruction.order_instruction == "Limit"
+
+        trade_without_instruction = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            price=150.0,
+            quantity=10.0,
+        )
+        assert trade_without_instruction.order_instruction is None
+
+    def test_trade_optional_trade_type(self):
+        """Test trade with optional trade_type."""
         asset = Asset(ticker="GOOG", asset_type="Stock")
 
         trade_with_type = Trade(
@@ -199,11 +224,11 @@ class TestTrade:
             asset=asset,
             action="Buy",
             broker="IBKR",
-            order_type="Limit",
+            trade_type="Discretionary",
             price=150.0,
             quantity=10.0,
         )
-        assert trade_with_type.order_type == "Limit"
+        assert trade_with_type.trade_type == "Discretionary"
 
         trade_without_type = Trade(
             date=date(2024, 1, 15),
@@ -213,7 +238,24 @@ class TestTrade:
             price=150.0,
             quantity=10.0,
         )
-        assert trade_without_type.order_type is None
+        assert trade_without_type.trade_type is None
+
+    def test_trade_both_optional_fields(self):
+        """Test trade with both order_instruction and trade_type."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            order_instruction="Limit",
+            trade_type="Recurring buy",
+            price=150.0,
+            quantity=10.0,
+        )
+        assert trade.order_instruction == "Limit"
+        assert trade.trade_type == "Recurring buy"
 
 
 class TestPosition:
