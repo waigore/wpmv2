@@ -195,11 +195,23 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 
 **Key Classes:**
 - `PriceCache`: Manages persistent Parquet-based price cache
+- `CacheValidityStatus`: Enumeration for cache validity status (VALID, PARTIAL, STALE)
+- `CacheValidity`: Dataclass containing cache validity status and stale entries
 
 **Key Methods:**
 - `get_cached_price(ticker, asset_type)`: Get cached price if valid (returns None if invalid or missing)
 - `get_stale_cached_price(ticker, asset_type)`: Get cached price even if expired (returns None only if no cache entry exists)
 - `set_cached_price(ticker, asset_type, price, timestamp)`: Set/update cached price with timestamp
+- `get_cache_validity(tickers=None)`: Get cache validity status for all entries or specific tickers
+  - Returns `CacheValidity` dataclass with:
+    - `status`: One of `CacheValidityStatus.VALID`, `CacheValidityStatus.PARTIAL`, or `CacheValidityStatus.STALE`
+    - `stale_entries`: List of dictionaries containing ticker, asset_type, price, and timestamp for stale entries
+  - If `tickers` is provided, only checks those specific tickers; otherwise checks all cache entries
+  - Empty cache returns `STALE` status with empty stale_entries list
+  - Status determination:
+    - `VALID`: All checked entries are valid (no stale entries)
+    - `PARTIAL`: Some entries are valid, some are stale
+    - `STALE`: All checked entries are stale (or cache is empty)
 - `_load_cache()`: Load price cache from Parquet file (lazy loading, cached in memory)
 - `_save_cache()`: Save price cache to Parquet file
 - `_is_cache_valid(cache_entry, asset_type)`: Check if cached price is valid for a specific asset

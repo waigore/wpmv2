@@ -9,6 +9,8 @@ import pytz
 import pandas as pd
 
 from wpm.pricing import (
+    CacheValidity,
+    CacheValidityStatus,
     PriceRetriever,
     YahooFinanceRetriever,
     CoinGeckoRetriever,
@@ -767,6 +769,203 @@ class TestPriceCache:
 
             is_valid = cache._is_cache_valid(cache_entry, "Invalid")
             assert is_valid is False
+
+    def test_get_cache_validity_empty_cache(self):
+        """Test get_cache_validity with empty cache."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            cache = PriceCache(cache_file=cache_file)
+
+            validity = cache.get_cache_validity()
+            assert validity.status == CacheValidityStatus.STALE
+            assert validity.stale_entries == []
+
+    @patch("wpm.pricing.cache.is_within_trading_hours")
+    @patch("wpm.pricing.cache.datetime")
+    def test_get_cache_validity_all_valid(self, mock_datetime, mock_within_hours):
+        """Test get_cache_validity when all entries are valid."""
+        mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_within_hours.return_value = True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            cache = PriceCache(cache_file=cache_file)
+
+            # Set recent cache entries (5 minutes ago)
+            recent_timestamp = mock_now - timedelta(minutes=5)
+            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=recent_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=recent_timestamp)
+
+            validity = cache.get_cache_validity()
+            assert validity.status == CacheValidityStatus.VALID
+            assert len(validity.stale_entries) == 0
+
+    @patch("wpm.pricing.cache.is_within_trading_hours")
+    @patch("wpm.pricing.cache.datetime")
+    def test_get_cache_validity_all_stale(self, mock_datetime, mock_within_hours):
+        """Test get_cache_validity when all entries are stale."""
+        mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_within_hours.return_value = True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            cache = PriceCache(cache_file=cache_file)
+
+            # Set old cache entries (15 minutes ago)
+            old_timestamp = mock_now - timedelta(minutes=15)
+            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
+            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=old_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=old_timestamp)
+
+            validity = cache.get_cache_validity()
+            assert validity.status == CacheValidityStatus.STALE
+            assert len(validity.stale_entries) == 3
+            assert all(entry["ticker"] in ["GOOG", "AAPL", "BTC-USD"] for entry in validity.stale_entries)
+
+    @patch("wpm.pricing.cache.is_within_trading_hours")
+    @patch("wpm.pricing.cache.datetime")
+    def test_get_cache_validity_partial(self, mock_datetime, mock_within_hours):
+        """Test get_cache_validity when some entries are valid and some are stale."""
+        mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_within_hours.return_value = True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            cache = PriceCache(cache_file=cache_file)
+
+            # Set recent cache entry (5 minutes ago) - valid
+            recent_timestamp = mock_now - timedelta(minutes=5)
+            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+
+            # Set old cache entries (15 minutes ago) - stale
+            old_timestamp = mock_now - timedelta(minutes=15)
+            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=old_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=old_timestamp)
+
+            validity = cache.get_cache_validity()
+            assert validity.status == CacheValidityStatus.PARTIAL
+            assert len(validity.stale_entries) == 2
+            assert all(entry["ticker"] in ["AAPL", "BTC-USD"] for entry in validity.stale_entries)
+            assert all(entry["ticker"] != "GOOG" for entry in validity.stale_entries)
+
+    @patch("wpm.pricing.cache.is_within_trading_hours")
+    @patch("wpm.pricing.cache.datetime")
+    def test_get_cache_validity_with_tickers_filter(self, mock_datetime, mock_within_hours):
+        """Test get_cache_validity with specific tickers filter."""
+        mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_within_hours.return_value = True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            cache = PriceCache(cache_file=cache_file)
+
+            # Set recent cache entry (5 minutes ago) - valid
+            recent_timestamp = mock_now - timedelta(minutes=5)
+            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+
+            # Set old cache entry (15 minutes ago) - stale
+            old_timestamp = mock_now - timedelta(minutes=15)
+            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=old_timestamp)
+
+            # Check only GOOG (should be valid)
+            validity = cache.get_cache_validity(tickers=["GOOG"])
+            assert validity.status == CacheValidityStatus.VALID
+            assert len(validity.stale_entries) == 0
+
+            # Check only AAPL (should be stale)
+            validity = cache.get_cache_validity(tickers=["AAPL"])
+            assert validity.status == CacheValidityStatus.STALE
+            assert len(validity.stale_entries) == 1
+            assert validity.stale_entries[0]["ticker"] == "AAPL"
+
+            # Check both (should be partial)
+            validity = cache.get_cache_validity(tickers=["GOOG", "AAPL"])
+            assert validity.status == CacheValidityStatus.PARTIAL
+            assert len(validity.stale_entries) == 1
+            assert validity.stale_entries[0]["ticker"] == "AAPL"
+
+    @patch("wpm.pricing.cache.is_within_trading_hours")
+    @patch("wpm.pricing.cache.datetime")
+    def test_get_cache_validity_with_nonexistent_tickers(self, mock_datetime, mock_within_hours):
+        """Test get_cache_validity with tickers that don't exist in cache."""
+        mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_within_hours.return_value = True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            cache = PriceCache(cache_file=cache_file)
+
+            # Set one cache entry
+            recent_timestamp = mock_now - timedelta(minutes=5)
+            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+
+            # Check for tickers that don't exist
+            validity = cache.get_cache_validity(tickers=["NONEXISTENT"])
+            assert validity.status == CacheValidityStatus.STALE
+            assert len(validity.stale_entries) == 0
+
+    @patch("wpm.pricing.cache.is_within_trading_hours")
+    @patch("wpm.pricing.cache.datetime")
+    def test_get_cache_validity_stale_entries_structure(self, mock_datetime, mock_within_hours):
+        """Test that stale entries have the correct structure."""
+        mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_within_hours.return_value = True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            cache = PriceCache(cache_file=cache_file)
+
+            # Set old cache entry (15 minutes ago)
+            old_timestamp = mock_now - timedelta(minutes=15)
+            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
+
+            validity = cache.get_cache_validity()
+            assert len(validity.stale_entries) == 1
+            stale_entry = validity.stale_entries[0]
+            assert "ticker" in stale_entry
+            assert "asset_type" in stale_entry
+            assert "price" in stale_entry
+            assert "timestamp" in stale_entry
+            assert stale_entry["ticker"] == "GOOG"
+            assert stale_entry["asset_type"] == "Stock"
+            assert stale_entry["price"] == 150.0
+            assert isinstance(stale_entry["timestamp"], datetime)
+
+    @patch("wpm.pricing.cache.is_within_trading_hours")
+    @patch("wpm.pricing.cache.datetime")
+    def test_get_cache_validity_mixed_asset_types(self, mock_datetime, mock_within_hours):
+        """Test get_cache_validity with mixed asset types (Stock, ETF, Crypto)."""
+        mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_within_hours.return_value = True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            cache = PriceCache(cache_file=cache_file)
+
+            # Set recent entries (5 minutes ago) - valid
+            recent_timestamp = mock_now - timedelta(minutes=5)
+            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+            cache.set_cached_price("SPY", "ETF", 400.0, timestamp=recent_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=recent_timestamp)
+
+            # Set old entries (15 minutes ago) - stale
+            old_timestamp = mock_now - timedelta(minutes=15)
+            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=old_timestamp)
+            cache.set_cached_price("ETH-USD", "Crypto", 3000.0, timestamp=old_timestamp)
+
+            validity = cache.get_cache_validity()
+            assert validity.status == CacheValidityStatus.PARTIAL
+            assert len(validity.stale_entries) == 2
+            stale_tickers = {entry["ticker"] for entry in validity.stale_entries}
+            assert stale_tickers == {"AAPL", "ETH-USD"}
 
 
 class TestPriceService:

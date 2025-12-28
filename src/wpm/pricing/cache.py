@@ -1,9 +1,11 @@
 """Manages persistent Parquet-based price cache."""
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import pytz
@@ -12,6 +14,31 @@ from wpm.config import Config
 from wpm.utils import concat_dataframes, is_within_trading_hours
 
 logger = logging.getLogger(__name__)
+
+
+class CacheValidityStatus(Enum):
+    """Cache validity status enumeration."""
+
+    VALID = "valid"
+    PARTIAL = "partial"
+    STALE = "stale"
+
+
+@dataclass
+class CacheValidity:
+    """Cache validity status and stale entries.
+
+    Attributes:
+        status: The validity status of the cache
+        stale_entries: List of stale cache entries, each containing:
+            - ticker: str
+            - asset_type: str
+            - price: float
+            - timestamp: datetime
+    """
+
+    status: CacheValidityStatus
+    stale_entries: List[Dict[str, Any]]
 
 
 class PriceCache:
@@ -282,4 +309,78 @@ class PriceCache:
         self._cache = cache
 
         self._save_cache()
+
+    def get_cache_validity(self, tickers: Optional[List[str]] = None) -> CacheValidity:
+        """Get cache validity status.
+
+        Args:
+            tickers: Optional list of tickers to check. If None, checks all entries.
+
+        Returns:
+            CacheValidity object with status and stale entries
+        """
+        cache = self._load_cache()
+
+        # If cache is empty, return STALE status
+        if cache.empty:
+            return CacheValidity(
+                status=CacheValidityStatus.STALE,
+                stale_entries=[]
+            )
+
+        # Filter cache by tickers if provided
+        if tickers is not None:
+            cache = cache[cache["ticker"].isin(tickers)]
+            # If no entries match the provided tickers, return STALE status
+            if cache.empty:
+                return CacheValidity(
+                    status=CacheValidityStatus.STALE,
+                    stale_entries=[]
+                )
+
+        stale_entries: List[Dict[str, Any]] = []
+        valid_count = 0
+        stale_count = 0
+
+        # Check validity of each entry
+        for _, row in cache.iterrows():
+            asset_type = row["asset_type"]
+            is_valid = self._is_cache_valid(row, asset_type)
+
+            if is_valid:
+                valid_count += 1
+            else:
+                stale_count += 1
+                # Convert timestamp to datetime if needed
+                timestamp = row["timestamp"]
+                if isinstance(timestamp, pd.Timestamp):
+                    timestamp = timestamp.to_pydatetime()
+                elif isinstance(timestamp, str):
+                    timestamp = pd.to_datetime(timestamp).to_pydatetime()
+                elif not isinstance(timestamp, datetime):
+                    try:
+                        timestamp = pd.to_datetime(timestamp).to_pydatetime()
+                    except (ValueError, TypeError):
+                        # If we can't convert, use as-is
+                        pass
+
+                stale_entries.append({
+                    "ticker": str(row["ticker"]),
+                    "asset_type": str(row["asset_type"]),
+                    "price": float(row["price"]),
+                    "timestamp": timestamp,
+                })
+
+        # Determine status
+        if stale_count == 0 and valid_count > 0:
+            status = CacheValidityStatus.VALID
+        elif stale_count > 0 and valid_count > 0:
+            status = CacheValidityStatus.PARTIAL
+        else:
+            status = CacheValidityStatus.STALE
+
+        return CacheValidity(
+            status=status,
+            stale_entries=stale_entries
+        )
 
