@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "setuptools-scm>=8.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wpm"
+name = "waiz-wpm"
 dynamic = ["version"]
 description = "Wealth Portfolio Manager - Simple portfolio manager and planner (Python library + CLI)"
 readme = "README.md"
