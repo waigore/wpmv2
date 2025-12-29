@@ -76,6 +76,47 @@ class SimplePortfolio(Portfolio):
         total = sum(position.cost_basis for position in positions.values())
         return total
 
+    def get_total_market_value(self, prices: Dict[Asset, Optional[float]]) -> float:
+        """Calculate total market value for the portfolio.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Total market value in USD
+        """
+        positions = self.get_positions()
+        total_market_value = 0.0
+
+        for asset, position in positions.items():
+            if asset not in prices or prices[asset] is None:
+                logger.debug(f"No price available for {asset.ticker}, skipping")
+                continue
+
+            price = prices[asset]
+            # Convert Decimal quantity to float for market value calculation
+            market_value = float(position.quantity) * price
+            total_market_value += market_value
+
+            logger.debug(
+                f"{asset.ticker}: {position.quantity} * ${price:.2f} = ${market_value:.2f}"
+            )
+
+        return total_market_value
+
+    def get_total_unrealized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
+        """Calculate total unrealized profit/loss for the portfolio.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Total unrealized profit/loss in USD (market_value - cost_basis)
+        """
+        market_value = self.get_total_market_value(prices)
+        cost_basis = self.get_total_cost_basis()
+        return market_value - cost_basis
+
     def get_all_trades(self) -> List[Trade]:
         """Get all trades in the portfolio.
 
@@ -165,6 +206,36 @@ class CompositePortfolio(Portfolio):
         """
         total = sum(
             sub_portfolio.get_total_cost_basis()
+            for sub_portfolio in self._sub_portfolios.values()
+        )
+        return total
+
+    def get_total_market_value(self, prices: Dict[Asset, Optional[float]]) -> float:
+        """Calculate total market value aggregated from sub-portfolios.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Total market value in USD
+        """
+        total = sum(
+            sub_portfolio.get_total_market_value(prices)
+            for sub_portfolio in self._sub_portfolios.values()
+        )
+        return total
+
+    def get_total_unrealized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
+        """Calculate total unrealized profit/loss aggregated from sub-portfolios.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Total unrealized profit/loss in USD
+        """
+        total = sum(
+            sub_portfolio.get_total_unrealized_pnl(prices)
             for sub_portfolio in self._sub_portfolios.values()
         )
         return total

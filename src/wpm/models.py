@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Dict, Optional
 
 from wpm.utils import validate_asset_type, validate_ticker
 
@@ -187,6 +187,30 @@ class Portfolio(ABC):
     @abstractmethod
     def get_all_trades(self) -> list[Trade]:
         """Get all trades in the portfolio (including sub-portfolios)."""
+        pass
+
+    @abstractmethod
+    def get_total_market_value(self, prices: Dict[Asset, Optional[float]]) -> float:
+        """Calculate total market value for the portfolio.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Total market value in USD
+        """
+        pass
+
+    @abstractmethod
+    def get_total_unrealized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
+        """Calculate total unrealized profit/loss for the portfolio.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Total unrealized profit/loss in USD (market_value - cost_basis)
+        """
         pass
 
     def get_position(self, asset: Asset) -> Optional["Position"]:

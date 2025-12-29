@@ -59,6 +59,8 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `add_trade(trade)`: Add a trade to the portfolio
 - `get_positions()`: Get all asset positions in the portfolio
 - `get_total_cost_basis()`: Calculate total cost basis
+- `get_total_market_value(prices)`: Calculate total market value from prices
+- `get_total_unrealized_pnl(prices)`: Calculate total unrealized profit/loss
 - `get_total_quantity(ticker)`: Get total quantity for a specific asset
 - `add_sub_portfolio(portfolio)`: Add a sub-portfolio (for composite portfolios)
 
@@ -379,7 +381,6 @@ Represents a collection of asset positions or sub-portfolios.
 - `positions`: Dictionary mapping Asset to Position objects
   - For simple portfolios: Calculated from trades using specified cost basis method
   - For composite portfolios: Aggregated from sub-portfolios
-- `total_cost_basis`: Sum of all position cost_basis values
 - `total_quantity(asset)`: Total quantity for a specific asset across all positions
 
 **Methods:**
@@ -387,6 +388,18 @@ Represents a collection of asset positions or sub-portfolios.
 - `get_positions()`: Get all positions as a dictionary
 - `get_position(asset)`: Get position for a specific asset
 - `get_total_cost_basis()`: Calculate total cost basis
+  - For simple portfolios: Sum of all position cost_basis values
+  - For composite portfolios: Sum of total_cost_basis from all sub-portfolios
+- `get_total_market_value(prices)`: Calculate total market value
+  - For simple portfolios: Sum of (quantity * price) for all positions where price is available
+  - For composite portfolios: Sum of total_market_value from all sub-portfolios
+  - Accepts `prices: Dict[Asset, Optional[float]]` parameter
+  - Assets with missing/None prices are excluded from the sum
+- `get_total_unrealized_pnl(prices)`: Calculate total unrealized profit/loss
+  - For simple portfolios: `total_market_value - total_cost_basis`
+  - For composite portfolios: Sum of total_unrealized_pnl from all sub-portfolios
+  - Accepts `prices: Dict[Asset, Optional[float]]` parameter
+  - Unrealized P/L is calculated as market_value - cost_basis
 - `add_sub_portfolio(portfolio)`: Add a sub-portfolio (composite only)
 - `get_all_trades()`: Get all trades including from sub-portfolios (recursive)
 

@@ -113,6 +113,22 @@ def format_currency(value: float) -> str:
     return f"${value:,.2f}"
 
 
+def format_unrealized_pnl(value: float) -> str:
+    """Format unrealized P/L with + prefix for profit, - for loss.
+
+    Args:
+        value: Unrealized P/L value to format
+
+    Returns:
+        Formatted string with sign prefix (e.g., "+$1,234.56" or "-$1,234.56")
+    """
+    if value >= 0:
+        return f"+{format_currency(value)}"
+    else:
+        # value is negative, format_currency will handle the - sign
+        return format_currency(value)
+
+
 def format_quantity(value) -> str:
     """Format quantity value appropriately.
 
@@ -226,6 +242,22 @@ def cmd_show_portfolio(
         price = price_map.get(asset)
         print(format_position_line(position, price))
 
+    # Display summary
+    print()  # Blank line before summary
+    total_cost_basis = portfolio.get_total_cost_basis()
+    total_market_value = portfolio.get_total_market_value(price_map)
+    total_unrealized_pnl = portfolio.get_total_unrealized_pnl(price_map)
+
+    # Check if we have any prices available
+    has_prices = any(price is not None for price in price_map.values())
+
+    print(f"Total Market Value: {format_currency(total_market_value) if has_prices else 'N/A'}")
+    print(f"Total Cost Basis: {format_currency(total_cost_basis)}")
+    if has_prices:
+        print(f"Total Unrealized P/L: {format_unrealized_pnl(total_unrealized_pnl)}")
+    else:
+        print("Total Unrealized P/L: N/A")
+
 
 def cmd_show_all(
     composite: CompositePortfolio, price_service: PriceService
@@ -250,6 +282,22 @@ def cmd_show_all(
     for asset, position in sorted_positions:
         price = price_map.get(asset)
         print(format_position_line(position, price))
+
+    # Display summary
+    print()  # Blank line before summary
+    total_cost_basis = composite.get_total_cost_basis()
+    total_market_value = composite.get_total_market_value(price_map)
+    total_unrealized_pnl = composite.get_total_unrealized_pnl(price_map)
+
+    # Check if we have any prices available
+    has_prices = any(price is not None for price in price_map.values())
+
+    print(f"Total Market Value: {format_currency(total_market_value) if has_prices else 'N/A'}")
+    print(f"Total Cost Basis: {format_currency(total_cost_basis)}")
+    if has_prices:
+        print(f"Total Unrealized P/L: {format_unrealized_pnl(total_unrealized_pnl)}")
+    else:
+        print("Total Unrealized P/L: N/A")
 
 
 def format_breakdown_asset_type(breakdown: Dict[str, Dict]) -> None:

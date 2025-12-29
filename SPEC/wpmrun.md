@@ -98,11 +98,19 @@ wpm>
 - Current Price is retrieved using batch fetching via `PriceService.get_prices()` (grouped by asset_type)
 - Prices are fetched in batches for efficiency - PriceService handles cache checking and API fetching internally
 - If price retrieval fails for an asset type, display "N/A" for Current Value for all assets of that type
+- After all position lines, display a summary section with:
+  - Total Market Value: `<formatted_value>` (or "N/A" if no prices available)
+  - Total Cost Basis: `<formatted_value>` (always displayed, doesn't depend on prices)
+  - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no prices available)
 - Example:
   ```
   BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
   ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
   AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00
+
+  Total Market Value: $64,000.00
+  Total Cost Basis: $62,500.00
+  Total Unrealized P/L: +$1,500.00
   ```
 
 **Error Handling:**
@@ -121,11 +129,19 @@ wpm>
 - Current Price is retrieved using batch fetching via `PriceService.get_prices()` (grouped by asset_type)
 - Prices are fetched in batches for efficiency - PriceService handles cache checking and API fetching internally
 - If price retrieval fails for an asset type, logs a warning and displays "N/A" for Current Value for all assets of that type, but continues processing other asset types
+- After all position lines, display a summary section with:
+  - Total Market Value: `<formatted_value>` (or "N/A" if no prices available)
+  - Total Cost Basis: `<formatted_value>` (always displayed, doesn't depend on prices)
+  - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no prices available)
 - Example:
   ```
   AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00
   BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
   GOOG (Stock): 50.0 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00
+
+  Total Market Value: $144,000.00
+  Total Cost Basis: $137,500.00
+  Total Unrealized P/L: +$6,500.00
   ```
 
 **Error Handling:**
@@ -364,11 +380,19 @@ wpm> show portfolio Crypto
 BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
 ETH-USD (Crypto): 10 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
 
+Total Market Value: $49,000.00
+Total Cost Basis: $47,500.00
+Total Unrealized P/L: +$1,500.00
+
 wpm> show all
 AAPL (Stock): 100 @ $150.00 = $15,000.00 | Current Value = $16,000.00
 BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
 ETH-USD (Crypto): 10 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
 GOOG (Stock): 50 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00
+
+Total Market Value: $170,000.00
+Total Cost Basis: $162,500.00
+Total Unrealized P/L: +$7,500.00
 
 wpm> breakdown Crypto asset_type
 Crypto: 10.5 @ $47,500.00
