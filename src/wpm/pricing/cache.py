@@ -99,37 +99,34 @@ class PriceCache:
         except Exception as e:
             logger.warning(f"Error saving cache file: {e}")
 
-    def _is_cache_valid(self, cache_entry: pd.Series, asset_type: str) -> bool:
-        """Check if cached price is valid for a specific asset.
+    def _normalize_timestamp(self, cache_timestamp: Any) -> Optional[datetime]:
+        """Normalize cache timestamp to timezone-aware datetime.
 
         Args:
-            cache_entry: Cache entry (row from DataFrame)
-            asset_type: Asset type to validate against
+            cache_timestamp: Timestamp value from cache (can be various types)
 
         Returns:
-            True if cache is valid, False otherwise
+            Normalized datetime in UTC, or None if timestamp is invalid
         """
-        cache_timestamp = cache_entry["timestamp"]
-        
         # Check for NaN/NaT/None values
         if cache_timestamp is None:
-            return False
-        
+            return None
+
         # Handle pd.NaT and other NA values
         try:
             if pd.isna(cache_timestamp):
-                return False
+                return None
         except (ValueError, TypeError):
             # If pd.isna() fails (e.g., on array-like values), treat as invalid
-            return False
-        
+            return None
+
         # Convert to datetime if it's a string
         if isinstance(cache_timestamp, str):
             try:
                 cache_timestamp = pd.to_datetime(cache_timestamp)
             except (ValueError, TypeError):
-                return False
-        
+                return None
+
         # Convert pandas Timestamp to Python datetime if needed
         try:
             # Try pandas Timestamp conversion first (most common case)
@@ -142,15 +139,34 @@ class PriceCache:
                 # Try to convert using pandas as fallback
                 cache_timestamp = pd.to_datetime(cache_timestamp).to_pydatetime()
         except (ValueError, TypeError, AttributeError):
-            return False
+            return None
 
+        # Ensure timezone-aware
         if cache_timestamp.tzinfo is None:
             cache_timestamp = pytz.UTC.localize(cache_timestamp)
         else:
             cache_timestamp = cache_timestamp.astimezone(pytz.UTC)
 
+        return cache_timestamp
+
+    def _is_cache_valid(self, cache_entry: pd.Series, asset_type: str) -> bool:
+        """Check if cached price is valid for a specific asset.
+
+        Args:
+            cache_entry: Cache entry (row from DataFrame)
+            asset_type: Asset type to validate against
+
+        Returns:
+            True if cache is valid, False otherwise
+        """
+        cache_timestamp = cache_entry["timestamp"]
+        normalized_timestamp = self._normalize_timestamp(cache_timestamp)
+
+        if normalized_timestamp is None:
+            return False
+
         now = datetime.now(pytz.UTC)
-        age_minutes = (now - cache_timestamp).total_seconds() / 60
+        age_minutes = (now - normalized_timestamp).total_seconds() / 60
 
         if asset_type in ("Stock", "ETF"):
             return self._is_stock_cache_valid(cache_entry, age_minutes)

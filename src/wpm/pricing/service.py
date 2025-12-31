@@ -16,6 +16,13 @@ logger = logging.getLogger(__name__)
 class PriceService:
     """Service that orchestrates price retrieval with caching and rate limiting."""
 
+    # Mapping of asset types to retriever instances
+    _RETRIEVER_MAP: Dict[str, str] = {
+        "Stock": "_stock_retriever",
+        "ETF": "_stock_retriever",
+        "Crypto": "_crypto_retriever",
+    }
+
     def __init__(
         self,
         cache_file: Optional[Path] = None,
@@ -40,14 +47,15 @@ class PriceService:
 
         Returns:
             PriceRetriever instance
+
+        Raises:
+            ValueError: If asset type is not supported
         """
-        if asset_type in ("Stock", "ETF"):
-            return self._stock_retriever
+        retriever_attr = self._RETRIEVER_MAP.get(asset_type)
+        if retriever_attr is None:
+            raise ValueError(f"Unsupported asset type: {asset_type}")
 
-        if asset_type == "Crypto":
-            return self._crypto_retriever
-
-        raise ValueError(f"Unsupported asset type: {asset_type}")
+        return getattr(self, retriever_attr)
 
     def get_price(self, ticker: str, asset_type: str) -> float:
         """Get current price for an asset (checks cache first).

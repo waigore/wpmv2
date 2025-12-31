@@ -9,6 +9,7 @@ import argparse
 import logging
 import sys
 from collections import defaultdict
+from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -19,7 +20,7 @@ from wpm.metrics import (
     breakdown_by_purchase_period,
     breakdown_by_ticker,
 )
-from wpm.models import Asset, Position, ValidationError
+from wpm.models import Asset, Portfolio, Position, ValidationError
 from wpm.portfolio import CompositePortfolio, fetch_price_map, SimplePortfolio
 from wpm.pricing import PriceService
 from wpm.utils import setup_logging
@@ -141,8 +142,6 @@ def format_quantity(value) -> str:
     Returns:
         Formatted string (integer if whole number, decimal otherwise)
     """
-    from decimal import Decimal
-    
     # Convert Decimal to float for formatting
     if isinstance(value, Decimal):
         float_value = float(value)
@@ -392,38 +391,58 @@ def cmd_breakdown(composite: CompositePortfolio, args: List[str]) -> None:
 
     # Route to appropriate breakdown function
     try:
-        if breakdown_type == "asset_type":
-            breakdown = breakdown_by_asset_type(portfolio)
-            if not breakdown:
-                print("No data available for breakdown.")
-                return
-            format_breakdown_asset_type(breakdown)
-        elif breakdown_type == "ticker":
-            breakdown = breakdown_by_ticker(portfolio)
-            if not breakdown:
-                print("No data available for breakdown.")
-                return
-            format_breakdown_ticker(breakdown)
-        elif breakdown_type == "purchase_period":
-            breakdown = breakdown_by_purchase_period(portfolio, period="month")
-            if not breakdown:
-                print("No data available for breakdown.")
-                return
-            format_breakdown_purchase_period(breakdown)
-        elif breakdown_type == "broker":
-            breakdown = breakdown_by_broker(portfolio)
-            if not breakdown:
-                print("No data available for breakdown.")
-                return
-            format_breakdown_broker(breakdown)
-        else:
-            print(
-                f"Invalid breakdown type '{breakdown_type}'. "
-                f"Valid types: asset_type, ticker, purchase_period, broker"
-            )
+        breakdown = _execute_breakdown(portfolio, breakdown_type)
+        if breakdown is None:
+            print("No data available for breakdown.")
+            return
+
+        _format_breakdown(breakdown, breakdown_type)
     except Exception as e:
         logger.error(f"Error generating breakdown: {e}", exc_info=True)
         print("No data available for breakdown.")
+
+
+def _execute_breakdown(portfolio: Portfolio, breakdown_type: str) -> Optional[Dict]:
+    """Execute breakdown calculation based on type.
+
+    Args:
+        portfolio: Portfolio to analyze
+        breakdown_type: Type of breakdown to perform
+
+    Returns:
+        Breakdown data dictionary, or None if invalid type or no data
+    """
+    if breakdown_type == "asset_type":
+        return breakdown_by_asset_type(portfolio)
+    if breakdown_type == "ticker":
+        return breakdown_by_ticker(portfolio)
+    if breakdown_type == "purchase_period":
+        return breakdown_by_purchase_period(portfolio, period="month")
+    if breakdown_type == "broker":
+        return breakdown_by_broker(portfolio)
+
+    print(
+        f"Invalid breakdown type '{breakdown_type}'. "
+        f"Valid types: asset_type, ticker, purchase_period, broker"
+    )
+    return None
+
+
+def _format_breakdown(breakdown: Dict, breakdown_type: str) -> None:
+    """Format and display breakdown data.
+
+    Args:
+        breakdown: Breakdown data dictionary
+        breakdown_type: Type of breakdown
+    """
+    if breakdown_type == "asset_type":
+        format_breakdown_asset_type(breakdown)
+    elif breakdown_type == "ticker":
+        format_breakdown_ticker(breakdown)
+    elif breakdown_type == "purchase_period":
+        format_breakdown_purchase_period(breakdown)
+    elif breakdown_type == "broker":
+        format_breakdown_broker(breakdown)
 
 
 def run_interactive_mode(

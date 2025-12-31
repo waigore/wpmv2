@@ -189,6 +189,65 @@ def is_us_market_open(timestamp: Optional[datetime] = None) -> bool:
     return market_open_et <= current_time_et < market_close_et
 
 
+def _get_market_schedule(timestamp_date: date) -> Optional[pd.DataFrame]:
+    """Get market schedule for a given date.
+
+    Args:
+        timestamp_date: Date to get schedule for
+
+    Returns:
+        Schedule DataFrame if available, None otherwise
+    """
+    schedule = NYSE_CALENDAR.schedule(
+        start_date=timestamp_date, end_date=timestamp_date
+    )
+
+    if schedule.empty:
+        return None
+
+    # Check if date exists in index (handle both date and Timestamp types)
+    timestamp_pd = pd.Timestamp(timestamp_date)
+    date_in_index = (
+        timestamp_date in schedule.index
+        or timestamp_pd in schedule.index
+        or any(
+            (isinstance(idx, pd.Timestamp) and idx.date() == timestamp_date)
+            or idx == timestamp_date
+            for idx in schedule.index
+        )
+    )
+
+    if not date_in_index:
+        return None
+
+    return schedule
+
+
+def _get_market_hours(schedule: pd.DataFrame, timestamp_date: date) -> Optional[tuple[time, time]]:
+    """Extract market open and close times from schedule.
+
+    Args:
+        schedule: Schedule DataFrame
+        timestamp_date: Date to extract hours for
+
+    Returns:
+        Tuple of (market_open_time, market_close_time) if available, None otherwise
+    """
+    try:
+        market_open_et = schedule.loc[timestamp_date, "market_open"].time()
+        market_close_et = schedule.loc[timestamp_date, "market_close"].time()
+        return (market_open_et, market_close_et)
+    except KeyError:
+        # If date doesn't work, try with pd.Timestamp
+        timestamp_pd = pd.Timestamp(timestamp_date)
+        try:
+            market_open_et = schedule.loc[timestamp_pd, "market_open"].time()
+            market_close_et = schedule.loc[timestamp_pd, "market_close"].time()
+            return (market_open_et, market_close_et)
+        except (KeyError, IndexError):
+            return None
+
+
 def is_within_trading_hours(timestamp: datetime) -> bool:
     """Check if a given timestamp falls within US market trading hours.
 
@@ -208,40 +267,14 @@ def is_within_trading_hours(timestamp: datetime) -> bool:
     timestamp_date = timestamp.date()
     timestamp_time = timestamp.time()
 
-    schedule = NYSE_CALENDAR.schedule(
-        start_date=timestamp_date, end_date=timestamp_date
-    )
-
-    if schedule.empty:
+    schedule = _get_market_schedule(timestamp_date)
+    if schedule is None:
         return False
 
-    # Try to access the schedule entry safely - handle both date and Timestamp index types
-    try:
-        # Check if date exists in index (handle both date and Timestamp types)
-        date_in_index = False
-        if not schedule.empty:
-            # Convert timestamp_date to pd.Timestamp for comparison if needed
-            timestamp_pd = pd.Timestamp(timestamp_date)
-            # Check both date and Timestamp forms
-            date_in_index = (timestamp_date in schedule.index) or (timestamp_pd in schedule.index) or any(
-                (hasattr(idx, 'date') and idx.date() == timestamp_date) or idx == timestamp_date 
-                for idx in schedule.index
-            )
-        
-        if not date_in_index:
-            return False
-
-        # Try accessing with date first, then with Timestamp
-        try:
-            market_open_et = schedule.loc[timestamp_date, "market_open"].time()
-            market_close_et = schedule.loc[timestamp_date, "market_close"].time()
-        except KeyError:
-            # If date doesn't work, try with pd.Timestamp
-            timestamp_pd = pd.Timestamp(timestamp_date)
-            market_open_et = schedule.loc[timestamp_pd, "market_open"].time()
-            market_close_et = schedule.loc[timestamp_pd, "market_close"].time()
-
-        return market_open_et <= timestamp_time < market_close_et
-    except (KeyError, IndexError) as e:
+    market_hours = _get_market_hours(schedule, timestamp_date)
+    if market_hours is None:
         return False
+
+    market_open_et, market_close_et = market_hours
+    return market_open_et <= timestamp_time < market_close_et
 
