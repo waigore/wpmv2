@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from wpm.utils import validate_asset_type, validate_ticker
 
@@ -175,8 +175,18 @@ class Portfolio(ABC):
         self.name = name
 
     @abstractmethod
-    def get_positions(self) -> dict[Asset, "Position"]:
-        """Get all positions in the portfolio."""
+    def get_positions(
+        self, asset_type: Optional[str] = None, tickers: Optional[List[str]] = None
+    ) -> dict[Asset, "Position"]:
+        """Get all positions in the portfolio.
+
+        Args:
+            asset_type: Optional asset type to filter by (e.g., "Stock", "ETF", "Crypto")
+            tickers: Optional list of ticker symbols to filter by
+
+        Returns:
+            Dictionary mapping Asset to Position objects
+        """
         pass
 
     @abstractmethod

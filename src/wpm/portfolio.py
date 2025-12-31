@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from wpm.cost_basis import calculate_average_cost_basis, calculate_fifo_cost_basis
 from wpm.models import Asset, Portfolio, Position, PortfolioError, Trade
+from wpm.utils import validate_asset_type
 
 if TYPE_CHECKING:
     from wpm.pricing import PriceService
@@ -47,8 +48,14 @@ class SimplePortfolio(Portfolio):
         self._trades.append(trade)
         logger.info(f"Added trade to portfolio '{self.name}': {trade.asset.ticker} {trade.action}")
 
-    def get_positions(self) -> Dict[Asset, Position]:
+    def get_positions(
+        self, asset_type: Optional[str] = None, tickers: Optional[List[str]] = None
+    ) -> Dict[Asset, Position]:
         """Get all positions in the portfolio.
+
+        Args:
+            asset_type: Optional asset type to filter by (e.g., "Stock", "ETF", "Crypto")
+            tickers: Optional list of ticker symbols to filter by
 
         Returns:
             Dictionary mapping Asset to Position objects
@@ -64,6 +71,38 @@ class SimplePortfolio(Portfolio):
         logger.debug(
             f"Calculated {len(positions)} positions for portfolio '{self.name}'"
         )
+
+        # Apply filtering if parameters are provided
+        if asset_type is not None or tickers is not None:
+            # Normalize asset_type if provided
+            normalized_asset_type = None
+            if asset_type is not None:
+                try:
+                    normalized_asset_type = validate_asset_type(asset_type)
+                except ValueError:
+                    # Invalid asset type - no positions will match
+                    logger.debug(
+                        f"Invalid asset_type filter '{asset_type}', returning empty results"
+                    )
+                    return {}
+
+            filtered_positions: Dict[Asset, Position] = {}
+            for asset, position in positions.items():
+                # Check asset_type filter
+                if normalized_asset_type is not None and asset.asset_type != normalized_asset_type:
+                    continue
+                # Check tickers filter
+                if tickers is not None and asset.ticker not in tickers:
+                    continue
+                # Both filters passed (or one was None), include this position
+                filtered_positions[asset] = position
+
+            logger.debug(
+                f"Filtered positions: {len(filtered_positions)} of {len(positions)} "
+                f"positions match filters (asset_type={normalized_asset_type or asset_type}, tickers={tickers})"
+            )
+            return filtered_positions
+
         return positions
 
     def get_total_cost_basis(self) -> float:
@@ -162,8 +201,14 @@ class CompositePortfolio(Portfolio):
             f"Added sub-portfolio '{portfolio.name}' to composite portfolio '{self.name}'"
         )
 
-    def get_positions(self) -> Dict[Asset, Position]:
+    def get_positions(
+        self, asset_type: Optional[str] = None, tickers: Optional[List[str]] = None
+    ) -> Dict[Asset, Position]:
         """Get all positions aggregated from sub-portfolios.
+
+        Args:
+            asset_type: Optional asset type to filter by (e.g., "Stock", "ETF", "Crypto")
+            tickers: Optional list of ticker symbols to filter by
 
         Returns:
             Dictionary mapping Asset to aggregated Position objects
@@ -171,7 +216,9 @@ class CompositePortfolio(Portfolio):
         aggregated_positions: Dict[Asset, Position] = {}
 
         for sub_portfolio in self._sub_portfolios.values():
-            sub_positions = sub_portfolio.get_positions()
+            sub_positions = sub_portfolio.get_positions(
+                asset_type=asset_type, tickers=tickers
+            )
 
             for asset, position in sub_positions.items():
                 if asset not in aggregated_positions:
