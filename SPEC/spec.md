@@ -164,13 +164,18 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - Implement Yahoo Finance price retrieval using yfinance
 - Support both single and batch price retrieval for stocks/ETFs
 - Handle yfinance API responses and data extraction
+- Use trading hours to determine appropriate price source (real-time prices during market hours, close prices otherwise)
 
 **Key Classes:**
 - `YahooFinanceRetriever`: yfinance-based retriever for stocks/ETFs (implements batch retrieval by default)
 
 **Key Methods:**
 - `get_price(ticker, asset_type)`: Get current price for a single stock/ETF
+  - During trading hours: tries `currentPrice` or `regularMarketPrice` from `ticker.info` first, falls back to `Close` from historical data if unavailable
+  - Outside trading hours: uses `Close` from historical data (`ticker.history()`)
 - `get_prices(tickers, asset_type)`: Batch price retrieval using `yf.download()` to fetch multiple tickers in a single API request
+  - During trading hours: tries `currentPrice` or `regularMarketPrice` from `ticker.info` for each ticker, falls back to `Close` from batch download if unavailable
+  - Outside trading hours: uses `Close` from batch download
 
 #### wpm/pricing/coingecko.py
 
@@ -192,7 +197,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 **Responsibilities:**
 - Manage persistent Parquet-based price cache
 - Handle cache file lifecycle (load, save)
-- Validate cache entries per asset based on asset type and trading hours
+- Validate cache entries per asset based on asset type and age
 - Provide methods to get valid cached prices and stale cached prices
 
 **Key Classes:**
@@ -217,7 +222,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `_load_cache()`: Load price cache from Parquet file (lazy loading, cached in memory)
 - `_save_cache()`: Save price cache to Parquet file
 - `_is_cache_valid(cache_entry, asset_type)`: Check if cached price is valid for a specific asset
-  - For US stocks/ETFs: Uses `wpm.utils.is_within_trading_hours()` to determine validity. If current time is outside trading hours and cache timestamp was also outside trading hours, cache is valid. If within trading hours, cache must be less than 10 minutes old.
+  - For US stocks/ETFs: Cache must be less than 10 minutes old regardless of time of day.
   - For crypto: Cache must be less than 10 minutes old regardless of time of day.
 
 **Artefacts:**
@@ -284,7 +289,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - Provide utility functions for validation
 - Set up centralized logging configuration
 - Helper functions for date parsing, ticker normalization, etc.
-- Determine US market trading hours for cache validity calculations
+- Determine US market trading hours for price fetching logic
 
 **Key Functions:**
 - `setup_logging(level=logging.INFO)`: Configure library logging
@@ -421,12 +426,10 @@ Represents a cached price entry stored in the Parquet cache file.
 
 **Cache Validity Rules:**
 
-Validity is determined per asset individually based on asset type and current time:
+Validity is determined per asset individually based on asset type:
 
 1. **US Stocks/ETFs:**
-   - If current time is **outside trading hours** AND the cache timestamp was also outside trading hours: Cache is valid (assumes most current price from last trading session).
-   - If current time is **within trading hours**: Cache is valid only if less than 10 minutes old from current time.
-   - Trading hours determination: Uses `wpm.utils.is_us_market_open()` and `wpm.utils.is_within_trading_hours()` which leverage pandas_market_calendars to account for NYSE regular trading hours (9:30 AM - 4:00 PM ET), weekends, official holidays, and early closes.
+   - Cache is valid only if less than 10 minutes old from current time, regardless of time of day.
 
 2. **Cryptocurrencies:**
    - Cache is valid only if less than 10 minutes old from current time, regardless of time of day.

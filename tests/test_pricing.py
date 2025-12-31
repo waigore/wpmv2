@@ -33,9 +33,11 @@ class TestPriceRetriever:
 class TestYahooFinanceRetriever:
     """Tests for YahooFinanceRetriever."""
 
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
-    def test_get_price_success(self, mock_yf):
+    def test_get_price_success(self, mock_yf, mock_within_hours):
         """Test successful price retrieval from Yahoo Finance."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
         mock_ticker = Mock()
         mock_data = pd.DataFrame(
             {"Close": [150.0, 151.0, 152.0]},
@@ -50,9 +52,11 @@ class TestYahooFinanceRetriever:
         assert price == 152.0
         mock_ticker.history.assert_called_once_with(period="1d", interval="1m")
 
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
-    def test_get_price_empty_data(self, mock_yf):
+    def test_get_price_empty_data(self, mock_yf, mock_within_hours):
         """Test price retrieval with empty data."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
         mock_ticker = Mock()
         mock_ticker.history.return_value = pd.DataFrame()
         mock_yf.Ticker.return_value = mock_ticker
@@ -61,9 +65,11 @@ class TestYahooFinanceRetriever:
         with pytest.raises(ValueError, match="No price data available"):
             retriever.get_price("GOOG", "Stock")
 
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
-    def test_get_price_invalid_data(self, mock_yf):
+    def test_get_price_invalid_data(self, mock_yf, mock_within_hours):
         """Test price retrieval with invalid price data."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
         mock_ticker = Mock()
         mock_data = pd.DataFrame(
             {"Close": [None]},
@@ -76,9 +82,11 @@ class TestYahooFinanceRetriever:
         with pytest.raises(ValueError, match="Invalid price data"):
             retriever.get_price("GOOG", "Stock")
 
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
-    def test_get_price_exception(self, mock_yf):
+    def test_get_price_exception(self, mock_yf, mock_within_hours):
         """Test price retrieval with exception."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
         mock_yf.Ticker.side_effect = Exception("Network error")
 
         retriever = YahooFinanceRetriever()
@@ -120,25 +128,31 @@ class TestYahooFinanceRetriever:
         price = retriever._extract_price_from_ticker_data(ticker_data, "GOOG")
         assert price is None
 
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
-    def test_get_prices_empty_list(self, mock_yf):
+    def test_get_prices_empty_list(self, mock_yf, mock_within_hours):
         """Test batch retrieval with empty ticker list."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
         retriever = YahooFinanceRetriever()
         prices = retriever.get_prices([], "Stock")
         assert prices == {}
         mock_yf.download.assert_not_called()
 
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
-    def test_get_prices_empty_data(self, mock_yf):
+    def test_get_prices_empty_data(self, mock_yf, mock_within_hours):
         """Test batch retrieval with empty data from API."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
         mock_yf.download.return_value = pd.DataFrame()
         retriever = YahooFinanceRetriever()
         prices = retriever.get_prices(["GOOG"], "Stock")
         assert prices == {}
 
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
-    def test_get_prices_single_ticker(self, mock_yf):
+    def test_get_prices_single_ticker(self, mock_yf, mock_within_hours):
         """Test batch retrieval with single ticker (MultiIndex columns)."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
         # yf.download always returns MultiIndex columns, even for single ticker
         arrays = [["GOOG", "GOOG"], ["Close", "Open"]]
         tuples = list(zip(*arrays))
@@ -155,9 +169,11 @@ class TestYahooFinanceRetriever:
         prices = retriever.get_prices(["GOOG"], "Stock")
         assert prices == {"GOOG": 152.0}
 
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
-    def test_get_prices_multiple_tickers(self, mock_yf):
+    def test_get_prices_multiple_tickers(self, mock_yf, mock_within_hours):
         """Test batch retrieval with multiple tickers (MultiIndex)."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
         # Create MultiIndex DataFrame
         arrays = [["GOOG", "GOOG", "AAPL", "AAPL"], ["Close", "Open", "Close", "Open"]]
         tuples = list(zip(*arrays))
@@ -177,12 +193,158 @@ class TestYahooFinanceRetriever:
         prices = retriever.get_prices(["GOOG", "AAPL"], "Stock")
         assert "GOOG" in prices
         assert "AAPL" in prices
+
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_price_during_trading_hours_realtime(self, mock_yf, mock_within_hours):
+        """Test get_price during trading hours uses real-time prices."""
+        mock_within_hours.return_value = True
+        mock_ticker = Mock()
+        mock_ticker.info = {"currentPrice": 155.0}
+        mock_yf.Ticker.return_value = mock_ticker
+
+        retriever = YahooFinanceRetriever()
+        price = retriever.get_price("GOOG", "Stock")
+
+        assert price == 155.0
+        mock_ticker.history.assert_not_called()
+
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_price_during_trading_hours_fallback_to_close(self, mock_yf, mock_within_hours):
+        """Test get_price during trading hours falls back to Close when real-time prices unavailable."""
+        mock_within_hours.return_value = True
+        mock_ticker = Mock()
+        mock_ticker.info = {}  # No real-time prices available
+        mock_data = pd.DataFrame(
+            {"Close": [150.0, 151.0, 152.0]},
+            index=pd.date_range("2024-01-15", periods=3, freq="1min"),
+        )
+        mock_ticker.history.return_value = mock_data
+        mock_yf.Ticker.return_value = mock_ticker
+
+        retriever = YahooFinanceRetriever()
+        price = retriever.get_price("GOOG", "Stock")
+
+        assert price == 152.0
+        mock_ticker.history.assert_called_once_with(period="1d", interval="1m")
+
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_price_during_trading_hours_regular_market_price(self, mock_yf, mock_within_hours):
+        """Test get_price during trading hours uses regularMarketPrice when currentPrice unavailable."""
+        mock_within_hours.return_value = True
+        mock_ticker = Mock()
+        mock_ticker.info = {"regularMarketPrice": 154.0}  # No currentPrice, but has regularMarketPrice
+        mock_yf.Ticker.return_value = mock_ticker
+
+        retriever = YahooFinanceRetriever()
+        price = retriever.get_price("GOOG", "Stock")
+
+        assert price == 154.0
+        mock_ticker.history.assert_not_called()
+
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_price_outside_trading_hours(self, mock_yf, mock_within_hours):
+        """Test get_price outside trading hours uses Close."""
+        mock_within_hours.return_value = False
+        mock_ticker = Mock()
+        mock_data = pd.DataFrame(
+            {"Close": [150.0, 151.0, 152.0]},
+            index=pd.date_range("2024-01-15", periods=3, freq="1min"),
+        )
+        mock_ticker.history.return_value = mock_data
+        mock_yf.Ticker.return_value = mock_ticker
+
+        retriever = YahooFinanceRetriever()
+        price = retriever.get_price("GOOG", "Stock")
+
+        assert price == 152.0
+        mock_ticker.history.assert_called_once_with(period="1d", interval="1m")
+
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_prices_during_trading_hours_realtime(self, mock_yf, mock_within_hours):
+        """Test get_prices during trading hours uses real-time prices."""
+        mock_within_hours.return_value = True
+        mock_ticker1 = Mock()
+        mock_ticker1.info = {"currentPrice": 155.0}
+        mock_ticker2 = Mock()
+        mock_ticker2.info = {"regularMarketPrice": 200.0}
+        mock_yf.Ticker.side_effect = [mock_ticker1, mock_ticker2]
+
+        retriever = YahooFinanceRetriever()
+        prices = retriever.get_prices(["GOOG", "AAPL"], "Stock")
+
+        assert prices["GOOG"] == 155.0
+        assert prices["AAPL"] == 200.0
+        mock_yf.download.assert_not_called()
+
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_prices_during_trading_hours_partial_fallback(self, mock_yf, mock_within_hours):
+        """Test get_prices during trading hours with partial fallback to Close."""
+        mock_within_hours.return_value = True
+        mock_ticker1 = Mock()
+        mock_ticker1.info = {"currentPrice": 155.0}  # GOOG has real-time price
+        mock_ticker2 = Mock()
+        mock_ticker2.info = {}  # AAPL has no real-time price, will use Close
+        mock_yf.Ticker.side_effect = [mock_ticker1, mock_ticker2]
+
+        # Mock batch download for Close prices
+        arrays = [["AAPL", "AAPL"], ["Close", "Open"]]
+        tuples = list(zip(*arrays))
+        mock_data = pd.DataFrame(
+            {
+                ("AAPL", "Close"): [200.0, 201.0],
+                ("AAPL", "Open"): [199.0, 200.0],
+            },
+            index=pd.date_range("2024-01-15", periods=2, freq="1min"),
+        )
+        mock_data.columns = pd.MultiIndex.from_tuples(tuples)
+        mock_yf.download.return_value = mock_data
+
+        retriever = YahooFinanceRetriever()
+        prices = retriever.get_prices(["GOOG", "AAPL"], "Stock")
+
+        assert prices["GOOG"] == 155.0
+        assert prices["AAPL"] == 201.0
+        mock_yf.download.assert_called_once_with(["AAPL"], period="1d", interval="1m", group_by="ticker", progress=False)
+
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_prices_outside_trading_hours(self, mock_yf, mock_within_hours):
+        """Test get_prices outside trading hours uses Close."""
+        mock_within_hours.return_value = False
+        arrays = [["GOOG", "GOOG", "AAPL", "AAPL"], ["Close", "Open", "Close", "Open"]]
+        tuples = list(zip(*arrays))
+        mock_data = pd.DataFrame(
+            {
+                ("GOOG", "Close"): [150.0, 151.0],
+                ("GOOG", "Open"): [149.0, 150.0],
+                ("AAPL", "Close"): [200.0, 201.0],
+                ("AAPL", "Open"): [199.0, 200.0],
+            },
+            index=pd.date_range("2024-01-15", periods=2, freq="1min"),
+        )
+        mock_data.columns = pd.MultiIndex.from_tuples(tuples)
+        mock_yf.download.return_value = mock_data
+
+        retriever = YahooFinanceRetriever()
+        prices = retriever.get_prices(["GOOG", "AAPL"], "Stock")
+
+        assert prices["GOOG"] == 151.0
+        assert prices["AAPL"] == 201.0
+        mock_yf.download.assert_called_once_with(["GOOG", "AAPL"], period="1d", interval="1m", group_by="ticker", progress=False)
         assert prices["GOOG"] == 151.0
         assert prices["AAPL"] == 201.0
 
     @patch("wpm.pricing.yahoo.yf")
     def test_get_prices_partial_failure(self, mock_yf):
         """Test batch retrieval with partial failure (some tickers missing)."""
+        # Note: This test doesn't patch is_within_trading_hours because it tests
+        # the behavior when outside trading hours, which will use Close prices anyway
         # Create MultiIndex DataFrame with only one ticker
         arrays = [["GOOG", "GOOG"], ["Close", "Open"]]
         tuples = list(zip(*arrays))
@@ -200,9 +362,11 @@ class TestYahooFinanceRetriever:
         assert "GOOG" in prices
         assert "AAPL" not in prices
 
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
-    def test_get_prices_exception(self, mock_yf):
+    def test_get_prices_exception(self, mock_yf, mock_within_hours):
         """Test batch retrieval with exception."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
         mock_yf.download.side_effect = Exception("Network error")
         retriever = YahooFinanceRetriever()
         prices = retriever.get_prices(["GOOG"], "Stock")
@@ -456,33 +620,29 @@ class TestPriceCache:
 
             assert price == 150.0
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_cache_validity_stock_outside_hours(self, mock_datetime, mock_within_hours):
-        """Test cache validity for stock outside trading hours."""
+    def test_cache_validity_stock_outside_hours(self, mock_datetime):
+        """Test cache validity for stock (age-based only)."""
         mock_now = datetime(2024, 1, 15, 20, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = False
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            # Set cache with old timestamp (outside hours)
-            old_timestamp = datetime(2024, 1, 15, 18, 0, 0, tzinfo=pytz.UTC)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
+            # Set cache with recent timestamp (5 minutes ago - should be valid)
+            recent_timestamp = mock_now - timedelta(minutes=5)
+            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
 
-            # Cache should be valid if both are outside hours
+            # Cache should be valid (< 10 minutes old)
             price = cache.get_cached_price("GOOG", "Stock")
             assert price == 150.0
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_cache_validity_stock_within_hours_recent(self, mock_datetime, mock_within_hours):
-        """Test cache validity for stock within trading hours with recent cache."""
+    def test_cache_validity_stock_within_hours_recent(self, mock_datetime):
+        """Test cache validity for stock with recent cache (age-based only)."""
         mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
@@ -496,13 +656,11 @@ class TestPriceCache:
             price = cache.get_cached_price("GOOG", "Stock")
             assert price == 150.0
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_cache_validity_stock_within_hours_stale(self, mock_datetime, mock_within_hours):
-        """Test cache validity for stock within trading hours with stale cache."""
+    def test_cache_validity_stock_within_hours_stale(self, mock_datetime):
+        """Test cache validity for stock with stale cache (age-based only)."""
         mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
@@ -575,68 +733,44 @@ class TestPriceCache:
             price = cache.get_stale_cached_price("GOOG", "Stock")
             assert price is None
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
-    @patch("wpm.pricing.cache.datetime")
-    def test_is_stock_cache_valid_both_outside_hours(self, mock_datetime, mock_within_hours):
-        """Test stock cache validity when both times are outside trading hours."""
-        mock_now = datetime(2024, 1, 15, 20, 0, 0, tzinfo=pytz.UTC)
-        mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = False
-
+    def test_is_stock_cache_valid_recent(self):
+        """Test stock cache validity with recent cache (age-based only)."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            old_timestamp = datetime(2024, 1, 15, 18, 0, 0, tzinfo=pytz.UTC)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0)
 
             cache_entry = cache._load_cache().iloc[0]
-            is_valid = cache._is_stock_cache_valid(
-                cache_entry, mock_now, old_timestamp, 120.0
-            )
+            # Recent cache (age < 10 minutes) should be valid
+            is_valid = cache._is_stock_cache_valid(cache_entry, 5.0)
             assert is_valid is True
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
-    @patch("wpm.pricing.cache.datetime")
-    def test_is_stock_cache_valid_current_outside_hours(self, mock_datetime, mock_within_hours):
-        """Test stock cache validity when current time is outside trading hours."""
-        mock_now = datetime(2024, 1, 15, 20, 0, 0, tzinfo=pytz.UTC)
-        mock_datetime.now.return_value = mock_now
-        mock_within_hours.side_effect = lambda ts: ts == mock_now
-
+    def test_is_stock_cache_valid_stale(self):
+        """Test stock cache validity with stale cache (age-based only)."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            old_timestamp = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0)
 
             cache_entry = cache._load_cache().iloc[0]
-            is_valid = cache._is_stock_cache_valid(
-                cache_entry, mock_now, old_timestamp, 360.0
-            )
+            # Stale cache (age >= 10 minutes) should be invalid
+            is_valid = cache._is_stock_cache_valid(cache_entry, 15.0)
             assert is_valid is False
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
-    @patch("wpm.pricing.cache.datetime")
-    def test_is_stock_cache_valid_within_hours_recent(self, mock_datetime, mock_within_hours):
-        """Test stock cache validity when within hours and recent."""
-        mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
-        mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
-
+    def test_is_stock_cache_valid_exactly_at_threshold(self):
+        """Test stock cache validity at the 10-minute threshold."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0)
 
             cache_entry = cache._load_cache().iloc[0]
-            is_valid = cache._is_stock_cache_valid(
-                cache_entry, mock_now, recent_timestamp, 5.0
-            )
-            assert is_valid is True
+            # Exactly 10 minutes should be invalid (age must be < 10)
+            is_valid = cache._is_stock_cache_valid(cache_entry, 10.0)
+            assert is_valid is False
 
     @patch("wpm.pricing.cache.datetime")
     def test_is_crypto_cache_valid_recent(self, mock_datetime):
@@ -780,13 +914,11 @@ class TestPriceCache:
             assert validity.status == CacheValidityStatus.STALE
             assert validity.stale_entries == []
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_get_cache_validity_all_valid(self, mock_datetime, mock_within_hours):
+    def test_get_cache_validity_all_valid(self, mock_datetime):
         """Test get_cache_validity when all entries are valid."""
         mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
@@ -802,13 +934,11 @@ class TestPriceCache:
             assert validity.status == CacheValidityStatus.VALID
             assert len(validity.stale_entries) == 0
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_get_cache_validity_all_stale(self, mock_datetime, mock_within_hours):
+    def test_get_cache_validity_all_stale(self, mock_datetime):
         """Test get_cache_validity when all entries are stale."""
         mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
@@ -825,13 +955,11 @@ class TestPriceCache:
             assert len(validity.stale_entries) == 3
             assert all(entry["ticker"] in ["GOOG", "AAPL", "BTC-USD"] for entry in validity.stale_entries)
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_get_cache_validity_partial(self, mock_datetime, mock_within_hours):
+    def test_get_cache_validity_partial(self, mock_datetime):
         """Test get_cache_validity when some entries are valid and some are stale."""
         mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
@@ -852,13 +980,11 @@ class TestPriceCache:
             assert all(entry["ticker"] in ["AAPL", "BTC-USD"] for entry in validity.stale_entries)
             assert all(entry["ticker"] != "GOOG" for entry in validity.stale_entries)
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_get_cache_validity_with_tickers_filter(self, mock_datetime, mock_within_hours):
+    def test_get_cache_validity_with_tickers_filter(self, mock_datetime):
         """Test get_cache_validity with specific tickers filter."""
         mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
@@ -889,13 +1015,11 @@ class TestPriceCache:
             assert len(validity.stale_entries) == 1
             assert validity.stale_entries[0]["ticker"] == "AAPL"
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_get_cache_validity_with_nonexistent_tickers(self, mock_datetime, mock_within_hours):
+    def test_get_cache_validity_with_nonexistent_tickers(self, mock_datetime):
         """Test get_cache_validity with tickers that don't exist in cache."""
         mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
@@ -910,13 +1034,11 @@ class TestPriceCache:
             assert validity.status == CacheValidityStatus.STALE
             assert len(validity.stale_entries) == 0
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_get_cache_validity_stale_entries_structure(self, mock_datetime, mock_within_hours):
+    def test_get_cache_validity_stale_entries_structure(self, mock_datetime):
         """Test that stale entries have the correct structure."""
         mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
@@ -938,13 +1060,11 @@ class TestPriceCache:
             assert stale_entry["price"] == 150.0
             assert isinstance(stale_entry["timestamp"], datetime)
 
-    @patch("wpm.pricing.cache.is_within_trading_hours")
     @patch("wpm.pricing.cache.datetime")
-    def test_get_cache_validity_mixed_asset_types(self, mock_datetime, mock_within_hours):
+    def test_get_cache_validity_mixed_asset_types(self, mock_datetime):
         """Test get_cache_validity with mixed asset types (Stock, ETF, Crypto)."""
         mock_now = datetime(2024, 1, 15, 14, 0, 0, tzinfo=pytz.UTC)
         mock_datetime.now.return_value = mock_now
-        mock_within_hours.return_value = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"

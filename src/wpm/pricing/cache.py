@@ -11,7 +11,7 @@ import pandas as pd
 import pytz
 
 from wpm.config import Config
-from wpm.utils import concat_dataframes, is_within_trading_hours
+from wpm.utils import concat_dataframes
 
 logger = logging.getLogger(__name__)
 
@@ -153,45 +153,27 @@ class PriceCache:
         age_minutes = (now - cache_timestamp).total_seconds() / 60
 
         if asset_type in ("Stock", "ETF"):
-            return self._is_stock_cache_valid(cache_entry, now, cache_timestamp, age_minutes)
+            return self._is_stock_cache_valid(cache_entry, age_minutes)
 
         if asset_type == "Crypto":
             return self._is_crypto_cache_valid(cache_entry, age_minutes)
 
         return False
 
-    def _is_stock_cache_valid(
-        self, cache_entry: pd.Series, now: datetime, cache_timestamp: datetime, age_minutes: float
-    ) -> bool:
-        """Check if stock/ETF cache is valid based on trading hours.
+    def _is_stock_cache_valid(self, cache_entry: pd.Series, age_minutes: float) -> bool:
+        """Check if stock/ETF cache is valid based on age.
 
         Args:
             cache_entry: Cache entry
-            now: Current time
-            cache_timestamp: Cache timestamp
             age_minutes: Age of cache in minutes
 
         Returns:
             True if cache is valid, False otherwise
         """
-        current_in_hours = is_within_trading_hours(now)
-        cache_in_hours = is_within_trading_hours(cache_timestamp)
-
-        # If both current time and cache time are outside trading hours, cache is valid
-        if not current_in_hours and not cache_in_hours:
-            logger.debug(
-                f"Cache valid for {cache_entry['ticker']}: both outside trading hours"
-            )
-            return True
-
-        # If currently in trading hours, cache must be recent
-        if not current_in_hours:
-            return False
-
         is_valid = age_minutes < Config.CACHE_VALIDITY_MINUTES
         logger.debug(
             f"Cache validity for {cache_entry['ticker']}: "
-            f"{is_valid} (age: {age_minutes:.1f} min, in hours: {current_in_hours})"
+            f"{is_valid} (age: {age_minutes:.1f} min)"
         )
         return is_valid
 

@@ -1,12 +1,15 @@
 """Yahoo Finance price retriever implementation."""
 
 import logging
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import pandas as pd
+import pytz
 import yfinance as yf
 
 from wpm.pricing.base import PriceRetriever
+from wpm.utils import is_within_trading_hours
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +19,10 @@ class YahooFinanceRetriever(PriceRetriever):
 
     def get_price(self, ticker: str, asset_type: str) -> float:
         """Get current price from Yahoo Finance.
+
+        During trading hours: tries currentPrice or regularMarketPrice from ticker.info first,
+        falls back to Close from historical data if unavailable.
+        Outside trading hours: uses Close from historical data.
 
         Args:
             ticker: Stock/ETF ticker symbol
@@ -31,6 +38,19 @@ class YahooFinanceRetriever(PriceRetriever):
 
         try:
             ticker_obj = yf.Ticker(ticker)
+            now = datetime.now(pytz.UTC)
+            in_trading_hours = is_within_trading_hours(now)
+
+            # If within trading hours, try real-time prices first
+            if in_trading_hours:
+                price = self._extract_realtime_price(ticker_obj, ticker)
+                if price is not None:
+                    logger.debug(f"Retrieved real-time price for {ticker}: ${price:.2f}")
+                    return price
+                # Fallback to Close if real-time prices unavailable
+                logger.debug(f"Real-time price unavailable for {ticker}, falling back to Close")
+
+            # Use Close from historical data (outside hours or as fallback)
             data = ticker_obj.history(period="1d", interval="1m")
 
             if data.empty:
@@ -46,6 +66,29 @@ class YahooFinanceRetriever(PriceRetriever):
 
         except Exception as e:
             raise ValueError(f"Error fetching price for {ticker} from Yahoo Finance: {str(e)}") from e
+
+    def _extract_realtime_price(self, ticker_obj: yf.Ticker, ticker: str) -> Optional[float]:
+        """Extract real-time price from ticker.info dict.
+
+        Args:
+            ticker_obj: yfinance Ticker object
+            ticker: Ticker symbol for logging
+
+        Returns:
+            Price if valid, None otherwise
+        """
+        try:
+            info = ticker_obj.info
+            price = info.get('currentPrice')
+            if price is None:
+                price = info.get('regularMarketPrice')
+
+            if price is not None and not pd.isna(price) and price > 0:
+                return float(price)
+        except Exception as e:
+            logger.debug(f"Error extracting real-time price for {ticker}: {str(e)}")
+
+        return None
 
     def _extract_price_from_ticker_data(self, ticker_data: pd.DataFrame, ticker: str) -> Optional[float]:
         """Extract price from ticker data DataFrame.
@@ -100,6 +143,10 @@ class YahooFinanceRetriever(PriceRetriever):
     def get_prices(self, tickers: List[str], asset_type: str) -> Dict[str, float]:
         """Get current prices from Yahoo Finance for multiple tickers in a single batch request.
 
+        During trading hours: tries currentPrice or regularMarketPrice from ticker.info for each ticker,
+        falls back to Close from batch download if unavailable.
+        Outside trading hours: uses Close from batch download.
+
         Args:
             tickers: List of stock/ETF ticker symbols
             asset_type: Asset type (should be "Stock" or "ETF")
@@ -112,18 +159,36 @@ class YahooFinanceRetriever(PriceRetriever):
         if not tickers:
             return {}
 
-        try:
-            # Use yf.download for batch retrieval
-            data = yf.download(tickers, period="1d", interval="1m", group_by="ticker", progress=False)
+        now = datetime.now(pytz.UTC)
+        in_trading_hours = is_within_trading_hours(now)
+        prices: Dict[str, float] = {}
 
-            if data.empty:
-                logger.warning(f"No price data available for any of the requested tickers: {tickers}")
-                return {}
+        # If within trading hours, try real-time prices first
+        if in_trading_hours:
+            for ticker in tickers:
+                try:
+                    ticker_obj = yf.Ticker(ticker)
+                    price = self._extract_realtime_price(ticker_obj, ticker)
+                    if price is not None:
+                        prices[ticker] = price
+                except Exception as e:
+                    logger.debug(f"Error fetching real-time price for {ticker}: {str(e)}")
 
-            # yf.download with group_by="ticker" always returns MultiIndex columns, even for single ticker
-            return self._process_multiindex_data(data, tickers)
+        # Fetch Close prices for any tickers that don't have real-time prices
+        uncached_tickers = [t for t in tickers if t not in prices]
+        if uncached_tickers:
+            try:
+                # Use yf.download for batch retrieval
+                data = yf.download(uncached_tickers, period="1d", interval="1m", group_by="ticker", progress=False)
 
-        except Exception as e:
-            logger.warning(f"Error in batch price retrieval from Yahoo Finance: {str(e)}")
-            return {}
+                if not data.empty:
+                    # yf.download with group_by="ticker" always returns MultiIndex columns, even for single ticker
+                    close_prices = self._process_multiindex_data(data, uncached_tickers)
+                    prices.update(close_prices)
+                else:
+                    logger.warning(f"No Close price data available for tickers: {uncached_tickers}")
+            except Exception as e:
+                logger.warning(f"Error in batch Close price retrieval from Yahoo Finance: {str(e)}")
+
+        return prices
 
