@@ -34,7 +34,9 @@ def sample_buy_trade(sample_asset_stock):
         action="Buy",
         broker="IBKR",
         order_instruction="Limit",
+        currency="USD",
         price=150.0,
+        price_native=150.0,
         quantity=10.0,
     )
 
@@ -48,7 +50,9 @@ def sample_sell_trade(sample_asset_stock):
         action="Sell",
         broker="IBKR",
         order_instruction="Market",
+        currency="USD",
         price=160.0,
+        price_native=160.0,
         quantity=5.0,
     )
 

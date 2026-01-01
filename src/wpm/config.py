@@ -25,6 +25,8 @@ class Config:
     CACHE_DIR = Path.home() / ".wpm"
     CACHE_FILE = CACHE_DIR / "price_cache.parquet"
     CACHE_VALIDITY_MINUTES = 10
+    CURRENCY_CACHE_FILE = CACHE_DIR / "currency_cache.parquet"
+    CURRENCY_CACHE_VALIDITY_MINUTES = 1440  # 24 hours
     
     # Sensitive configuration (loaded from .env file via os.getenv)
     COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")  # Optional - None if not set

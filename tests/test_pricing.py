@@ -68,7 +68,7 @@ class TestYahooFinanceRetriever:
     @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
     def test_get_price_invalid_data(self, mock_yf, mock_within_hours):
-        """Test price retrieval with invalid price data."""
+        """Test price retrieval with invalid price data (all NaN)."""
         mock_within_hours.return_value = False  # Outside trading hours, uses Close
         mock_ticker = Mock()
         mock_data = pd.DataFrame(
@@ -79,8 +79,26 @@ class TestYahooFinanceRetriever:
         mock_yf.Ticker.return_value = mock_ticker
 
         retriever = YahooFinanceRetriever()
-        with pytest.raises(ValueError, match="Invalid price data"):
+        with pytest.raises(ValueError, match="No valid Close price data available"):
             retriever.get_price("GOOG", "Stock")
+
+    @patch("wpm.pricing.yahoo.is_within_trading_hours")
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_price_nan_at_end(self, mock_yf, mock_within_hours):
+        """Test price retrieval with NaN at the end (e.g., .HK tickers)."""
+        mock_within_hours.return_value = False  # Outside trading hours, uses Close
+        mock_ticker = Mock()
+        mock_data = pd.DataFrame(
+            {"Close": [150.0, 151.0, 152.0, None, None]},
+            index=pd.date_range("2024-01-15", periods=5, freq="1min"),
+        )
+        mock_ticker.history.return_value = mock_data
+        mock_yf.Ticker.return_value = mock_ticker
+
+        retriever = YahooFinanceRetriever()
+        # Should use the last valid price (152.0), not the NaN at the end
+        price = retriever.get_price("2800.HK", "ETF")
+        assert price == 152.0
 
     @patch("wpm.pricing.yahoo.is_within_trading_hours")
     @patch("wpm.pricing.yahoo.yf")
@@ -115,11 +133,19 @@ class TestYahooFinanceRetriever:
         assert price is None
 
     def test_extract_price_from_ticker_data_invalid(self):
-        """Test extracting price with invalid data."""
+        """Test extracting price with invalid data (all NaN)."""
         retriever = YahooFinanceRetriever()
         ticker_data = pd.DataFrame({"Close": [None]})
         price = retriever._extract_price_from_ticker_data(ticker_data, "GOOG")
         assert price is None
+
+    def test_extract_price_from_ticker_data_nan_at_end(self):
+        """Test extracting price with NaN at the end (e.g., .HK tickers)."""
+        retriever = YahooFinanceRetriever()
+        ticker_data = pd.DataFrame({"Close": [150.0, 151.0, 152.0, None, None]})
+        # Should use the last valid price (152.0), not the NaN at the end
+        price = retriever._extract_price_from_ticker_data(ticker_data, "2800.HK")
+        assert price == 152.0
 
     def test_extract_price_from_ticker_data_zero(self):
         """Test extracting price with zero price."""
@@ -372,6 +398,24 @@ class TestYahooFinanceRetriever:
         prices = retriever.get_prices(["GOOG"], "Stock")
         assert prices == {}
 
+    def test_detect_currency_us_stock(self):
+        """Test currency detection for US stock."""
+        retriever = YahooFinanceRetriever()
+        currency = retriever._detect_currency("GOOG")
+        assert currency == "USD"
+
+    def test_detect_currency_hong_kong_stock(self):
+        """Test currency detection for Hong Kong stock."""
+        retriever = YahooFinanceRetriever()
+        currency = retriever._detect_currency("2800.HK")
+        assert currency == "HKD"
+
+    def test_detect_currency_etf(self):
+        """Test currency detection for ETF."""
+        retriever = YahooFinanceRetriever()
+        currency = retriever._detect_currency("SPY")
+        assert currency == "USD"
+
 
 
 class TestCoinGeckoRetriever:
@@ -615,10 +659,21 @@ class TestPriceCache:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            cache.set_cached_price("GOOG", "Stock", 150.0)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
             price = cache.get_cached_price("GOOG", "Stock")
 
             assert price == 150.0
+
+    def test_get_cached_price_native(self):
+        """Test getting cached native currency price."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            cache = PriceCache(cache_file=cache_file)
+
+            cache.set_cached_price("2800.HK", "ETF", 12.8, 100.0, "HKD")
+            native_price = cache.get_cached_price_native("2800.HK", "ETF")
+
+            assert native_price == 100.0
 
     @patch("wpm.pricing.cache.datetime")
     def test_cache_validity_stock_outside_hours(self, mock_datetime):
@@ -632,7 +687,7 @@ class TestPriceCache:
 
             # Set cache with recent timestamp (5 minutes ago - should be valid)
             recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=recent_timestamp)
 
             # Cache should be valid (< 10 minutes old)
             price = cache.get_cached_price("GOOG", "Stock")
@@ -650,7 +705,7 @@ class TestPriceCache:
 
             # Set cache with recent timestamp (5 minutes ago)
             recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=recent_timestamp)
 
             # Cache should be valid (< 10 minutes old)
             price = cache.get_cached_price("GOOG", "Stock")
@@ -668,7 +723,7 @@ class TestPriceCache:
 
             # Set cache with old timestamp (15 minutes ago)
             old_timestamp = mock_now - timedelta(minutes=15)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=old_timestamp)
 
             # Cache should be invalid (> 10 minutes old)
             price = cache.get_cached_price("GOOG", "Stock")
@@ -686,7 +741,7 @@ class TestPriceCache:
 
             # Set cache with recent timestamp (5 minutes ago)
             recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=recent_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, 50000.0, "USD", timestamp=recent_timestamp)
 
             # Cache should be valid (< 10 minutes old)
             price = cache.get_cached_price("BTC-USD", "Crypto")
@@ -704,7 +759,7 @@ class TestPriceCache:
 
             # Set cache with old timestamp (15 minutes ago)
             old_timestamp = mock_now - timedelta(minutes=15)
-            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=old_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, 50000.0, "USD", timestamp=old_timestamp)
 
             # Cache should be invalid (> 10 minutes old)
             price = cache.get_cached_price("BTC-USD", "Crypto")
@@ -718,7 +773,7 @@ class TestPriceCache:
 
             # Set cached price (even if stale)
             old_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=old_timestamp)
 
             # Should return stale price
             price = cache.get_stale_cached_price("GOOG", "Stock")
@@ -739,7 +794,7 @@ class TestPriceCache:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            cache.set_cached_price("GOOG", "Stock", 150.0)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
 
             cache_entry = cache._load_cache().iloc[0]
             # Recent cache (age < 10 minutes) should be valid
@@ -752,7 +807,7 @@ class TestPriceCache:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            cache.set_cached_price("GOOG", "Stock", 150.0)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
 
             cache_entry = cache._load_cache().iloc[0]
             # Stale cache (age >= 10 minutes) should be invalid
@@ -765,7 +820,7 @@ class TestPriceCache:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            cache.set_cached_price("GOOG", "Stock", 150.0)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
 
             cache_entry = cache._load_cache().iloc[0]
             # Exactly 10 minutes should be invalid (age must be < 10)
@@ -783,7 +838,7 @@ class TestPriceCache:
             cache = PriceCache(cache_file=cache_file)
 
             recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=recent_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, 50000.0, "USD", timestamp=recent_timestamp)
 
             cache_entry = cache._load_cache().iloc[0]
             is_valid = cache._is_crypto_cache_valid(cache_entry, 5.0)
@@ -800,7 +855,7 @@ class TestPriceCache:
             cache = PriceCache(cache_file=cache_file)
 
             old_timestamp = mock_now - timedelta(minutes=15)
-            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=old_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, 50000.0, "USD", timestamp=old_timestamp)
 
             cache_entry = cache._load_cache().iloc[0]
             is_valid = cache._is_crypto_cache_valid(cache_entry, 15.0)
@@ -817,7 +872,7 @@ class TestPriceCache:
             cache = PriceCache(cache_file=cache_file)
 
             # Set cache with string timestamp by directly modifying the cache DataFrame
-            cache.set_cached_price("GOOG", "Stock", 150.0)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
             cache_df = cache._load_cache()
             # Modify timestamp to be a string using .loc to avoid SettingWithCopyWarning
             cache_df.loc[cache_df.index[0], "timestamp"] = "2024-01-15 14:00:00"
@@ -840,7 +895,7 @@ class TestPriceCache:
 
             # Set cache with pandas Timestamp
             pd_timestamp = pd.Timestamp("2024-01-15 14:00:00", tz="UTC")
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=pd_timestamp.to_pydatetime())
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=pd_timestamp.to_pydatetime())
             cache_df = cache._load_cache()
             # Modify to pandas Timestamp using .loc to avoid SettingWithCopyWarning
             cache_df.loc[cache_df.index[0], "timestamp"] = pd_timestamp
@@ -859,7 +914,7 @@ class TestPriceCache:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            cache.set_cached_price("GOOG", "Stock", 150.0)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
             cache_df = cache._load_cache()
             # Convert timestamp column to object type first to allow string
             cache_df["timestamp"] = cache_df["timestamp"].astype(object)
@@ -877,7 +932,7 @@ class TestPriceCache:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            cache.set_cached_price("GOOG", "Stock", 150.0)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
             cache_df = cache._load_cache()
             # Convert timestamp column to object type first to allow NaT
             cache_df["timestamp"] = cache_df["timestamp"].astype(object)
@@ -898,7 +953,7 @@ class TestPriceCache:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             cache = PriceCache(cache_file=cache_file)
 
-            cache.set_cached_price("GOOG", "Stock", 150.0)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
             cache_entry = cache._load_cache().iloc[0]
 
             is_valid = cache._is_cache_valid(cache_entry, "Invalid")
@@ -926,9 +981,9 @@ class TestPriceCache:
 
             # Set recent cache entries (5 minutes ago)
             recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
-            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=recent_timestamp)
-            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=recent_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=recent_timestamp)
+            cache.set_cached_price("AAPL", "Stock", 200.0, 200.0, "USD", timestamp=recent_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, 50000.0, "USD", timestamp=recent_timestamp)
 
             validity = cache.get_cache_validity()
             assert validity.status == CacheValidityStatus.VALID
@@ -946,9 +1001,9 @@ class TestPriceCache:
 
             # Set old cache entries (15 minutes ago)
             old_timestamp = mock_now - timedelta(minutes=15)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
-            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=old_timestamp)
-            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=old_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=old_timestamp)
+            cache.set_cached_price("AAPL", "Stock", 200.0, 200.0, "USD", timestamp=old_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, 50000.0, "USD", timestamp=old_timestamp)
 
             validity = cache.get_cache_validity()
             assert validity.status == CacheValidityStatus.STALE
@@ -967,12 +1022,12 @@ class TestPriceCache:
 
             # Set recent cache entry (5 minutes ago) - valid
             recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=recent_timestamp)
 
             # Set old cache entries (15 minutes ago) - stale
             old_timestamp = mock_now - timedelta(minutes=15)
-            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=old_timestamp)
-            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=old_timestamp)
+            cache.set_cached_price("AAPL", "Stock", 200.0, 200.0, "USD", timestamp=old_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, 50000.0, "USD", timestamp=old_timestamp)
 
             validity = cache.get_cache_validity()
             assert validity.status == CacheValidityStatus.PARTIAL
@@ -992,11 +1047,11 @@ class TestPriceCache:
 
             # Set recent cache entry (5 minutes ago) - valid
             recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=recent_timestamp)
 
             # Set old cache entry (15 minutes ago) - stale
             old_timestamp = mock_now - timedelta(minutes=15)
-            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=old_timestamp)
+            cache.set_cached_price("AAPL", "Stock", 200.0, 200.0, "USD", timestamp=old_timestamp)
 
             # Check only GOOG (should be valid)
             validity = cache.get_cache_validity(tickers=["GOOG"])
@@ -1027,7 +1082,7 @@ class TestPriceCache:
 
             # Set one cache entry
             recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=recent_timestamp)
 
             # Check for tickers that don't exist
             validity = cache.get_cache_validity(tickers=["NONEXISTENT"])
@@ -1046,7 +1101,7 @@ class TestPriceCache:
 
             # Set old cache entry (15 minutes ago)
             old_timestamp = mock_now - timedelta(minutes=15)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=old_timestamp)
 
             validity = cache.get_cache_validity()
             assert len(validity.stale_entries) == 1
@@ -1072,14 +1127,14 @@ class TestPriceCache:
 
             # Set recent entries (5 minutes ago) - valid
             recent_timestamp = mock_now - timedelta(minutes=5)
-            cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=recent_timestamp)
-            cache.set_cached_price("SPY", "ETF", 400.0, timestamp=recent_timestamp)
-            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, timestamp=recent_timestamp)
+            cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=recent_timestamp)
+            cache.set_cached_price("SPY", "ETF", 400.0, 400.0, "USD", timestamp=recent_timestamp)
+            cache.set_cached_price("BTC-USD", "Crypto", 50000.0, 50000.0, "USD", timestamp=recent_timestamp)
 
             # Set old entries (15 minutes ago) - stale
             old_timestamp = mock_now - timedelta(minutes=15)
-            cache.set_cached_price("AAPL", "Stock", 200.0, timestamp=old_timestamp)
-            cache.set_cached_price("ETH-USD", "Crypto", 3000.0, timestamp=old_timestamp)
+            cache.set_cached_price("AAPL", "Stock", 200.0, 200.0, "USD", timestamp=old_timestamp)
+            cache.set_cached_price("ETH-USD", "Crypto", 3000.0, 3000.0, "USD", timestamp=old_timestamp)
 
             validity = cache.get_cache_validity()
             assert validity.status == CacheValidityStatus.PARTIAL
@@ -1098,7 +1153,7 @@ class TestPriceService:
             service = PriceService(cache_file=cache_file)
 
             # Set cached price
-            service.cache.set_cached_price("GOOG", "Stock", 150.0)
+            service.cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
 
             # Mock the retriever's get_price method
             with patch.object(service._stock_retriever, 'get_price') as mock_get_price:
@@ -1107,16 +1162,40 @@ class TestPriceService:
                 # Should not call retriever since cache hit
                 mock_get_price.assert_not_called()
 
-    @patch("wpm.pricing.service.YahooFinanceRetriever")
-    def test_get_price_cache_miss(self, mock_retriever_class):
-        """Test price retrieval with cache miss."""
-        mock_retriever = Mock()
-        mock_retriever.get_price.return_value = 150.0
-        mock_retriever_class.return_value = mock_retriever
-
+    def test_get_price_native_currency(self):
+        """Test price retrieval in native currency."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
             service = PriceService(cache_file=cache_file)
+
+            # Set cached price with HKD native
+            service.cache.set_cached_price("2800.HK", "ETF", 12.8, 100.0, "HKD")
+
+            # Get native price
+            native_price = service.get_price("2800.HK", "ETF", in_native_currency=True)
+            assert native_price == 100.0
+
+            # Get USD price (default)
+            usd_price = service.get_price("2800.HK", "ETF", in_native_currency=False)
+            assert usd_price == 12.8
+
+    @patch("wpm.pricing.service.CurrencyService")
+    @patch("wpm.pricing.service.YahooFinanceRetriever")
+    def test_get_price_cache_miss(self, mock_retriever_class, mock_currency_service_class):
+        """Test price retrieval with cache miss."""
+        mock_retriever = Mock()
+        mock_retriever.get_price.return_value = 150.0  # Native price
+        mock_retriever._detect_currency.return_value = "USD"
+        mock_retriever_class.return_value = mock_retriever
+
+        mock_currency_service = Mock()
+        mock_currency_service.convert_to_usd.return_value = 150.0
+        mock_currency_service_class.return_value = mock_currency_service
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            service = PriceService(cache_file=cache_file, currency_service=mock_currency_service)
+            service._stock_retriever = mock_retriever
 
             price = service.get_price("GOOG", "Stock")
             assert price == 150.0
@@ -1129,12 +1208,39 @@ class TestPriceService:
             service = PriceService(cache_file=cache_file)
 
             # Cache some prices
-            service.cache.set_cached_price("GOOG", "Stock", 150.0)
-            service.cache.set_cached_price("AAPL", "Stock", 200.0)
+            service.cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
+            service.cache.set_cached_price("AAPL", "Stock", 200.0, 200.0, "USD")
 
             prices = service.get_prices(["GOOG", "AAPL"], "Stock")
             assert prices["GOOG"] == 150.0
             assert prices["AAPL"] == 200.0
+
+    @patch("wpm.pricing.service.CurrencyService")
+    @patch("wpm.pricing.service.YahooFinanceRetriever")
+    def test_get_price_with_currency_conversion(self, mock_retriever_class, mock_currency_service_class):
+        """Test price retrieval with currency conversion for non-USD stock."""
+        mock_retriever = Mock()
+        mock_retriever.get_price.return_value = 100.0  # Native price in HKD
+        mock_retriever._detect_currency.return_value = "HKD"
+        mock_retriever_class.return_value = mock_retriever
+
+        mock_currency_service = Mock()
+        mock_currency_service.convert_to_usd.return_value = 12.8  # 100 HKD * 0.128 = 12.8 USD
+        mock_currency_service_class.return_value = mock_currency_service
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            service = PriceService(cache_file=cache_file, currency_service=mock_currency_service)
+            service._stock_retriever = mock_retriever
+
+            # Get USD price (default)
+            usd_price = service.get_price("2800.HK", "ETF")
+            assert usd_price == 12.8
+            mock_currency_service.convert_to_usd.assert_called_once_with(100.0, "HKD")
+
+            # Get native price
+            native_price = service.get_price("2800.HK", "ETF", in_native_currency=True)
+            assert native_price == 100.0
 
     def test_get_price_unsupported_asset_type(self):
         """Test price retrieval with unsupported asset type."""
@@ -1150,8 +1256,8 @@ class TestPriceService:
             service = PriceService(cache_file=cache_file)
 
             # Cache all prices
-            service.cache.set_cached_price("GOOG", "Stock", 150.0)
-            service.cache.set_cached_price("AAPL", "Stock", 200.0)
+            service.cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
+            service.cache.set_cached_price("AAPL", "Stock", 200.0, 200.0, "USD")
 
             prices = service.get_prices(["GOOG", "AAPL"], "Stock")
             assert prices["GOOG"] == 150.0
@@ -1160,62 +1266,94 @@ class TestPriceService:
             # YahooFinanceRetriever is instantiated in __init__, so it's called once
             mock_retriever_class.assert_called_once()
 
+    @patch("wpm.pricing.service.CurrencyService")
     @patch.object(YahooFinanceRetriever, "get_prices")
-    def test_get_prices_all_uncached(self, mock_get_prices):
+    def test_get_prices_all_uncached(self, mock_get_prices, mock_currency_service_class):
         """Test batch retrieval when no prices are cached."""
-        mock_get_prices.return_value = {"GOOG": 150.0, "AAPL": 200.0}
+        mock_get_prices.return_value = {"GOOG": 150.0, "AAPL": 200.0}  # Native prices
+
+        mock_currency_service = Mock()
+        def convert_side_effect(amount, currency):
+            return amount if currency == "USD" else amount * 0.128
+        mock_currency_service.convert_to_usd.side_effect = convert_side_effect
+        mock_currency_service_class.return_value = mock_currency_service
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
-            service = PriceService(cache_file=cache_file)
+            service = PriceService(cache_file=cache_file, currency_service=mock_currency_service)
+            service._stock_retriever._detect_currency = lambda ticker: "USD"
 
             prices = service.get_prices(["GOOG", "AAPL"], "Stock")
             assert prices["GOOG"] == 150.0
             assert prices["AAPL"] == 200.0
             mock_get_prices.assert_called_once_with(["GOOG", "AAPL"], "Stock")
 
+    @patch("wpm.pricing.service.CurrencyService")
     @patch.object(YahooFinanceRetriever, "get_prices")
-    def test_get_prices_mixed_cache(self, mock_get_prices):
+    def test_get_prices_mixed_cache(self, mock_get_prices, mock_currency_service_class):
         """Test batch retrieval with mixed cached and uncached prices."""
-        mock_get_prices.return_value = {"AAPL": 200.0}  # Only AAPL from API
+        mock_get_prices.return_value = {"AAPL": 200.0}  # Only AAPL from API (native price)
+
+        mock_currency_service = Mock()
+        def convert_side_effect(amount, currency):
+            return amount if currency == "USD" else amount * 0.128
+        mock_currency_service.convert_to_usd.side_effect = convert_side_effect
+        mock_currency_service_class.return_value = mock_currency_service
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
-            service = PriceService(cache_file=cache_file)
+            service = PriceService(cache_file=cache_file, currency_service=mock_currency_service)
+            service._stock_retriever._detect_currency = lambda ticker: "USD"
 
             # Cache GOOG
-            service.cache.set_cached_price("GOOG", "Stock", 150.0)
+            service.cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD")
 
             prices = service.get_prices(["GOOG", "AAPL"], "Stock")
             assert prices["GOOG"] == 150.0  # From cache
             assert prices["AAPL"] == 200.0  # From API
             mock_get_prices.assert_called_once_with(["AAPL"], "Stock")
 
+    @patch("wpm.pricing.service.CurrencyService")
     @patch.object(YahooFinanceRetriever, "get_prices")
-    def test_get_prices_partial_failure_with_stale_cache(self, mock_get_prices):
+    def test_get_prices_partial_failure_with_stale_cache(self, mock_get_prices, mock_currency_service_class):
         """Test batch retrieval with partial failure and stale cache fallback."""
         mock_get_prices.return_value = {"AAPL": 200.0}  # GOOG failed
 
+        mock_currency_service = Mock()
+        def convert_side_effect(amount, currency):
+            return amount if currency == "USD" else amount * 0.128
+        mock_currency_service.convert_to_usd.side_effect = convert_side_effect
+        mock_currency_service_class.return_value = mock_currency_service
+
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
-            service = PriceService(cache_file=cache_file)
+            service = PriceService(cache_file=cache_file, currency_service=mock_currency_service)
+            service._stock_retriever._detect_currency = lambda ticker: "USD"
 
             # Set stale cache for GOOG
             old_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
-            service.cache.set_cached_price("GOOG", "Stock", 150.0, timestamp=old_timestamp)
+            service.cache.set_cached_price("GOOG", "Stock", 150.0, 150.0, "USD", timestamp=old_timestamp)
 
             prices = service.get_prices(["GOOG", "AAPL"], "Stock")
             assert prices["GOOG"] == 150.0  # From stale cache
             assert prices["AAPL"] == 200.0  # From API
 
+    @patch("wpm.pricing.service.CurrencyService")
     @patch.object(YahooFinanceRetriever, "get_prices")
-    def test_get_prices_partial_failure_no_cache(self, mock_get_prices):
+    def test_get_prices_partial_failure_no_cache(self, mock_get_prices, mock_currency_service_class):
         """Test batch retrieval with partial failure and no cache (should raise error)."""
         mock_get_prices.return_value = {"AAPL": 200.0}  # GOOG failed
 
+        mock_currency_service = Mock()
+        def convert_side_effect(amount, currency):
+            return amount if currency == "USD" else amount * 0.128
+        mock_currency_service.convert_to_usd.side_effect = convert_side_effect
+        mock_currency_service_class.return_value = mock_currency_service
+
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_file = Path(temp_dir) / "test_cache.parquet"
-            service = PriceService(cache_file=cache_file)
+            service = PriceService(cache_file=cache_file, currency_service=mock_currency_service)
+            service._stock_retriever._detect_currency = lambda ticker: "USD"
 
             with pytest.raises(ValueError, match="No price data available for GOOG"):
                 service.get_prices(["GOOG", "AAPL"], "Stock")

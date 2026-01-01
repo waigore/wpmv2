@@ -8,6 +8,7 @@ import pandas as pd
 import pytz
 import yfinance as yf
 
+from wpm.currency import CurrencyService
 from wpm.pricing.base import PriceRetriever
 from wpm.utils import is_within_trading_hours
 
@@ -17,8 +18,32 @@ logger = logging.getLogger(__name__)
 class YahooFinanceRetriever(PriceRetriever):
     """Price retriever using yfinance for stocks and ETFs."""
 
+    def __init__(self, currency_service: CurrencyService = None):
+        """Initialize Yahoo Finance retriever.
+
+        Args:
+            currency_service: CurrencyService instance (default: creates new instance)
+        """
+        self.currency_service = currency_service or CurrencyService()
+
+    def _detect_currency(self, ticker: str) -> str:
+        """Detect currency from ticker suffix.
+
+        Args:
+            ticker: Ticker symbol (e.g., "2800.HK", "GOOG")
+
+        Returns:
+            Currency code (e.g., "HKD", "USD")
+        """
+        # Hong Kong stocks have .HK suffix
+        if ticker.endswith(".HK"):
+            return "HKD"
+
+        # Default to USD for US stocks/ETFs
+        return "USD"
+
     def get_price(self, ticker: str, asset_type: str) -> float:
-        """Get current price from Yahoo Finance.
+        """Get current price from Yahoo Finance in native currency.
 
         During trading hours: tries currentPrice or regularMarketPrice from ticker.info first,
         falls back to Close from historical data if unavailable.
@@ -29,40 +54,54 @@ class YahooFinanceRetriever(PriceRetriever):
             asset_type: Asset type (should be "Stock" or "ETF")
 
         Returns:
-            Current price in USD
+            Current price in native currency (not USD)
 
         Raises:
             ValueError: If price cannot be retrieved
         """
         logger.debug(f"Fetching price from Yahoo Finance for {ticker} ({asset_type})")
 
+        # Detect currency from ticker
+        currency = self._detect_currency(ticker)
+        logger.debug(f"Detected currency for {ticker}: {currency}")
+
         try:
             ticker_obj = yf.Ticker(ticker)
             now = datetime.now(pytz.UTC)
             in_trading_hours = is_within_trading_hours(now)
 
+            native_price: Optional[float] = None
+
             # If within trading hours, try real-time prices first
             if in_trading_hours:
-                price = self._extract_realtime_price(ticker_obj, ticker)
-                if price is not None:
-                    logger.debug(f"Retrieved real-time price for {ticker}: ${price:.2f}")
-                    return price
-                # Fallback to Close if real-time prices unavailable
-                logger.debug(f"Real-time price unavailable for {ticker}, falling back to Close")
+                native_price = self._extract_realtime_price(ticker_obj, ticker)
+                if native_price is not None:
+                    logger.debug(f"Retrieved real-time price for {ticker}: {native_price:.2f} {currency}")
+                else:
+                    # Fallback to Close if real-time prices unavailable
+                    logger.debug(f"Real-time price unavailable for {ticker}, falling back to Close")
 
             # Use Close from historical data (outside hours or as fallback)
-            data = ticker_obj.history(period="1d", interval="1m")
+            if native_price is None:
+                data = ticker_obj.history(period="1d", interval="1m")
 
-            if data.empty:
-                raise ValueError(f"No price data available for {ticker}")
+                if data.empty:
+                    raise ValueError(f"No price data available for {ticker}")
 
-            latest_price = data["Close"].iloc[-1]
+                # Find the last non-NaN Close price (some .HK tickers have NaN at the end)
+                close_series = data["Close"].dropna()
+                if close_series.empty:
+                    raise ValueError(f"No valid Close price data available for {ticker}")
 
-            if pd.isna(latest_price) or latest_price <= 0:
-                raise ValueError(f"Invalid price data for {ticker}")
+                latest_price = close_series.iloc[-1]
 
-            logger.debug(f"Retrieved price for {ticker}: ${latest_price:.2f}")
-            return float(latest_price)
+                if pd.isna(latest_price) or latest_price <= 0:
+                    raise ValueError(f"Invalid price data for {ticker}")
+
+                native_price = float(latest_price)
+                logger.debug(f"Retrieved price for {ticker}: {native_price:.2f} {currency}")
+
+            return native_price
 
         except Exception as e:
             raise ValueError(f"Error fetching price for {ticker} from Yahoo Finance: {str(e)}") from e
@@ -104,7 +143,13 @@ class YahooFinanceRetriever(PriceRetriever):
             logger.warning(f"No Close price data available for {ticker}")
             return None
 
-        latest_price = ticker_data["Close"].iloc[-1]
+        # Find the last non-NaN Close price (some .HK tickers have NaN at the end)
+        close_series = ticker_data["Close"].dropna()
+        if close_series.empty:
+            logger.warning(f"No valid Close price data available for {ticker}")
+            return None
+        
+        latest_price = close_series.iloc[-1]
         if pd.isna(latest_price) or latest_price <= 0:
             logger.warning(f"Invalid price data for {ticker}")
             return None
@@ -143,6 +188,8 @@ class YahooFinanceRetriever(PriceRetriever):
     def get_prices(self, tickers: List[str], asset_type: str) -> Dict[str, float]:
         """Get current prices from Yahoo Finance for multiple tickers in a single batch request.
 
+        Prices are returned in native currency (not USD).
+
         During trading hours: tries currentPrice or regularMarketPrice from ticker.info for each ticker,
         falls back to Close from batch download if unavailable.
         Outside trading hours: uses Close from batch download.
@@ -152,7 +199,7 @@ class YahooFinanceRetriever(PriceRetriever):
             asset_type: Asset type (should be "Stock" or "ETF")
 
         Returns:
-            Dictionary mapping ticker to price. Only includes successfully retrieved prices.
+            Dictionary mapping ticker to price in native currency. Only includes successfully retrieved prices.
         """
         logger.debug(f"Batch fetching prices from Yahoo Finance for {len(tickers)} {asset_type} assets")
 

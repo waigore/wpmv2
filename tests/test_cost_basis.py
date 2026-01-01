@@ -19,7 +19,9 @@ class TestFIFOCostBasis:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
 
@@ -41,7 +43,9 @@ class TestFIFOCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             ),
             Trade(
@@ -49,8 +53,10 @@ class TestFIFOCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             ),
         ]
 
@@ -70,7 +76,9 @@ class TestFIFOCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             ),
             Trade(
@@ -78,8 +86,10 @@ class TestFIFOCostBasis:
                 asset=asset,
                 action="Sell",
                 broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             ),
         ]
 
@@ -99,7 +109,9 @@ class TestFIFOCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             ),
             Trade(
@@ -107,16 +119,20 @@ class TestFIFOCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             ),
             Trade(
                 date=date(2024, 3, 15),
                 asset=asset,
                 action="Sell",
-                broker="IBKR",
-                price=170.0,
-                quantity=8.0,
+            broker="IBKR",
+            currency="USD",
+            price=170.0,
+            price_native=170.0,
+            quantity=8.0,
             ),
         ]
 
@@ -137,7 +153,9 @@ class TestFIFOCostBasis:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             ),
             Trade(
@@ -145,8 +163,10 @@ class TestFIFOCostBasis:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
-                price=200.0,
-                quantity=5.0,
+            currency="USD",
+            price=200.0,
+            price_native=200.0,
+            quantity=5.0,
             ),
         ]
 
@@ -172,7 +192,9 @@ class TestFIFOCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             ),
             Trade(
@@ -180,7 +202,9 @@ class TestFIFOCostBasis:
                 asset=asset,
                 action="Sell",
                 broker="IBKR",
+                currency="USD",
                 price=160.0,
+                price_native=160.0,
                 quantity=15.0,  # More than owned
             ),
         ]
@@ -201,7 +225,9 @@ class TestAverageCostBasis:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
 
@@ -223,7 +249,9 @@ class TestAverageCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             ),
             Trade(
@@ -231,8 +259,10 @@ class TestAverageCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             ),
         ]
 
@@ -252,7 +282,9 @@ class TestAverageCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             ),
             Trade(
@@ -260,8 +292,10 @@ class TestAverageCostBasis:
                 asset=asset,
                 action="Sell",
                 broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             ),
         ]
 
@@ -281,7 +315,9 @@ class TestAverageCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             ),
             Trade(
@@ -289,16 +325,20 @@ class TestAverageCostBasis:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             ),
             Trade(
                 date=date(2024, 3, 15),
                 asset=asset,
                 action="Sell",
-                broker="IBKR",
-                price=170.0,
-                quantity=8.0,
+            broker="IBKR",
+            currency="USD",
+            price=170.0,
+            price_native=170.0,
+            quantity=8.0,
             ),
         ]
 
@@ -319,9 +359,11 @@ class TestAverageCostBasis:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Sell",
-                broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            broker="IBKR",
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             ),
         ]
 

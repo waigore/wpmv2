@@ -62,7 +62,9 @@ class Trade:
     broker: str
     order_instruction: Optional[str] = None
     trade_type: Optional[str] = None
-    price: float = field(default=0.0)
+    currency: str = "USD"
+    price: float = field(default=0.0)  # Price in USD (accounting currency)
+    price_native: float = field(default=0.0)  # Price in native currency
     quantity: Decimal = field(default_factory=lambda: Decimal('0'))
 
     def __post_init__(self):
@@ -88,6 +90,9 @@ class Trade:
         if not self.broker or not isinstance(self.broker, str):
             raise ValidationError("Broker must be a non-empty string")
 
+        if not self.currency or not isinstance(self.currency, str):
+            raise ValidationError("Currency must be a non-empty string")
+
         if self.order_instruction is not None:
             if not isinstance(self.order_instruction, str) or not self.order_instruction.strip():
                 raise ValidationError("Order instruction must be a non-empty string if provided")
@@ -98,6 +103,15 @@ class Trade:
 
         if not isinstance(self.price, (int, float)) or self.price <= 0:
             raise ValidationError("Price must be a positive number greater than 0")
+
+        if not isinstance(self.price_native, (int, float)) or self.price_native <= 0:
+            raise ValidationError("Price native must be a positive number greater than 0")
+
+        # Ensure price_native matches price when currency is USD
+        if self.currency == "USD" and abs(self.price - self.price_native) > 0.0001:
+            raise ValidationError(
+                f"When currency is USD, price_native ({self.price_native}) must equal price ({self.price})"
+            )
 
         # Convert quantity to Decimal if it's a float or int
         if isinstance(self.quantity, (int, float)):

@@ -28,9 +28,11 @@ class TestCalculatePortfolioMetrics:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
 
@@ -51,9 +53,11 @@ class TestCalculatePortfolioMetrics:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
 
@@ -73,9 +77,11 @@ class TestBreakdownByAssetType:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
 
@@ -97,9 +103,11 @@ class TestBreakdownByAssetType:
                 date=date(2024, 1, 15),
                 asset=stock_asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
         portfolio.add_trade(
@@ -107,9 +115,11 @@ class TestBreakdownByAssetType:
                 date=date(2024, 1, 16),
                 asset=crypto_asset,
                 action="Buy",
-                broker="Coinbase",
-                price=50000.0,
-                quantity=0.1,
+            broker="Coinbase",
+            currency="USD",
+            price=50000.0,
+            price_native=50000.0,
+            quantity=0.1,
             )
         )
 
@@ -135,9 +145,11 @@ class TestBreakdownByTicker:
                 date=date(2024, 1, 15),
                 asset=asset1,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
         portfolio.add_trade(
@@ -145,9 +157,11 @@ class TestBreakdownByTicker:
                 date=date(2024, 1, 16),
                 asset=asset2,
                 action="Buy",
-                broker="IBKR",
-                price=200.0,
-                quantity=5.0,
+            broker="IBKR",
+            currency="USD",
+            price=200.0,
+            price_native=200.0,
+            quantity=5.0,
             )
         )
 
@@ -172,9 +186,11 @@ class TestBreakdownByPurchasePeriod:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
         portfolio.add_trade(
@@ -183,7 +199,9 @@ class TestBreakdownByPurchasePeriod:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=160.0,
+                price_native=160.0,
                 quantity=5.0,
             )
         )
@@ -205,9 +223,11 @@ class TestBreakdownByPurchasePeriod:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
         portfolio.add_trade(
@@ -216,7 +236,9 @@ class TestBreakdownByPurchasePeriod:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=160.0,
+                price_native=160.0,
                 quantity=5.0,
             )
         )
@@ -236,9 +258,11 @@ class TestBreakdownByPurchasePeriod:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
 
@@ -267,9 +291,11 @@ class TestBreakdownByBroker:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
         portfolio.add_trade(
@@ -278,7 +304,9 @@ class TestBreakdownByBroker:
                 asset=asset,
                 action="Buy",
                 broker="Fidelity",
+                currency="USD",
                 price=160.0,
+                price_native=160.0,
                 quantity=5.0,
             )
         )
@@ -305,9 +333,11 @@ class TestCalculateMarketValue:
                 date=date(2024, 1, 15),
                 asset=asset1,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
         portfolio.add_trade(
@@ -315,9 +345,11 @@ class TestCalculateMarketValue:
                 date=date(2024, 1, 16),
                 asset=asset2,
                 action="Buy",
-                broker="IBKR",
-                price=200.0,
-                quantity=5.0,
+            broker="IBKR",
+            currency="USD",
+            price=200.0,
+            price_native=200.0,
+            quantity=5.0,
             )
         )
 
@@ -337,9 +369,11 @@ class TestCalculateMarketValue:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
 
@@ -359,9 +393,11 @@ class TestCalculateMarketValue:
                 date=date(2024, 1, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=150.0,
-                quantity=10.0,
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
             )
         )
 

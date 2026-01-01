@@ -37,7 +37,9 @@ class TestSimplePortfolio:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
 
@@ -67,7 +69,9 @@ class TestSimplePortfolio:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
 
@@ -91,7 +95,9 @@ class TestSimplePortfolio:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -101,7 +107,9 @@ class TestSimplePortfolio:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -118,7 +126,9 @@ class TestSimplePortfolio:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
 
@@ -146,7 +156,9 @@ class TestSimplePortfolio:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -155,9 +167,11 @@ class TestSimplePortfolio:
                 date=date(2024, 2, 15),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            broker="IBKR",
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             )
         )
 
@@ -212,7 +226,9 @@ class TestCompositePortfolio:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -225,7 +241,9 @@ class TestCompositePortfolio:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -250,7 +268,9 @@ class TestCompositePortfolio:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -261,9 +281,11 @@ class TestCompositePortfolio:
                 date=date(2024, 1, 16),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            broker="IBKR",
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             )
         )
 
@@ -288,7 +310,9 @@ class TestCompositePortfolio:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -301,7 +325,9 @@ class TestCompositePortfolio:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -323,7 +349,9 @@ class TestCompositePortfolio:
             asset=asset1,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         sub1.add_trade(trade1)
@@ -335,7 +363,9 @@ class TestCompositePortfolio:
             asset=asset2,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=200.0,
+            price_native=200.0,
             quantity=5.0,
         )
         sub2.add_trade(trade2)
@@ -361,7 +391,9 @@ class TestCompositePortfolio:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -389,7 +421,9 @@ class TestTotalMarketValue:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -399,7 +433,9 @@ class TestTotalMarketValue:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -422,7 +458,9 @@ class TestTotalMarketValue:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -432,7 +470,9 @@ class TestTotalMarketValue:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -456,7 +496,9 @@ class TestTotalMarketValue:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -466,7 +508,9 @@ class TestTotalMarketValue:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -490,7 +534,9 @@ class TestTotalMarketValue:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -503,7 +549,9 @@ class TestTotalMarketValue:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -530,7 +578,9 @@ class TestTotalMarketValue:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -567,7 +617,9 @@ class TestTotalUnrealizedPnl:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -577,7 +629,9 @@ class TestTotalUnrealizedPnl:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -601,7 +655,9 @@ class TestTotalUnrealizedPnl:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -626,7 +682,9 @@ class TestTotalUnrealizedPnl:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -639,7 +697,9 @@ class TestTotalUnrealizedPnl:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -669,7 +729,9 @@ class TestTotalUnrealizedPnl:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -695,7 +757,9 @@ class TestTotalUnrealizedPnl:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -705,7 +769,9 @@ class TestTotalUnrealizedPnl:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -750,7 +816,9 @@ class TestFetchPriceMap:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         portfolio.add_trade(trade)
@@ -774,7 +842,9 @@ class TestFetchPriceMap:
             asset=stock_asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         portfolio.add_trade(stock_trade)
@@ -785,7 +855,9 @@ class TestFetchPriceMap:
             asset=crypto_asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=50000.0,
+            price_native=50000.0,
             quantity=0.5,
         )
         portfolio.add_trade(crypto_trade)
@@ -815,7 +887,9 @@ class TestFetchPriceMap:
             asset=asset1,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         portfolio.add_trade(trade1)
@@ -826,7 +900,9 @@ class TestFetchPriceMap:
             asset=asset2,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=200.0,
+            price_native=200.0,
             quantity=5.0,
         )
         portfolio.add_trade(trade2)
@@ -854,7 +930,9 @@ class TestFetchPriceMap:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         portfolio.add_trade(trade)
@@ -877,7 +955,9 @@ class TestFetchPriceMap:
             asset=stock_asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         portfolio.add_trade(stock_trade)
@@ -888,7 +968,9 @@ class TestFetchPriceMap:
             asset=crypto_asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=50000.0,
+            price_native=50000.0,
             quantity=0.5,
         )
         portfolio.add_trade(crypto_trade)
@@ -917,7 +999,9 @@ class TestFetchPriceMap:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -930,7 +1014,9 @@ class TestFetchPriceMap:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -958,7 +1044,9 @@ class TestFetchPriceMap:
             asset=asset1,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         portfolio.add_trade(trade1)
@@ -969,7 +1057,9 @@ class TestFetchPriceMap:
             asset=asset2,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=200.0,
+            price_native=200.0,
             quantity=5.0,
         )
         portfolio.add_trade(trade2)
@@ -1001,7 +1091,9 @@ class TestGetPositionsFiltering:
                 asset=stock_asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1011,7 +1103,9 @@ class TestGetPositionsFiltering:
                 asset=crypto_asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=50000.0,
+                price_native=50000.0,
                 quantity=0.5,
             )
         )
@@ -1035,7 +1129,9 @@ class TestGetPositionsFiltering:
                 asset=etf_asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=400.0,
+                price_native=400.0,
                 quantity=5.0,
             )
         )
@@ -1045,7 +1141,9 @@ class TestGetPositionsFiltering:
                 asset=stock_asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1069,7 +1167,9 @@ class TestGetPositionsFiltering:
                 asset=crypto_asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=50000.0,
+                price_native=50000.0,
                 quantity=0.5,
             )
         )
@@ -1079,7 +1179,9 @@ class TestGetPositionsFiltering:
                 asset=stock_asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1103,7 +1205,9 @@ class TestGetPositionsFiltering:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1113,7 +1217,9 @@ class TestGetPositionsFiltering:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -1138,7 +1244,9 @@ class TestGetPositionsFiltering:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1148,7 +1256,9 @@ class TestGetPositionsFiltering:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -1158,7 +1268,9 @@ class TestGetPositionsFiltering:
                 asset=asset3,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=300.0,
+                price_native=300.0,
                 quantity=3.0,
             )
         )
@@ -1184,7 +1296,9 @@ class TestGetPositionsFiltering:
                 asset=stock1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1194,7 +1308,9 @@ class TestGetPositionsFiltering:
                 asset=stock2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -1204,7 +1320,9 @@ class TestGetPositionsFiltering:
                 asset=crypto1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=50000.0,
+                price_native=50000.0,
                 quantity=0.5,
             )
         )
@@ -1228,7 +1346,9 @@ class TestGetPositionsFiltering:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1268,7 +1388,9 @@ class TestGetPositionsFiltering:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1278,7 +1400,9 @@ class TestGetPositionsFiltering:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=50000.0,
+                price_native=50000.0,
                 quantity=0.5,
             )
         )
@@ -1291,7 +1415,9 @@ class TestGetPositionsFiltering:
                 asset=asset3,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=200.0,
+                price_native=200.0,
                 quantity=5.0,
             )
         )
@@ -1321,7 +1447,9 @@ class TestGetPositionsFiltering:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1331,7 +1459,9 @@ class TestGetPositionsFiltering:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=50000.0,
+                price_native=50000.0,
                 quantity=0.5,
             )
         )
@@ -1356,7 +1486,9 @@ class TestGetPositionsFiltering:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1376,7 +1508,9 @@ class TestGetPositionsFiltering:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1396,7 +1530,9 @@ class TestGetPositionsFiltering:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1422,7 +1558,9 @@ class TestGetPositionsFiltering:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1433,9 +1571,11 @@ class TestGetPositionsFiltering:
                 date=date(2024, 1, 16),
                 asset=asset,
                 action="Buy",
-                broker="IBKR",
-                price=160.0,
-                quantity=5.0,
+            broker="IBKR",
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
             )
         )
         
@@ -1462,7 +1602,9 @@ class TestGetPositionsFiltering:
                 asset=asset1,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1472,7 +1614,9 @@ class TestGetPositionsFiltering:
                 asset=asset2,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=50000.0,
+                price_native=50000.0,
                 quantity=0.5,
             )
         )
@@ -1494,7 +1638,9 @@ class TestGetPositionsFiltering:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )
@@ -1525,7 +1671,9 @@ class TestGetPositionsFiltering:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
         )

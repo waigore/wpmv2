@@ -67,9 +67,10 @@ def validate_ticker(ticker: str) -> None:
     if not ticker or not isinstance(ticker, str):
         raise ValueError("Ticker must be a non-empty string")
 
-    if not re.match(r"^[A-Za-z0-9_-]+$", ticker):
+    # Allow alphanumeric, hyphens, underscores, and dots (for non-US stocks like 2800.HK)
+    if not re.match(r"^[A-Za-z0-9_.-]+$", ticker):
         raise ValueError(
-            "Ticker must contain only alphanumeric characters, hyphens, and underscores"
+            "Ticker must contain only alphanumeric characters, hyphens, underscores, and dots"
         )
 
 

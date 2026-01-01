@@ -65,26 +65,36 @@ class PriceCache:
         """Load price cache from Parquet file.
 
         Returns:
-            DataFrame with columns: ticker, asset_type, price, timestamp
+            DataFrame with columns: ticker, asset_type, price, native_price, native_currency, timestamp
         """
         if self._cache is not None:
             return self._cache
 
+        expected_columns = ["ticker", "asset_type", "price", "native_price", "native_currency", "timestamp"]
+
         if not self.cache_file.exists():
             logger.debug("Cache file does not exist, starting with empty cache")
-            self._cache = pd.DataFrame(
-                columns=["ticker", "asset_type", "price", "timestamp"]
-            )
+            self._cache = pd.DataFrame(columns=expected_columns)
             return self._cache
 
         try:
             self._cache = pd.read_parquet(self.cache_file)
             logger.info(f"Loaded price cache from {self.cache_file} with {len(self._cache)} entries")
+            
+            # Handle migration from old schema (without native_price/native_currency)
+            if "native_price" not in self._cache.columns:
+                logger.debug("Migrating cache schema: adding native_price and native_currency columns")
+                self._cache["native_price"] = self._cache["price"]  # Assume USD, so native = USD price
+                self._cache["native_currency"] = "USD"
+                self._save_cache()  # Save migrated schema
+            elif "native_currency" not in self._cache.columns:
+                logger.debug("Migrating cache schema: adding native_currency column")
+                self._cache["native_currency"] = "USD"
+                self._save_cache()  # Save migrated schema
+                
         except Exception as e:
             logger.warning(f"Error loading cache file: {e}. Starting with empty cache")
-            self._cache = pd.DataFrame(
-                columns=["ticker", "asset_type", "price", "timestamp"]
-            )
+            self._cache = pd.DataFrame(columns=expected_columns)
 
         return self._cache
 
@@ -211,14 +221,14 @@ class PriceCache:
         return is_valid
 
     def get_cached_price(self, ticker: str, asset_type: str) -> Optional[float]:
-        """Get cached price if valid.
+        """Get cached USD price if valid.
 
         Args:
             ticker: Asset ticker
             asset_type: Asset type
 
         Returns:
-            Cached price if valid, None otherwise
+            Cached USD price if valid, None otherwise
         """
         cache = self._load_cache()
 
@@ -237,22 +247,58 @@ class PriceCache:
 
         if self._is_cache_valid(cache_entry, asset_type):
             logger.info(
-                f"Cache hit for {ticker} ({asset_type}): ${cache_entry['price']:.2f}"
+                f"Cache hit for {ticker} ({asset_type}): ${cache_entry['price']:.2f} USD"
             )
             return float(cache_entry["price"])
 
         logger.debug(f"Cache entry for {ticker} ({asset_type}) is invalid/expired")
         return None
 
-    def get_stale_cached_price(self, ticker: str, asset_type: str) -> Optional[float]:
-        """Get cached price even if it's expired/invalid (stale).
+    def get_cached_price_native(self, ticker: str, asset_type: str) -> Optional[float]:
+        """Get cached native currency price if valid.
 
         Args:
             ticker: Asset ticker
             asset_type: Asset type
 
         Returns:
-            Cached price if entry exists (even if stale), None if no cache entry exists at all
+            Cached native currency price if valid, None otherwise
+        """
+        cache = self._load_cache()
+
+        if cache.empty:
+            return None
+
+        matches = cache[
+            (cache["ticker"] == ticker) & (cache["asset_type"] == asset_type)
+        ]
+
+        if matches.empty:
+            logger.debug(f"No cache entry found for {ticker} ({asset_type})")
+            return None
+
+        cache_entry = matches.iloc[0]
+
+        if self._is_cache_valid(cache_entry, asset_type):
+            native_price = float(cache_entry["native_price"])
+            native_currency = str(cache_entry["native_currency"])
+            logger.info(
+                f"Cache hit for {ticker} ({asset_type}): {native_price:.2f} {native_currency}"
+            )
+            return native_price
+
+        logger.debug(f"Cache entry for {ticker} ({asset_type}) is invalid/expired")
+        return None
+
+    def get_stale_cached_price(self, ticker: str, asset_type: str) -> Optional[float]:
+        """Get cached USD price even if it's expired/invalid (stale).
+
+        Args:
+            ticker: Asset ticker
+            asset_type: Asset type
+
+        Returns:
+            Cached USD price if entry exists (even if stale), None if no cache entry exists at all
         """
         cache = self._load_cache()
 
@@ -269,18 +315,58 @@ class PriceCache:
 
         cache_entry = matches.iloc[0]
         price = float(cache_entry["price"])
-        logger.debug(f"Retrieved stale cache entry for {ticker} ({asset_type}): ${price:.2f}")
+        logger.debug(f"Retrieved stale cache entry for {ticker} ({asset_type}): ${price:.2f} USD")
         return price
 
-    def set_cached_price(
-        self, ticker: str, asset_type: str, price: float, timestamp: Optional[datetime] = None
-    ) -> None:
-        """Set cached price.
+    def get_stale_cached_price_native(self, ticker: str, asset_type: str) -> Optional[float]:
+        """Get cached native currency price even if it's expired/invalid (stale).
 
         Args:
             ticker: Asset ticker
             asset_type: Asset type
-            price: Price to cache
+
+        Returns:
+            Cached native currency price if entry exists (even if stale), None if no cache entry exists at all
+        """
+        cache = self._load_cache()
+
+        if cache.empty:
+            return None
+
+        matches = cache[
+            (cache["ticker"] == ticker) & (cache["asset_type"] == asset_type)
+        ]
+
+        if matches.empty:
+            logger.debug(f"No cache entry found for {ticker} ({asset_type})")
+            return None
+
+        cache_entry = matches.iloc[0]
+        native_price = float(cache_entry["native_price"])
+        native_currency = str(cache_entry["native_currency"])
+        logger.debug(
+            f"Retrieved stale cache entry for {ticker} ({asset_type}): "
+            f"{native_price:.2f} {native_currency}"
+        )
+        return native_price
+
+    def set_cached_price(
+        self,
+        ticker: str,
+        asset_type: str,
+        price: float,
+        native_price: float,
+        native_currency: str,
+        timestamp: Optional[datetime] = None,
+    ) -> None:
+        """Set cached price (both USD and native currency).
+
+        Args:
+            ticker: Asset ticker
+            asset_type: Asset type
+            price: USD price to cache
+            native_price: Native currency price to cache
+            native_currency: Native currency code (e.g., "HKD", "USD")
             timestamp: Timestamp (default: current time)
         """
         cache = self._load_cache()
@@ -294,6 +380,8 @@ class PriceCache:
                     "ticker": ticker,
                     "asset_type": asset_type,
                     "price": price,
+                    "native_price": native_price,
+                    "native_currency": native_currency,
                     "timestamp": timestamp,
                 }
             ]

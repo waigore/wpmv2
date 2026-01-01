@@ -22,6 +22,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
   - `wpm/pricing/service.py` - Service that orchestrates price retrieval with caching and rate limiting
 - `wpm/metrics.py` - Portfolio metrics and breakdown generation
 - `wpm/utils.py` - Utility functions for validation, logging setup, and helpers
+- `wpm/currency.py` - Currency conversion module using yfinance for forex rates
 
 ## Module Requirements
 
@@ -125,6 +126,8 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
    - `CACHE_DIR`: Default cache directory path (`Path.home() / ".wpm"`)
    - `CACHE_FILE`: Default cache file path (`CACHE_DIR / "price_cache.parquet"`)
    - `CACHE_VALIDITY_MINUTES`: Cache validity threshold in minutes (default: 10)
+   - `CURRENCY_CACHE_FILE`: Default currency cache file path (`CACHE_DIR / "currency_cache.parquet"`)
+   - `CURRENCY_CACHE_VALIDITY_MINUTES`: Currency cache validity threshold in minutes (default: 1440, i.e., 24 hours)
 
 **Usage:**
 - Other modules import `Config` class and access configuration via class attributes
@@ -168,17 +171,25 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - Support both single and batch price retrieval for stocks/ETFs
 - Handle yfinance API responses and data extraction
 - Use trading hours to determine appropriate price source (real-time prices during market hours, close prices otherwise)
+- Detect currency from ticker suffix (e.g., `.HK` → `HKD`)
+- Support Hong Kong stocks (ticker format: `XXXX.HK`, currency: `HKD`)
 
 **Key Classes:**
 - `YahooFinanceRetriever`: yfinance-based retriever for stocks/ETFs (implements batch retrieval by default)
 
 **Key Methods:**
-- `get_price(ticker, asset_type)`: Get current price for a single stock/ETF
+- `_detect_currency(ticker)`: Detect currency from ticker suffix
+  - Returns "HKD" for Hong Kong stocks (`.HK` suffix)
+  - Returns "USD" for US stocks/ETFs (default)
+- `get_price(ticker, asset_type)`: Get current price for a single stock/ETF in native currency
+  - Detects currency from ticker
   - During trading hours: tries `currentPrice` or `regularMarketPrice` from `ticker.info` first, falls back to `Close` from historical data if unavailable
   - Outside trading hours: uses `Close` from historical data (`ticker.history()`)
+  - Returns price in native currency (not USD)
 - `get_prices(tickers, asset_type)`: Batch price retrieval using `yf.download()` to fetch multiple tickers in a single API request
   - During trading hours: tries `currentPrice` or `regularMarketPrice` from `ticker.info` for each ticker, falls back to `Close` from batch download if unavailable
   - Outside trading hours: uses `Close` from batch download
+  - Returns prices in native currency (not USD)
 
 #### wpm/pricing/coingecko.py
 
@@ -209,9 +220,11 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `CacheValidity`: Dataclass containing cache validity status and stale entries
 
 **Key Methods:**
-- `get_cached_price(ticker, asset_type)`: Get cached price if valid (returns None if invalid or missing)
-- `get_stale_cached_price(ticker, asset_type)`: Get cached price even if expired (returns None only if no cache entry exists)
-- `set_cached_price(ticker, asset_type, price, timestamp)`: Set/update cached price with timestamp
+- `get_cached_price(ticker, asset_type)`: Get cached USD price if valid (returns None if invalid or missing)
+- `get_cached_price_native(ticker, asset_type)`: Get cached native currency price if valid (returns None if invalid or missing)
+- `get_stale_cached_price(ticker, asset_type)`: Get cached USD price even if expired (returns None only if no cache entry exists)
+- `get_stale_cached_price_native(ticker, asset_type)`: Get cached native currency price even if expired (returns None only if no cache entry exists)
+- `set_cached_price(ticker, asset_type, price, native_price, native_currency, timestamp)`: Set/update cached price with both USD and native currency prices
 - `get_cache_validity(tickers=None)`: Get cache validity status for all entries or specific tickers
   - Returns `CacheValidity` dataclass with:
     - `status`: One of `CacheValidityStatus.VALID`, `CacheValidityStatus.PARTIAL`, or `CacheValidityStatus.STALE`
@@ -230,7 +243,8 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 
 **Artefacts:**
 - Persistent Parquet cache file (default path from `wpm.config.Config.CACHE_FILE`, configurable via constructor parameter)
-- Cache file contains: ticker, asset_type, price, timestamp columns
+- Cache file contains: ticker, asset_type, price (USD), native_price, native_currency, timestamp columns
+- Cache schema migration: Automatically migrates old cache files (without native_price/native_currency) to new schema
 
 #### wpm/pricing/rate_limiter.py
 
@@ -255,10 +269,16 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `PriceService`: Service that orchestrates price retrieval with caching and rate limiting
 
 **Key Methods:**
-- `get_price(ticker, asset_type)`: Get current price for an asset (checks cache first, validates per asset, uses appropriate retriever if cache miss)
-- `get_prices(tickers, asset_type)`: Batch price retrieval with rate limiting (uses batch API calls by default)
+- `get_price(ticker, asset_type, in_native_currency=False)`: Get current price for an asset (checks cache first, validates per asset, uses appropriate retriever if cache miss)
+  - Returns USD price by default (accounting currency)
+  - Returns native currency price if `in_native_currency=True`
+  - For stocks/ETFs: detects currency from ticker, retrieves native price, converts to USD, stores both in cache
+  - For crypto: price is already in USD (native currency is USD)
+- `get_prices(tickers, asset_type, in_native_currency=False)`: Batch price retrieval with rate limiting (uses batch API calls by default)
   - Checks cache for all tickers first
   - Fetches uncached tickers using batch API call from appropriate retriever
+  - For stocks/ETFs: detects currency for each ticker, converts native prices to USD, stores both in cache
+  - Returns USD prices by default, native currency prices if `in_native_currency=True`
   - For tickers that fail API retrieval: if stale cache exists, log warning and use stale price; if no cache exists, raise ValueError
 - `_get_retriever(asset_type)`: Internal method to get appropriate price retriever (YahooFinanceRetriever for Stock/ETF, CoinGeckoRetriever for Crypto)
 
@@ -285,6 +305,33 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 **Artefacts:**
 - Metrics dictionaries/dataframes
 - Breakdown reports
+
+### wpm/currency.py
+
+**Responsibilities:**
+- Retrieve forex exchange rates using yfinance API
+- Convert amounts between currencies (with USD as default counter currency)
+- Cache forex rates with 24-hour validity to minimize API calls
+- Manage currency cache file lifecycle
+
+**Key Classes:**
+- `CurrencyService`: Service for currency conversion using yfinance
+- `CurrencyCache`: Manages persistent Parquet-based currency rate cache
+
+**Key Methods:**
+- `CurrencyService.get_forex_rate(base_currency, counter_currency="USD")`: Get forex exchange rate
+  - Uses yfinance API with format `{BASE}{COUNTER}=X` (e.g., `HKDUSD=X`)
+  - Returns exchange rate where 1 base = X counter
+  - Uses CurrencyCache for caching
+- `CurrencyService.convert_to_usd(amount, from_currency)`: Convert amount from any currency to USD
+  - Returns amount unchanged if from_currency is USD
+- `CurrencyCache.get_cached_rate(base_currency, counter_currency="USD")`: Get cached rate if valid (24-hour validity)
+- `CurrencyCache.set_cached_rate(base_currency, counter_currency, rate, timestamp)`: Set/update cached rate
+
+**Artefacts:**
+- Persistent Parquet currency cache file (default path from `wpm.config.Config.CURRENCY_CACHE_FILE`)
+- Cache file contains: base_currency, counter_currency, rate, timestamp columns
+- Cache validity: 24 hours (1440 minutes)
 
 ### wpm/utils.py
 
@@ -343,8 +390,13 @@ Represents a single buy or sell transaction.
   - Validation: Non-empty string if provided
 - `trade_type` (str, optional): The category/strategy of the trade (e.g., "Discretionary", "Recurring buy", "DRIP")
   - Validation: Non-empty string if provided
-- `price` (float, required): Price per unit in USD
+- `currency` (str, required): Original trade currency code (e.g., "USD", "HKD")
+  - Validation: Non-empty string
+- `price` (float, required): Price per unit in USD (accounting currency)
   - Validation: Positive number, greater than 0
+- `price_native` (float, required): Price per unit in native currency (if currency is USD, this equals price)
+  - Validation: Positive number, greater than 0
+  - Must equal `price` when `currency` is "USD"
 - `quantity` (float, required): Number of units traded
   - Validation: Positive number, greater than 0
 
@@ -427,8 +479,12 @@ Represents a cached price entry stored in the Parquet cache file.
 **Fields:**
 - `ticker` (str, required): Asset ticker symbol
 - `asset_type` (str, required): Asset type ("Stock", "ETF", or "Crypto")
-- `price` (float, required): Cached price in USD
+- `price` (float, required): Cached price in USD (accounting currency)
   - Validation: Positive number
+- `native_price` (float, required): Cached price in native currency
+  - Validation: Positive number
+- `native_currency` (str, required): Currency code (e.g., "HKD", "USD")
+  - Validation: Non-empty string
 - `timestamp` (datetime, required): When the price was retrieved and cached
   - Validation: Valid datetime object
 
@@ -457,7 +513,8 @@ Validity is determined per asset individually based on asset type:
 - `Broker`: Broker/platform name
 - `Order Instruction` (optional): How the order was placed (e.g., "Limit", "Market", "Lump sum", "DRIP")
 - `Trade Type` (optional): The category/strategy of the trade (e.g., "Discretionary", "Recurring buy", "DRIP")
-- `Price (USD)`: Price per unit in USD
+- `Price`: Price per unit in native currency
+- `Currency`: Currency code (e.g., "USD", "HKD") - required
 - `Quantity`: Number of units
 
 **Validation Rules:**
@@ -574,4 +631,8 @@ Validity is determined per asset individually based on asset type:
 **wpm/metrics.py:**
 - INFO: Metrics calculation started/completed, breakdown generation
 - DEBUG: Breakdown aggregation steps, metric computation details
+
+**wpm/currency.py:**
+- INFO: Currency cache load/save operations, cache hits with rate
+- DEBUG: Forex rate retrieval details, currency conversion calculations
 

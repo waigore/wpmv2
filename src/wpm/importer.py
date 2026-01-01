@@ -7,6 +7,7 @@ from typing import List, Set
 
 import pandas as pd
 
+from wpm.currency import CurrencyService
 from wpm.models import Asset, Trade, ValidationError
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
 from wpm.utils import normalize_date, validate_asset_type
@@ -19,7 +20,8 @@ REQUIRED_COLUMNS = [
     "Asset Type",
     "Action",
     "Broker",
-    "Price (USD)",
+    "Price",
+    "Currency",
     "Quantity",
 ]
 
@@ -41,13 +43,14 @@ def validate_csv_structure(df: pd.DataFrame) -> None:
         )
 
 
-def parse_trade_row(row: pd.Series) -> Trade:
+def parse_trade_row(row: pd.Series, currency_service: CurrencyService = None) -> Trade:
     """Convert CSV row to Trade object.
 
     Maps "Equity" asset type to "Stock" as per spec requirement.
 
     Args:
         row: Pandas Series representing a CSV row
+        currency_service: CurrencyService instance for currency conversion (default: creates new instance)
 
     Returns:
         Trade object
@@ -55,6 +58,9 @@ def parse_trade_row(row: pd.Series) -> Trade:
     Raises:
         ValidationError: If row data is invalid
     """
+    if currency_service is None:
+        currency_service = CurrencyService()
+
     try:
         date_str = str(row["Date"])
         trade_date = normalize_date(date_str)
@@ -79,7 +85,23 @@ def parse_trade_row(row: pd.Series) -> Trade:
         if "Trade Type" in row and pd.notna(row["Trade Type"]):
             trade_type = str(row["Trade Type"]).strip()
 
-        price = float(row["Price (USD)"])
+        # Read Currency column (required)
+        currency = str(row["Currency"]).strip().upper()
+        if not currency:
+            raise ValidationError("Currency column cannot be empty")
+
+        # Read Price column (required)
+        price_native = float(row["Price"])
+
+        # Convert price to USD using currency service if currency != USD
+        if currency == "USD":
+            price_usd = price_native
+        else:
+            price_usd = currency_service.convert_to_usd(price_native, currency)
+            logger.debug(
+                f"Converted {price_native} {currency} to {price_usd:.2f} USD "
+                f"for trade {ticker} on {trade_date}"
+            )
 
         # Parse quantity as Decimal to avoid floating point precision issues
         quantity = Decimal(str(row["Quantity"]))
@@ -91,13 +113,15 @@ def parse_trade_row(row: pd.Series) -> Trade:
             broker=broker,
             order_instruction=order_instruction,
             trade_type=trade_type,
-            price=price,
+            currency=currency,
+            price=price_usd,
+            price_native=price_native,
             quantity=quantity,
         )
 
         logger.debug(
             f"Parsed trade: {trade_date} {asset.ticker} {action} "
-            f"{quantity} @ ${price} via {broker}"
+            f"{quantity} @ {price_native} {currency} (${price_usd:.2f} USD) via {broker}"
         )
 
         return trade
@@ -106,11 +130,12 @@ def parse_trade_row(row: pd.Series) -> Trade:
         raise ValidationError(f"Error parsing trade row: {str(e)}") from e
 
 
-def import_trades_from_csv(file_path: str) -> List[Trade]:
+def import_trades_from_csv(file_path: str, currency_service: CurrencyService = None) -> List[Trade]:
     """Import trades from CSV file.
 
     Args:
         file_path: Path to CSV file
+        currency_service: CurrencyService instance for currency conversion (default: creates new instance)
 
     Returns:
         List of Trade objects
@@ -119,6 +144,9 @@ def import_trades_from_csv(file_path: str) -> List[Trade]:
         ValidationError: If CSV structure is invalid or data cannot be parsed
     """
     logger.info(f"Starting CSV import from '{file_path}'")
+
+    if currency_service is None:
+        currency_service = CurrencyService()
 
     try:
         df = pd.read_csv(file_path)
@@ -134,7 +162,7 @@ def import_trades_from_csv(file_path: str) -> List[Trade]:
 
     for idx, row in df.iterrows():
         try:
-            trade = parse_trade_row(row)
+            trade = parse_trade_row(row, currency_service)
             trades.append(trade)
         except ValidationError as e:
             error_msg = f"Row {idx + 1}: {str(e)}"

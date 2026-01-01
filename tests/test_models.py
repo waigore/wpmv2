@@ -66,13 +66,17 @@ class TestTrade:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
 
         assert trade.date == date(2024, 1, 15)
         assert trade.action == "Buy"
+        assert trade.currency == "USD"
         assert trade.price == 150.0
+        assert trade.price_native == 150.0
         assert trade.quantity == Decimal('10.0')
 
     def test_trade_action_normalization(self):
@@ -83,7 +87,9 @@ class TestTrade:
             asset=asset,
             action="buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         assert trade1.action == "Buy"
@@ -93,7 +99,9 @@ class TestTrade:
             asset=asset,
             action="SELL",
             broker="IBKR",
+            currency="USD",
             price=160.0,
+            price_native=160.0,
             quantity=5.0,
         )
         assert trade2.action == "Sell"
@@ -106,7 +114,9 @@ class TestTrade:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
 
@@ -120,7 +130,9 @@ class TestTrade:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         sell_trade = Trade(
@@ -128,7 +140,9 @@ class TestTrade:
             asset=asset,
             action="Sell",
             broker="IBKR",
+            currency="USD",
             price=160.0,
+            price_native=160.0,
             quantity=5.0,
         )
 
@@ -148,7 +162,9 @@ class TestTrade:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=10.0,
             )
 
@@ -162,7 +178,9 @@ class TestTrade:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=-10.0,
+                price_native=-10.0,
                 quantity=10.0,
             )
 
@@ -172,7 +190,9 @@ class TestTrade:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=0.0,
+                price_native=0.0,
                 quantity=10.0,
             )
 
@@ -186,7 +206,9 @@ class TestTrade:
                 asset=asset,
                 action="Buy",
                 broker="IBKR",
+                currency="USD",
                 price=150.0,
+                price_native=150.0,
                 quantity=-10.0,
             )
 
@@ -200,7 +222,9 @@ class TestTrade:
             action="Buy",
             broker="IBKR",
             order_instruction="Limit",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         assert trade_with_instruction.order_instruction == "Limit"
@@ -210,7 +234,9 @@ class TestTrade:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         assert trade_without_instruction.order_instruction is None
@@ -225,7 +251,9 @@ class TestTrade:
             action="Buy",
             broker="IBKR",
             trade_type="Discretionary",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         assert trade_with_type.trade_type == "Discretionary"
@@ -235,7 +263,9 @@ class TestTrade:
             asset=asset,
             action="Buy",
             broker="IBKR",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         assert trade_without_type.trade_type is None
@@ -251,11 +281,92 @@ class TestTrade:
             broker="IBKR",
             order_instruction="Limit",
             trade_type="Recurring buy",
+            currency="USD",
             price=150.0,
+            price_native=150.0,
             quantity=10.0,
         )
         assert trade.order_instruction == "Limit"
         assert trade.trade_type == "Recurring buy"
+
+    def test_trade_with_currency_usd(self):
+        """Test trade with USD currency."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        assert trade.currency == "USD"
+        assert trade.price == 150.0
+        assert trade.price_native == 150.0
+
+    def test_trade_with_currency_hkd(self):
+        """Test trade with HKD currency."""
+        asset = Asset(ticker="2800.HK", asset_type="ETF")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="Futu",
+            currency="HKD",
+            price=12.8,  # USD price (converted)
+            price_native=100.0,  # HKD price
+            quantity=10.0,
+        )
+        assert trade.currency == "HKD"
+        assert trade.price == 12.8
+        assert trade.price_native == 100.0
+
+    def test_trade_currency_validation_mismatch(self):
+        """Test trade validation when price_native doesn't match price for USD."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        with pytest.raises(ValidationError, match="price_native.*must equal price"):
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=200.0,  # Mismatch
+                quantity=10.0,
+            )
+
+    def test_trade_currency_empty(self):
+        """Test trade with empty currency raises error."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        with pytest.raises(ValidationError, match="Currency must be a non-empty string"):
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+
+    def test_trade_price_native_validation(self):
+        """Test trade with invalid price_native."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        with pytest.raises(ValidationError, match="Price native must be a positive number"):
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=-100.0,
+                quantity=10.0,
+            )
 
 
 class TestPosition:
