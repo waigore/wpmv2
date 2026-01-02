@@ -1,6 +1,7 @@
 """Portfolio class implementation with aggregation logic."""
 
 import logging
+from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Dict, List, Optional
 
@@ -164,6 +165,50 @@ class SimplePortfolio(Portfolio):
         """
         return self._trades.copy()
 
+    def get_asset_trades(
+        self, ticker: str, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Trade]:
+        """Get all trades for a specified asset (ticker) within the portfolio.
+
+        Args:
+            ticker: Asset ticker symbol to filter trades by
+            start_date: Optional start date for date range filter (inclusive).
+                If not specified, includes trades from the very beginning.
+            end_date: Optional end date for date range filter (inclusive).
+                If not specified, includes trades to the very end.
+
+        Returns:
+            List of Trade objects matching the ticker and date range
+            (includes both Buy and Sell trades)
+        """
+        logger.info(
+            f"Getting asset trades for ticker '{ticker}' "
+            f"(start_date={start_date}, end_date={end_date}) in portfolio '{self.name}'"
+        )
+
+        filtered_trades: List[Trade] = []
+        for trade in self._trades:
+            # Filter by ticker
+            if trade.asset.ticker != ticker:
+                continue
+
+            # Filter by start_date if provided
+            if start_date is not None and trade.date < start_date:
+                continue
+
+            # Filter by end_date if provided
+            if end_date is not None and trade.date > end_date:
+                continue
+
+            filtered_trades.append(trade)
+
+        logger.info(
+            f"Found {len(filtered_trades)} trades for ticker '{ticker}' "
+            f"in portfolio '{self.name}'"
+        )
+
+        return filtered_trades
+
 
 class CompositePortfolio(Portfolio):
     """Portfolio containing sub-portfolios."""
@@ -296,6 +341,41 @@ class CompositePortfolio(Portfolio):
         all_trades: List[Trade] = []
         for sub_portfolio in self._sub_portfolios.values():
             all_trades.extend(sub_portfolio.get_all_trades())
+        return all_trades
+
+    def get_asset_trades(
+        self, ticker: str, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Trade]:
+        """Get all trades for a specified asset (ticker) within the portfolio.
+
+        Aggregates asset trades from all sub-portfolios.
+
+        Args:
+            ticker: Asset ticker symbol to filter trades by
+            start_date: Optional start date for date range filter (inclusive).
+                If not specified, includes trades from the very beginning.
+            end_date: Optional end date for date range filter (inclusive).
+                If not specified, includes trades to the very end.
+
+        Returns:
+            List of Trade objects matching the ticker and date range
+            (includes both Buy and Sell trades)
+        """
+        logger.info(
+            f"Getting asset trades for ticker '{ticker}' "
+            f"(start_date={start_date}, end_date={end_date}) in composite portfolio '{self.name}'"
+        )
+
+        all_trades: List[Trade] = []
+        for sub_portfolio in self._sub_portfolios.values():
+            sub_trades = sub_portfolio.get_asset_trades(ticker, start_date, end_date)
+            all_trades.extend(sub_trades)
+
+        logger.info(
+            f"Found {len(all_trades)} trades for ticker '{ticker}' "
+            f"in composite portfolio '{self.name}'"
+        )
+
         return all_trades
 
 

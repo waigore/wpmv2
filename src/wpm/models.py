@@ -214,6 +214,25 @@ class Portfolio(ABC):
         pass
 
     @abstractmethod
+    def get_asset_trades(
+        self, ticker: str, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Trade]:
+        """Get all trades for a specified asset (ticker) within the portfolio.
+
+        Args:
+            ticker: Asset ticker symbol to filter trades by
+            start_date: Optional start date for date range filter (inclusive).
+                If not specified, includes trades from the very beginning.
+            end_date: Optional end date for date range filter (inclusive).
+                If not specified, includes trades to the very end.
+
+        Returns:
+            List of Trade objects matching the ticker and date range
+            (includes both Buy and Sell trades)
+        """
+        pass
+
+    @abstractmethod
     def get_total_market_value(self, prices: Dict[Asset, Optional[float]]) -> float:
         """Calculate total market value for the portfolio.
 

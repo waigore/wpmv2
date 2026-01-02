@@ -62,6 +62,13 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
   - Optional `asset_type` parameter (single string): Filter by asset type (e.g., "Stock", "ETF", "Crypto")
   - Optional `tickers` parameter (list of strings): Filter by one or more ticker symbols
   - Both filters can be used together (AND logic - both conditions must match)
+- `get_asset_trades(ticker, start_date=None, end_date=None)`: Get all trades for a specified asset (ticker) within the portfolio
+  - `ticker` (str, required): Asset ticker symbol to filter trades by
+  - `start_date` (date, optional): Start date for date range filter (inclusive). If not specified, includes trades from the very beginning
+  - `end_date` (date, optional): End date for date range filter (inclusive). If not specified, includes trades to the very end
+  - Returns list of Trade objects matching the ticker and date range (includes both Buy and Sell trades)
+  - For SimplePortfolio: Filters trades from `_trades` list by ticker and date range
+  - For CompositePortfolio: Aggregates asset trades from all sub-portfolios by calling `get_asset_trades` on each sub-portfolio and returning the combined result list
 - `get_total_cost_basis()`: Calculate total cost basis
 - `get_total_market_value(prices)`: Calculate total market value from prices
 - `get_total_unrealized_pnl(prices)`: Calculate total unrealized profit/loss
@@ -452,6 +459,13 @@ Represents a collection of asset positions or sub-portfolios.
   - For simple portfolios: Calculated from trades using specified cost basis method, then filtered
   - For composite portfolios: Aggregated from sub-portfolios with filters applied at sub-portfolio level
 - `get_position(asset)`: Get position for a specific asset
+- `get_asset_trades(ticker, start_date=None, end_date=None)`: Get all trades for a specified asset (ticker) within the portfolio
+  - `ticker` (str, required): Asset ticker symbol to filter trades by
+  - `start_date` (date, optional): Start date for date range filter (inclusive). If not specified, includes trades from the very beginning
+  - `end_date` (date, optional): End date for date range filter (inclusive). If not specified, includes trades to the very end
+  - Returns list of Trade objects matching the ticker and date range (includes both Buy and Sell trades)
+  - For simple portfolios: Filters trades from `_trades` list by ticker and date range
+  - For composite portfolios: Aggregates asset trades from all sub-portfolios by calling `get_asset_trades` on each sub-portfolio and returning the combined result list
 - `get_total_cost_basis()`: Calculate total cost basis
   - For simple portfolios: Sum of all position cost_basis values
   - For composite portfolios: Sum of total_cost_basis from all sub-portfolios
