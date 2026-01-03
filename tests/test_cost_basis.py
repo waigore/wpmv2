@@ -4,7 +4,7 @@ import pytest
 from datetime import date
 from decimal import Decimal
 
-from wpm.cost_basis import calculate_fifo_cost_basis
+from wpm.cost_basis import calculate_fifo_cost_basis, calculate_lots_from_trades
 from wpm.models import Asset, Trade
 
 
@@ -209,12 +209,65 @@ class TestFIFOCostBasis:
             ),
         ]
 
-        # This should raise ValidationError because position quantity would be negative
-        with pytest.raises(ValidationError, match="Quantity must be a non-negative number"):
+        # This should raise ValidationError because we're trying to sell more than owned
+        with pytest.raises(ValidationError, match="Cannot sell"):
             calculate_fifo_cost_basis(trades)
 
     def test_empty_trades(self):
         """Test cost basis calculation with empty trade list."""
         positions_fifo = calculate_fifo_cost_basis([])
         assert positions_fifo == {}
+
+    def test_lot_based_calculation_produces_same_results(self):
+        """Test that lot-based calculation produces same results as direct calculation."""
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        trades = [
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            ),
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            ),
+            Trade(
+                date=date(2025, 12, 1),
+                asset=asset,
+                action="Sell",
+                broker="IBKR",
+                currency="USD",
+                price=620.0,
+                price_native=620.0,
+                quantity=1.0,
+            ),
+        ]
+
+        # Calculate positions using lot-based method
+        positions = calculate_fifo_cost_basis(trades)
+
+        # Calculate lots and verify positions match
+        lots_by_asset = calculate_lots_from_trades(trades)
+        assert asset in lots_by_asset
+        lots = lots_by_asset[asset]
+
+        # Verify position matches aggregated lots
+        total_quantity = sum(lot.remaining_quantity for lot in lots)
+        total_cost_basis = sum(float(lot.remaining_quantity) * lot.purchase_price for lot in lots)
+
+        assert asset in positions
+        position = positions[asset]
+        assert position.quantity == total_quantity
+        assert abs(position.cost_basis - total_cost_basis) < 0.01  # Allow for floating point differences
 

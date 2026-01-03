@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from wpm.utils import validate_asset_type, validate_ticker
 
@@ -138,6 +138,106 @@ class Trade:
 
 
 @dataclass
+class Lot:
+    """Represents a purchase record (lot) for an asset with FIFO sell matching."""
+
+    purchase_date: date
+    purchase_price: float
+    original_quantity: Decimal
+    remaining_quantity: Decimal
+    cost_basis: float
+    asset: Asset
+    matched_sells: List[Tuple[Trade, Decimal]] = field(default_factory=list)
+
+    def __post_init__(self):
+        """Validate lot fields after initialization."""
+        if not isinstance(self.purchase_date, date):
+            raise ValidationError("Purchase date must be a date object")
+
+        if not isinstance(self.purchase_price, (int, float)) or self.purchase_price <= 0:
+            raise ValidationError("Purchase price must be a positive number greater than 0")
+
+        # Convert quantities to Decimal if needed
+        if isinstance(self.original_quantity, (int, float)):
+            original_quantity_decimal = Decimal(str(self.original_quantity))
+            object.__setattr__(self, "original_quantity", original_quantity_decimal)
+        elif not isinstance(self.original_quantity, Decimal):
+            raise ValidationError("Original quantity must be a Decimal, int, or float")
+
+        if isinstance(self.remaining_quantity, (int, float)):
+            remaining_quantity_decimal = Decimal(str(self.remaining_quantity))
+            object.__setattr__(self, "remaining_quantity", remaining_quantity_decimal)
+        elif not isinstance(self.remaining_quantity, Decimal):
+            raise ValidationError("Remaining quantity must be a Decimal, int, or float")
+
+        if self.original_quantity <= 0:
+            raise ValidationError("Original quantity must be a positive number greater than 0")
+
+        if self.remaining_quantity < 0:
+            raise ValidationError("Remaining quantity must be a non-negative number")
+
+        if self.remaining_quantity > self.original_quantity:
+            raise ValidationError("Remaining quantity cannot exceed original quantity")
+
+        if not isinstance(self.cost_basis, (int, float)) or self.cost_basis < 0:
+            raise ValidationError("Cost basis must be a non-negative number")
+
+        if not isinstance(self.asset, Asset):
+            raise ValidationError("Asset must be an Asset object")
+
+        # Validate matched_sells
+        if not isinstance(self.matched_sells, list):
+            raise ValidationError("Matched sells must be a list")
+        for sell_trade, quantity_sold in self.matched_sells:
+            if not isinstance(sell_trade, Trade):
+                raise ValidationError("Matched sell must contain a Trade object")
+            if not isinstance(quantity_sold, Decimal):
+                if isinstance(quantity_sold, (int, float)):
+                    quantity_sold = Decimal(str(quantity_sold))
+                else:
+                    raise ValidationError("Quantity sold must be a Decimal, int, or float")
+            if quantity_sold <= 0:
+                raise ValidationError("Quantity sold must be a positive number")
+
+    def get_realized_pnl(self) -> float:
+        """Calculate realized profit/loss from matched sells.
+
+        Returns:
+            Realized P/L in USD (sum of (sell_price - purchase_price) * quantity_sold for all matched sells)
+        """
+        realized_pnl = 0.0
+        for sell_trade, quantity_sold in self.matched_sells:
+            pnl_per_unit = sell_trade.price - self.purchase_price
+            realized_pnl += float(quantity_sold) * pnl_per_unit
+        return realized_pnl
+
+    def get_unrealized_pnl(self, current_price: float) -> float:
+        """Calculate unrealized profit/loss for remaining quantity.
+
+        Args:
+            current_price: Current market price per unit
+
+        Returns:
+            Unrealized P/L in USD ((current_price - purchase_price) * remaining_quantity)
+        """
+        if current_price is None:
+            return 0.0
+        pnl_per_unit = current_price - self.purchase_price
+        return float(self.remaining_quantity) * pnl_per_unit
+
+    def get_total_pnl(self, current_price: Optional[float]) -> float:
+        """Calculate total profit/loss (realized + unrealized).
+
+        Args:
+            current_price: Current market price per unit (None if unavailable)
+
+        Returns:
+            Total P/L in USD (realized P/L + unrealized P/L)
+        """
+        return self.get_realized_pnl() + self.get_unrealized_pnl(current_price or 0.0)
+
+
+@dataclass
 class Position:
     """Represents current holdings for a specific asset within a portfolio."""
 
@@ -253,6 +353,45 @@ class Portfolio(ABC):
 
         Returns:
             Total unrealized profit/loss in USD (market_value - cost_basis)
+        """
+        pass
+
+    @abstractmethod
+    def get_asset_lots(
+        self,
+        ticker: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        prices: Optional[Dict[Asset, Optional[float]]] = None,
+    ) -> List["Lot"]:
+        """Get all lots for a specified asset (ticker) within the portfolio.
+
+        Args:
+            ticker: Asset ticker symbol to filter lots by
+            start_date: Optional start date for date range filter (inclusive).
+                If not specified, includes lots from the very beginning.
+            end_date: Optional end date for date range filter (inclusive).
+                If not specified, includes lots to the very end.
+            prices: Optional dictionary mapping Asset to current price for P/L calculations
+
+        Returns:
+            List of Lot objects for the ticker
+        """
+        pass
+
+    @abstractmethod
+    def get_total_realized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
+        """Calculate total realized profit/loss for the portfolio.
+
+        Derives from lots' realized P/L.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable).
+                Note: Realized P/L doesn't actually depend on current prices, but included
+                for consistency with other P/L methods.
+
+        Returns:
+            Total realized profit/loss in USD
         """
         pass
 

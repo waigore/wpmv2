@@ -5,14 +5,19 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-from wpm.cost_basis import calculate_fifo_cost_basis
-from wpm.models import Asset, Portfolio, Position, PortfolioError, Trade
+from wpm.cache_utils import LRUCache, trades_to_cache_key_with_filters
+from wpm.cost_basis import calculate_fifo_cost_basis, calculate_lots_from_trades
+from wpm.models import Asset, Lot, Portfolio, Position, PortfolioError, Trade
 from wpm.utils import validate_asset_type
 
 if TYPE_CHECKING:
     from wpm.pricing import PriceService
 
 logger = logging.getLogger(__name__)
+
+# LRU caches for portfolio calculations
+_positions_cache: LRUCache[Dict[Asset, Position]] = LRUCache(maxsize=128)
+_cost_basis_cache: LRUCache[float] = LRUCache(maxsize=128)
 
 
 class SimplePortfolio(Portfolio):
@@ -47,6 +52,8 @@ class SimplePortfolio(Portfolio):
     ) -> Dict[Asset, Position]:
         """Get all positions in the portfolio.
 
+        Uses LRU caching to avoid recalculating positions for the same trades.
+
         Args:
             asset_type: Optional asset type to filter by (e.g., "Stock", "ETF", "Crypto")
             tickers: Optional list of ticker symbols to filter by
@@ -57,6 +64,29 @@ class SimplePortfolio(Portfolio):
         if not self._trades:
             return {}
 
+        # Normalize asset_type if provided
+        normalized_asset_type = None
+        if asset_type is not None:
+            try:
+                normalized_asset_type = validate_asset_type(asset_type)
+            except ValueError:
+                # Invalid asset type - no positions will match
+                logger.debug(
+                    f"Invalid asset_type filter '{asset_type}', returning empty results"
+                )
+                return {}
+
+        # Create cache key
+        cache_key = trades_to_cache_key_with_filters(self._trades, normalized_asset_type, tickers)
+
+        # Check cache
+        cached_positions = _positions_cache.get(cache_key)
+        if cached_positions is not None:
+            logger.debug("Cache hit for positions calculation")
+            return cached_positions
+
+        # Cache miss - calculate positions
+        logger.debug("Cache miss for positions calculation")
         positions = calculate_fifo_cost_basis(self._trades)
 
         logger.debug(
@@ -64,19 +94,7 @@ class SimplePortfolio(Portfolio):
         )
 
         # Apply filtering if parameters are provided
-        if asset_type is not None or tickers is not None:
-            # Normalize asset_type if provided
-            normalized_asset_type = None
-            if asset_type is not None:
-                try:
-                    normalized_asset_type = validate_asset_type(asset_type)
-                except ValueError:
-                    # Invalid asset type - no positions will match
-                    logger.debug(
-                        f"Invalid asset_type filter '{asset_type}', returning empty results"
-                    )
-                    return {}
-
+        if normalized_asset_type is not None or tickers is not None:
             filtered_positions: Dict[Asset, Position] = {}
             for asset, position in positions.items():
                 # Check asset_type filter
@@ -92,18 +110,41 @@ class SimplePortfolio(Portfolio):
                 f"Filtered positions: {len(filtered_positions)} of {len(positions)} "
                 f"positions match filters (asset_type={normalized_asset_type or asset_type}, tickers={tickers})"
             )
-            return filtered_positions
+            positions = filtered_positions
+
+        # Store in cache (LRU eviction handled automatically)
+        _positions_cache.set(cache_key, positions)
 
         return positions
 
     def get_total_cost_basis(self) -> float:
         """Calculate total cost basis for the portfolio.
 
+        Uses LRU caching to avoid recalculating for the same trades.
+
         Returns:
             Total cost basis in USD
         """
+        if not self._trades:
+            return 0.0
+
+        # Create cache key (no filters for cost basis)
+        cache_key = trades_to_cache_key_with_filters(self._trades, None, None)
+
+        # Check cache
+        cached_cost_basis = _cost_basis_cache.get(cache_key)
+        if cached_cost_basis is not None:
+            logger.debug("Cache hit for cost basis calculation")
+            return cached_cost_basis
+
+        # Cache miss - calculate cost basis
+        logger.debug("Cache miss for cost basis calculation")
         positions = self.get_positions()
         total = sum(position.cost_basis for position in positions.values())
+
+        # Store in cache (LRU eviction handled automatically)
+        _cost_basis_cache.set(cache_key, total)
+
         return total
 
     def get_total_market_value(self, prices: Dict[Asset, Optional[float]]) -> float:
@@ -146,6 +187,96 @@ class SimplePortfolio(Portfolio):
         market_value = self.get_total_market_value(prices)
         cost_basis = self.get_total_cost_basis()
         return market_value - cost_basis
+
+    def get_asset_lots(
+        self,
+        ticker: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        prices: Optional[Dict[Asset, Optional[float]]] = None,
+    ) -> List[Lot]:
+        """Get all lots for a specified asset (ticker) within the portfolio.
+
+        Args:
+            ticker: Asset ticker symbol to filter lots by
+            start_date: Optional start date for date range filter (inclusive).
+                If not specified, includes lots from the very beginning.
+            end_date: Optional end date for date range filter (inclusive).
+                If not specified, includes lots to the very end.
+            prices: Optional dictionary mapping Asset to current price for P/L calculations
+
+        Returns:
+            List of Lot objects for the ticker
+        """
+        logger.info(
+            f"Getting asset lots for ticker '{ticker}' "
+            f"(start_date={start_date}, end_date={end_date}) in portfolio '{self.name}'"
+        )
+
+        # Filter trades by ticker and date range
+        filtered_trades: List[Trade] = []
+        for trade in self._trades:
+            # Filter by ticker
+            if trade.asset.ticker != ticker:
+                continue
+
+            # Filter by start_date if provided
+            if start_date is not None and trade.date < start_date:
+                continue
+
+            # Filter by end_date if provided
+            if end_date is not None and trade.date > end_date:
+                continue
+
+            filtered_trades.append(trade)
+
+        if not filtered_trades:
+            logger.info(
+                f"No trades found for ticker '{ticker}' "
+                f"in portfolio '{self.name}'"
+            )
+            return []
+
+        # Calculate lots from filtered trades (benefits from caching)
+        lots_by_asset = calculate_lots_from_trades(filtered_trades)
+
+        # Get lots for this asset
+        asset = Asset(ticker=ticker, asset_type=filtered_trades[0].asset.asset_type)
+        lots = lots_by_asset.get(asset, [])
+
+        logger.info(
+            f"Found {len(lots)} lots for ticker '{ticker}' "
+            f"in portfolio '{self.name}'"
+        )
+
+        return lots
+
+    def get_total_realized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
+        """Calculate total realized profit/loss for the portfolio.
+
+        Derives from lots' realized P/L.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable).
+                Note: Realized P/L doesn't actually depend on current prices, but included
+                for consistency with other P/L methods.
+
+        Returns:
+            Total realized profit/loss in USD
+        """
+        if not self._trades:
+            return 0.0
+
+        # Calculate lots from all trades (benefits from caching)
+        lots_by_asset = calculate_lots_from_trades(self._trades)
+
+        # Sum realized P/L from all lots
+        total_realized_pnl = 0.0
+        for lots in lots_by_asset.values():
+            for lot in lots:
+                total_realized_pnl += lot.get_realized_pnl()
+
+        return total_realized_pnl
 
     def get_all_trades(self) -> List[Trade]:
         """Get all trades in the portfolio.
@@ -318,6 +449,64 @@ class CompositePortfolio(Portfolio):
         """
         total = sum(
             sub_portfolio.get_total_unrealized_pnl(prices)
+            for sub_portfolio in self._sub_portfolios.values()
+        )
+        return total
+
+    def get_asset_lots(
+        self,
+        ticker: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        prices: Optional[Dict[Asset, Optional[float]]] = None,
+    ) -> List[Lot]:
+        """Get all lots for a specified asset (ticker) within the portfolio.
+
+        Aggregates lots from all sub-portfolios.
+
+        Args:
+            ticker: Asset ticker symbol to filter lots by
+            start_date: Optional start date for date range filter (inclusive).
+                If not specified, includes lots from the very beginning.
+            end_date: Optional end date for date range filter (inclusive).
+                If not specified, includes lots to the very end.
+            prices: Optional dictionary mapping Asset to current price for P/L calculations
+
+        Returns:
+            List of Lot objects for the ticker (aggregated from all sub-portfolios)
+        """
+        logger.info(
+            f"Getting asset lots for ticker '{ticker}' "
+            f"(start_date={start_date}, end_date={end_date}) in composite portfolio '{self.name}'"
+        )
+
+        all_lots: List[Lot] = []
+        for sub_portfolio in self._sub_portfolios.values():
+            sub_lots = sub_portfolio.get_asset_lots(ticker, start_date, end_date, prices)
+            all_lots.extend(sub_lots)
+
+        logger.info(
+            f"Found {len(all_lots)} lots for ticker '{ticker}' "
+            f"in composite portfolio '{self.name}'"
+        )
+
+        return all_lots
+
+    def get_total_realized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
+        """Calculate total realized profit/loss aggregated from sub-portfolios.
+
+        Derives from lots' realized P/L.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable).
+                Note: Realized P/L doesn't actually depend on current prices, but included
+                for consistency with other P/L methods.
+
+        Returns:
+            Total realized profit/loss in USD
+        """
+        total = sum(
+            sub_portfolio.get_total_realized_pnl(prices)
             for sub_portfolio in self._sub_portfolios.values()
         )
         return total

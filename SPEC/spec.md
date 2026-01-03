@@ -37,6 +37,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `Asset`: Represents a financial asset with ticker and type
 - `Trade`: Represents a single buy/sell transaction
 - `Position`: Represents current holdings for an asset (quantity and cost basis)
+- `Lot`: Represents a purchase record with FIFO sell matching
 - `Portfolio`: Base portfolio class (abstract or concrete base)
 
 **Artefacts:**
@@ -62,6 +63,8 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
   - Optional `asset_type` parameter (single string): Filter by asset type (e.g., "Stock", "ETF", "Crypto")
   - Optional `tickers` parameter (list of strings): Filter by one or more ticker symbols
   - Both filters can be used together (AND logic - both conditions must match)
+  - Uses LRU caching (manual cache with OrderedDict, max size 128)
+  - Cache key: trades list + asset_type + tickers tuple
 - `get_asset_trades(ticker, start_date=None, end_date=None)`: Get all trades for a specified asset (ticker) within the portfolio
   - `ticker` (str, required): Asset ticker symbol to filter trades by
   - `start_date` (date, optional): Start date for date range filter (inclusive). If not specified, includes trades from the very beginning
@@ -69,9 +72,23 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
   - Returns list of Trade objects matching the ticker and date range (includes both Buy and Sell trades)
   - For SimplePortfolio: Filters trades from `_trades` list by ticker and date range
   - For CompositePortfolio: Aggregates asset trades from all sub-portfolios by calling `get_asset_trades` on each sub-portfolio and returning the combined result list
+- `get_asset_lots(ticker, start_date=None, end_date=None, prices=None)`: Get all lots for a specified asset (ticker) within the portfolio
+  - `ticker` (str, required): Asset ticker symbol to filter lots by
+  - `start_date` (date, optional): Start date for date range filter (inclusive)
+  - `end_date` (date, optional): End date for date range filter (inclusive)
+  - `prices` (Dict[Asset, Optional[float]], optional): Current prices for P/L calculations
+  - Returns list of Lot objects for the ticker
+  - For SimplePortfolio: Calculates lots from filtered trades (benefits from cached lot calculations)
+  - For CompositePortfolio: Aggregates lots from all sub-portfolios
 - `get_total_cost_basis()`: Calculate total cost basis
+  - Uses LRU caching (manual cache with OrderedDict, max size 128)
+  - Cache key: trades list
 - `get_total_market_value(prices)`: Calculate total market value from prices
+  - NOT cached (prices change frequently)
 - `get_total_unrealized_pnl(prices)`: Calculate total unrealized profit/loss
+  - NOT cached (prices change frequently)
+- `get_total_realized_pnl(prices)`: Calculate total realized profit/loss (derives from lots)
+  - NOT cached (prices change frequently, though realized P/L doesn't depend on current prices)
 - `get_total_quantity(ticker)`: Get total quantity for a specific asset
 - `add_sub_portfolio(portfolio)`: Add a sub-portfolio (for composite portfolios)
 
@@ -99,15 +116,28 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 ### wpm/cost_basis.py
 
 **Responsibilities:**
-- Calculate cost basis using FIFO method
+- Calculate lots from trades using FIFO method
+- Calculate cost basis using FIFO method (now derives from lots)
 - Handle both buy and sell transactions
 - Track remaining positions after sells
+- Cache lot calculations using LRU cache
 
 **Key Functions:**
+- `calculate_lots_from_trades(trades)`: Calculate lots from trades using FIFO
+  - Processes trades chronologically
+  - Creates lots from buy trades
+  - Matches sell trades to lots using FIFO (earliest lots first)
+  - Returns dictionary mapping Asset to list of Lot objects
+  - Uses LRU caching (manual cache with OrderedDict, max size 128)
+  - Cache key: hashable tuple of trade identifiers (date, asset, action, quantity, price)
 - `calculate_fifo_cost_basis(trades)`: Calculate positions using FIFO
+  - Now derives positions from lots internally
+  - Aggregates lots into positions: quantity = sum of remaining_quantity, cost_basis = sum of purchase_price * remaining_quantity
+  - Maintains same signature and behavior for backward compatibility
 
 **Artefacts:**
-- Position objects with calculated cost basis and quantities
+- Lot objects with purchase records and matched sells
+- Position objects with calculated cost basis and quantities (derived from lots)
 
 ### wpm/config.py
 
@@ -429,6 +459,37 @@ Represents current holdings for a specific asset within a portfolio.
 **Methods:**
 - `get_average_cost()`: Returns average cost per unit
 
+### Lot
+
+Represents a purchase record (lot) for an asset with FIFO sell matching. A lot tracks the original purchase and accounts for sell trades using FIFO method.
+
+**Fields:**
+- `purchase_date` (date, required): Date of the buy trade that created this lot
+  - Validation: Valid date object
+- `purchase_price` (float, required): Price per unit from the buy trade (USD)
+  - Validation: Positive number, greater than 0
+- `original_quantity` (Decimal, required): Original quantity from the buy trade
+  - Validation: Positive number, greater than 0
+- `remaining_quantity` (Decimal, required): Quantity remaining after FIFO sell matching
+  - Validation: Non-negative number, must be <= original_quantity
+- `cost_basis` (float, required): Total cost basis (purchase_price * original_quantity)
+  - Validation: Non-negative number
+- `asset` (Asset, required): The asset this lot represents
+  - Validation: Must be an Asset object
+- `matched_sells` (List[Tuple[Trade, Decimal]], required): List of (sell_trade, quantity_sold) tuples
+  - Tracks which sell trades matched against this lot and how much was sold
+  - Validation: List of tuples where first element is a Trade object and second is a positive Decimal
+
+**Methods:**
+- `get_realized_pnl()`: Calculate realized profit/loss from matched sells
+  - Returns: Sum of (sell_price - purchase_price) * quantity_sold for all matched sells
+- `get_unrealized_pnl(current_price)`: Calculate unrealized profit/loss for remaining quantity
+  - Args: `current_price` (float): Current market price per unit
+  - Returns: (current_price - purchase_price) * remaining_quantity
+- `get_total_pnl(current_price)`: Calculate total profit/loss (realized + unrealized)
+  - Args: `current_price` (Optional[float]): Current market price per unit
+  - Returns: Sum of realized P/L and unrealized P/L
+
 ### Portfolio
 
 Represents a collection of asset positions or sub-portfolios.
@@ -441,9 +502,12 @@ Represents a collection of asset positions or sub-portfolios.
 
 **Computed Properties:**
 - `positions`: Dictionary mapping Asset to Position objects
-  - For simple portfolios: Calculated from trades using FIFO cost basis method
+  - For simple portfolios: Calculated from trades using FIFO cost basis method (now derives from lots)
   - For composite portfolios: Aggregated from sub-portfolios
 - `total_quantity(asset)`: Total quantity for a specific asset across all positions
+
+**ETL Flow:**
+- Trades (from CSV) → Lots (derived on-demand) → Position (aggregated from lots)
 
 **Methods:**
 - `add_trade(trade)`: Add a trade to the portfolio
@@ -461,19 +525,36 @@ Represents a collection of asset positions or sub-portfolios.
   - Returns list of Trade objects matching the ticker and date range (includes both Buy and Sell trades)
   - For simple portfolios: Filters trades from `_trades` list by ticker and date range
   - For composite portfolios: Aggregates asset trades from all sub-portfolios by calling `get_asset_trades` on each sub-portfolio and returning the combined result list
+- `get_asset_lots(ticker, start_date=None, end_date=None, prices=None)`: Get all lots for a specified asset (ticker) within the portfolio
+  - `ticker` (str, required): Asset ticker symbol to filter lots by
+  - `start_date` (date, optional): Start date for date range filter (inclusive). If not specified, includes lots from the very beginning
+  - `end_date` (date, optional): End date for date range filter (inclusive). If not specified, includes lots to the very end
+  - `prices` (Dict[Asset, Optional[float]], optional): Current prices for P/L calculations
+  - Returns list of Lot objects for the ticker
+  - For simple portfolios: Calculates lots from filtered trades using FIFO
+  - For composite portfolios: Aggregates lots from all sub-portfolios
 - `get_total_cost_basis()`: Calculate total cost basis
-  - For simple portfolios: Sum of all position cost_basis values
+  - For simple portfolios: Sum of all position cost_basis values (uses LRU caching)
   - For composite portfolios: Sum of total_cost_basis from all sub-portfolios
 - `get_total_market_value(prices)`: Calculate total market value
   - For simple portfolios: Sum of (quantity * price) for all positions where price is available
   - For composite portfolios: Sum of total_market_value from all sub-portfolios
   - Accepts `prices: Dict[Asset, Optional[float]]` parameter
   - Assets with missing/None prices are excluded from the sum
+  - Note: NOT cached due to frequent price changes
 - `get_total_unrealized_pnl(prices)`: Calculate total unrealized profit/loss
   - For simple portfolios: `total_market_value - total_cost_basis`
   - For composite portfolios: Sum of total_unrealized_pnl from all sub-portfolios
   - Accepts `prices: Dict[Asset, Optional[float]]` parameter
   - Unrealized P/L is calculated as market_value - cost_basis
+  - Note: NOT cached due to frequent price changes
+- `get_total_realized_pnl(prices)`: Calculate total realized profit/loss
+  - Derives from lots' realized P/L: Sum of `lot.get_realized_pnl()` for all lots in portfolio
+  - For simple portfolios: Calculate lots from trades, sum realized P/L from all lots
+  - For composite portfolios: Sum realized P/L from all sub-portfolios
+  - Accepts `prices: Dict[Asset, Optional[float]]` parameter (for consistency, though realized P/L doesn't depend on current prices)
+  - Returns total realized profit/loss in USD
+  - Note: NOT cached due to frequent price changes (though realized P/L doesn't actually depend on current prices)
 - `add_sub_portfolio(portfolio)`: Add a sub-portfolio (composite only)
 - `get_all_trades()`: Get all trades including from sub-portfolios (recursive)
 

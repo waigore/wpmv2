@@ -133,6 +133,93 @@ class TestSimplePortfolio:
         position = portfolio.get_position(asset)
         assert position is None
 
+    def test_get_asset_lots_simple_portfolio(self):
+        """Test get_asset_lots for simple portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        trades = [
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            ),
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            ),
+            Trade(
+                date=date(2025, 12, 1),
+                asset=asset,
+                action="Sell",
+                broker="IBKR",
+                currency="USD",
+                price=620.0,
+                price_native=620.0,
+                quantity=1.0,
+            ),
+        ]
+        for trade in trades:
+            portfolio.add_trade(trade)
+
+        lots = portfolio.get_asset_lots("VOO")
+        assert len(lots) == 2
+        assert lots[0].purchase_date == date(2025, 10, 1)
+        assert lots[0].remaining_quantity == Decimal('1')
+        assert lots[1].purchase_date == date(2025, 11, 1)
+        assert lots[1].remaining_quantity == Decimal('1')
+
+    def test_get_total_realized_pnl_simple_portfolio(self):
+        """Test get_total_realized_pnl for simple portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        trades = [
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            ),
+            Trade(
+                date=date(2025, 12, 1),
+                asset=asset,
+                action="Sell",
+                broker="IBKR",
+                currency="USD",
+                price=620.0,
+                price_native=620.0,
+                quantity=1.0,
+            ),
+        ]
+        for trade in trades:
+            portfolio.add_trade(trade)
+
+        prices = {asset: 630.0}
+        realized_pnl = portfolio.get_total_realized_pnl(prices)
+        # 1 * (620 - 600) = 20
+        assert realized_pnl == 20.0
+
+    def test_get_total_realized_pnl_empty_portfolio(self):
+        """Test get_total_realized_pnl for empty portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        prices = {}
+        realized_pnl = portfolio.get_total_realized_pnl(prices)
+        assert realized_pnl == 0.0
+
 
 class TestCompositePortfolio:
     """Tests for CompositePortfolio class."""
@@ -357,4 +444,96 @@ class TestCompositePortfolio:
         positions = outer.get_positions()
         assert asset in positions
         assert positions[asset].quantity == 10.0
+
+    def test_get_asset_lots_composite_portfolio(self):
+        """Test get_asset_lots for composite portfolio."""
+        composite = CompositePortfolio(name="Composite")
+        sub1 = SimplePortfolio(name="Sub1")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        sub1.add_trade(
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+
+        sub2 = SimplePortfolio(name="Sub2")
+        sub2.add_trade(
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            )
+        )
+
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+
+        lots = composite.get_asset_lots("VOO")
+        assert len(lots) == 2
+
+    def test_get_total_realized_pnl_composite_portfolio(self):
+        """Test get_total_realized_pnl for composite portfolio."""
+        composite = CompositePortfolio(name="Composite")
+        sub1 = SimplePortfolio(name="Sub1")
+        asset1 = Asset(ticker="VOO", asset_type="ETF")
+        sub1.add_trade(
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+        sub1.add_trade(
+            Trade(
+                date=date(2025, 12, 1),
+                asset=asset1,
+                action="Sell",
+                broker="IBKR",
+                currency="USD",
+                price=620.0,
+                price_native=620.0,
+                quantity=1.0,
+            )
+        )
+
+        sub2 = SimplePortfolio(name="Sub2")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        sub2.add_trade(
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+
+        prices = {asset1: 630.0, asset2: 160.0}
+        realized_pnl = composite.get_total_realized_pnl(prices)
+        # From sub1: 1 * (620 - 600) = 20
+        # From sub2: 0 (no sells)
+        assert realized_pnl == 20.0
 
