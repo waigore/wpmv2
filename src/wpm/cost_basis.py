@@ -1,4 +1,4 @@
-"""Cost basis calculation methods (FIFO and Average Cost)."""
+"""Cost basis calculation methods (FIFO)."""
 
 import logging
 from collections import deque
@@ -87,74 +87,6 @@ def calculate_fifo_cost_basis(trades: List[Trade]) -> Dict[Asset, Position]:
 
     logger.info(
         f"FIFO calculation completed. Positions calculated for {len(positions)} assets"
-    )
-    return positions
-
-
-def calculate_average_cost_basis(trades: List[Trade]) -> Dict[Asset, Position]:
-    """Calculate positions using Average Cost method.
-
-    Args:
-        trades: List of trades to process
-
-    Returns:
-        Dictionary mapping Asset to Position objects
-    """
-    logger.info(
-        f"Starting Average Cost basis calculation for {len(trades)} trades"
-    )
-
-    positions: Dict[Asset, Position] = {}
-
-    for trade in trades:
-        asset = trade.asset
-
-        if asset not in positions:
-            positions[asset] = Position(
-                asset=asset,
-                quantity=Decimal('0'),
-                cost_basis=0.0,
-                cost_basis_method="average",
-            )
-
-        current_position = positions[asset]
-
-        if trade.is_buy():
-            logger.debug(f"Processing buy: {trade.quantity} @ ${trade.price}")
-            total_quantity = current_position.quantity + trade.quantity
-            total_cost_basis = current_position.cost_basis + trade.total_value
-
-            positions[asset] = Position(
-                asset=asset,
-                quantity=total_quantity,
-                cost_basis=total_cost_basis,
-                cost_basis_method="average",
-            )
-        else:
-            logger.debug(f"Processing sell: {trade.quantity} @ ${trade.price}")
-
-            if current_position.quantity == 0:
-                logger.warning(
-                    f"Sell transaction for {asset.ticker} with no existing position"
-                )
-                continue
-
-            average_cost = current_position.get_average_cost()
-            # Convert Decimal quantity to float for cost basis calculation
-            cost_basis_to_remove = float(trade.quantity) * average_cost
-
-            remaining_quantity = current_position.quantity - trade.quantity
-            remaining_cost_basis = current_position.cost_basis - cost_basis_to_remove
-
-            positions[asset] = Position(
-                asset=asset,
-                quantity=remaining_quantity,
-                cost_basis=remaining_cost_basis,
-                cost_basis_method="average",
-            )
-
-    logger.info(
-        f"Average Cost calculation completed. Positions calculated for {len(positions)} assets"
     )
     return positions
 

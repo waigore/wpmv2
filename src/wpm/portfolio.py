@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-from wpm.cost_basis import calculate_average_cost_basis, calculate_fifo_cost_basis
+from wpm.cost_basis import calculate_fifo_cost_basis
 from wpm.models import Asset, Portfolio, Position, PortfolioError, Trade
 from wpm.utils import validate_asset_type
 
@@ -18,24 +18,17 @@ logger = logging.getLogger(__name__)
 class SimplePortfolio(Portfolio):
     """Portfolio containing direct asset positions (trades)."""
 
-    def __init__(self, name: str, cost_basis_method: str = "fifo"):
+    def __init__(self, name: str):
         """Initialize a simple portfolio.
 
         Args:
             name: Portfolio name
-            cost_basis_method: Cost basis calculation method ("fifo" or "average")
         """
         super().__init__(name)
 
-        if cost_basis_method not in ("fifo", "average"):
-            raise PortfolioError("Cost basis method must be 'fifo' or 'average'")
-
-        self.cost_basis_method = cost_basis_method
         self._trades: List[Trade] = []
 
-        logger.info(
-            f"Created SimplePortfolio '{name}' with cost_basis_method='{cost_basis_method}'"
-        )
+        logger.info(f"Created SimplePortfolio '{name}'")
 
     def add_trade(self, trade: Trade) -> None:
         """Add a trade to the portfolio.
@@ -64,10 +57,7 @@ class SimplePortfolio(Portfolio):
         if not self._trades:
             return {}
 
-        if self.cost_basis_method == "fifo":
-            positions = calculate_fifo_cost_basis(self._trades)
-        else:
-            positions = calculate_average_cost_basis(self._trades)
+        positions = calculate_fifo_cost_basis(self._trades)
 
         logger.debug(
             f"Calculated {len(positions)} positions for portfolio '{self.name}'"

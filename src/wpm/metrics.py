@@ -11,29 +11,23 @@ from wpm.models import Asset, Portfolio, Position, Trade
 logger = logging.getLogger(__name__)
 
 
-def calculate_portfolio_metrics(
-    portfolio: Portfolio, cost_basis_method: str = "fifo"
-) -> Dict:
+def calculate_portfolio_metrics(portfolio: Portfolio) -> Dict:
     """Calculate comprehensive portfolio metrics.
 
     Args:
         portfolio: Portfolio to analyze
-        cost_basis_method: Cost basis method to use ("fifo" or "average")
 
     Returns:
         Dictionary containing portfolio metrics
     """
-    logger.info(
-        f"Calculating portfolio metrics for '{portfolio.name}' "
-        f"with method '{cost_basis_method}'"
-    )
+    logger.info(f"Calculating portfolio metrics for '{portfolio.name}'")
 
     positions = portfolio.get_positions()
     total_cost_basis = portfolio.get_total_cost_basis()
 
     metrics = {
         "portfolio_name": portfolio.name,
-        "cost_basis_method": cost_basis_method,
+        "cost_basis_method": "fifo",
         "total_cost_basis": total_cost_basis,
         "position_count": len(positions),
         "positions": positions,

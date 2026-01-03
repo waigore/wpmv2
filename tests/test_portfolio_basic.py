@@ -15,17 +15,6 @@ class TestSimplePortfolio:
         """Test creating a simple portfolio."""
         portfolio = SimplePortfolio(name="Test Portfolio")
         assert portfolio.name == "Test Portfolio"
-        assert portfolio.cost_basis_method == "fifo"
-
-    def test_create_portfolio_with_method(self):
-        """Test creating portfolio with specific cost basis method."""
-        portfolio = SimplePortfolio(name="Test", cost_basis_method="average")
-        assert portfolio.cost_basis_method == "average"
-
-    def test_invalid_cost_basis_method(self):
-        """Test portfolio creation with invalid cost basis method."""
-        with pytest.raises(PortfolioError):
-            SimplePortfolio(name="Test", cost_basis_method="invalid")
 
     def test_add_trade(self):
         """Test adding a trade to portfolio."""
@@ -143,41 +132,6 @@ class TestSimplePortfolio:
         asset = Asset(ticker="GOOG", asset_type="Stock")
         position = portfolio.get_position(asset)
         assert position is None
-
-    def test_average_cost_method(self):
-        """Test portfolio with average cost basis method."""
-        portfolio = SimplePortfolio(name="Test", cost_basis_method="average")
-        asset = Asset(ticker="GOOG", asset_type="Stock")
-
-        portfolio.add_trade(
-            Trade(
-                date=date(2024, 1, 15),
-                asset=asset,
-                action="Buy",
-                broker="IBKR",
-                currency="USD",
-                price=150.0,
-                price_native=150.0,
-                quantity=10.0,
-            )
-        )
-        portfolio.add_trade(
-            Trade(
-                date=date(2024, 2, 15),
-                asset=asset,
-                action="Buy",
-                broker="IBKR",
-                currency="USD",
-                price=160.0,
-                price_native=160.0,
-                quantity=5.0,
-            )
-        )
-
-        positions = portfolio.get_positions()
-        position = positions[asset]
-        assert position.cost_basis_method == "average"
-        assert position.cost_basis == 2300.0
 
 
 class TestCompositePortfolio:

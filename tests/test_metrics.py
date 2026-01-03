@@ -44,26 +44,6 @@ class TestCalculatePortfolioMetrics:
         assert metrics["position_count"] == 1
         assert asset in metrics["positions"]
 
-    def test_calculate_metrics_with_method(self):
-        """Test metrics calculation with specific cost basis method."""
-        portfolio = SimplePortfolio(name="Test", cost_basis_method="average")
-        asset = Asset(ticker="GOOG", asset_type="Stock")
-        portfolio.add_trade(
-            Trade(
-                date=date(2024, 1, 15),
-                asset=asset,
-                action="Buy",
-            broker="IBKR",
-            currency="USD",
-            price=150.0,
-            price_native=150.0,
-            quantity=10.0,
-            )
-        )
-
-        metrics = calculate_portfolio_metrics(portfolio, cost_basis_method="fifo")
-        assert metrics["cost_basis_method"] == "fifo"
-
 
 class TestBreakdownByAssetType:
     """Tests for breakdown_by_asset_type function."""

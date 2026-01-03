@@ -164,8 +164,8 @@ class Position:
         if not isinstance(self.cost_basis, (int, float)) or self.cost_basis < 0:
             raise ValidationError("Cost basis must be a non-negative number")
 
-        if self.cost_basis_method not in ("fifo", "average"):
-            raise ValidationError("Cost basis method must be 'fifo' or 'average'")
+        if self.cost_basis_method != "fifo":
+            raise ValidationError("Cost basis method must be 'fifo'")
 
     def get_average_cost(self) -> float:
         """Calculate average cost per unit."""

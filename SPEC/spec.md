@@ -2,7 +2,7 @@
 
 ## Purpose
 
-WPM is a Python library designed to manage and analyze financial portfolios. It enables users to track asset positions across multiple portfolios, aggregate values and quantities, and generate comprehensive portfolio metrics. The library supports portfolios containing stocks, ETFs, and cryptocurrencies, with the ability to create hierarchical portfolio structures (portfolios of portfolios). WPM provides CSV import functionality for trade data, calculates cost basis using multiple methods, retrieves current market prices, and generates detailed breakdowns by asset type, ticker, purchase period, and broker.
+WPM is a Python library designed to manage and analyze financial portfolios. It enables users to track asset positions across multiple portfolios, aggregate values and quantities, and generate comprehensive portfolio metrics. The library supports portfolios containing stocks, ETFs, and cryptocurrencies, with the ability to create hierarchical portfolio structures (portfolios of portfolios). WPM provides CSV import functionality for trade data, calculates cost basis using FIFO method, retrieves current market prices, and generates detailed breakdowns by asset type, ticker, purchase period, and broker.
 
 ## Package Layout
 
@@ -11,7 +11,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `wpm/config.py` - Application-level configuration module
 - `wpm/portfolio.py` - Portfolio class implementation with aggregation logic
 - `wpm/importer.py` - CSV import functionality using pandas
-- `wpm/cost_basis.py` - Cost basis calculation methods (FIFO and Average Cost)
+- `wpm/cost_basis.py` - Cost basis calculation methods (FIFO)
 - `wpm/pricing/` - Market price data retrieval package (yfinance and CoinGecko integration)
   - `wpm/pricing/__init__.py` - Package initialization and public API exports
   - `wpm/pricing/base.py` - Abstract base class for price retrievers
@@ -100,14 +100,11 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 
 **Responsibilities:**
 - Calculate cost basis using FIFO method
-- Calculate cost basis using Average Cost method
 - Handle both buy and sell transactions
 - Track remaining positions after sells
 
 **Key Functions:**
 - `calculate_fifo_cost_basis(trades)`: Calculate positions using FIFO
-- `calculate_average_cost_basis(trades)`: Calculate positions using average cost
-- `apply_sell(trades, sell_trade)`: Apply sell transaction against existing positions
 
 **Artefacts:**
 - Position objects with calculated cost basis and quantities
@@ -302,7 +299,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - Calculate market values when price data is available
 
 **Key Functions:**
-- `calculate_portfolio_metrics(portfolio, cost_basis_method='fifo')`: Main metrics calculation
+- `calculate_portfolio_metrics(portfolio)`: Main metrics calculation
 - `breakdown_by_asset_type(portfolio)`: Group metrics by asset type
 - `breakdown_by_ticker(portfolio)`: Group metrics by ticker
 - `breakdown_by_purchase_period(portfolio, period='month')`: Group by time period
@@ -425,7 +422,7 @@ Represents current holdings for a specific asset within a portfolio.
 - `cost_basis` (float, required): Total cost basis in USD
   - Validation: Non-negative number
   - Calculation: Sum of (price * quantity) for all buy transactions minus cost basis of sold units
-- `cost_basis_method` (str, required): Method used ("fifo" or "average")
+- `cost_basis_method` (str, required): Method used ("fifo")
 - `average_cost` (float, computed): Average cost per unit
   - Calculation: `cost_basis / quantity` if quantity > 0, else 0
 
@@ -441,12 +438,10 @@ Represents a collection of asset positions or sub-portfolios.
   - Validation: Non-empty string
 - `trades` (list[Trade], optional): List of trades in this portfolio (for simple portfolios)
 - `sub_portfolios` (list[Portfolio], optional): List of sub-portfolios (for composite portfolios)
-- `cost_basis_method` (str, default="fifo"): Method for cost basis calculation
-  - Validation: Must be "fifo" or "average"
 
 **Computed Properties:**
 - `positions`: Dictionary mapping Asset to Position objects
-  - For simple portfolios: Calculated from trades using specified cost basis method
+  - For simple portfolios: Calculated from trades using FIFO cost basis method
   - For composite portfolios: Aggregated from sub-portfolios
 - `total_quantity(asset)`: Total quantity for a specific asset across all positions
 
@@ -579,7 +574,7 @@ Validity is determined per asset individually based on asset type:
 
 ### Key Test Scenarios
 - CSV import with valid and invalid data
-- FIFO and Average Cost basis calculations
+- FIFO basis calculations
 - Buy and sell transaction processing
 - Portfolio aggregation (simple and composite)
 - Price retrieval with rate limiting
@@ -632,8 +627,8 @@ Validity is determined per asset individually based on asset type:
 - DEBUG: Position aggregation steps, sub-portfolio traversal
 
 **wpm/cost_basis.py:**
-- INFO: Cost basis calculation started/completed with method
-- DEBUG: FIFO queue operations, average cost calculations, sell matching
+- INFO: Cost basis calculation started/completed
+- DEBUG: FIFO queue operations, sell matching
 
 **wpm/pricing/:**
 - **service.py**: INFO: Price retrieval request (ticker, asset_type), batch price request with count
