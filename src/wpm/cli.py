@@ -20,7 +20,7 @@ from wpm.metrics import (
     breakdown_by_purchase_period,
     breakdown_by_ticker,
 )
-from wpm.models import Asset, Portfolio, Position, ValidationError
+from wpm.models import Asset, Lot, Portfolio, Position, ValidationError
 from wpm.portfolio import CompositePortfolio, fetch_price_map, SimplePortfolio
 from wpm.pricing import PriceService
 from wpm.utils import setup_logging
@@ -445,6 +445,97 @@ def _format_breakdown(breakdown: Dict, breakdown_type: str) -> None:
         format_breakdown_broker(breakdown)
 
 
+def format_lot_line(lot: Lot, current_price: Optional[float]) -> str:
+    """Format a lot line with matched sells for display.
+
+    Args:
+        lot: Lot to format
+        current_price: Current price (None if unavailable)
+
+    Returns:
+        Multi-line formatted string (lot summary + matched sells if any)
+    """
+    # Format purchase date
+    purchase_date_str = lot.purchase_date.strftime("%Y-%m-%d")
+    
+    # Format quantities and prices
+    original_qty = format_quantity(lot.original_quantity)
+    remaining_qty = format_quantity(lot.remaining_quantity)
+    purchase_price_str = format_currency(lot.purchase_price)
+    remaining_cost_basis = float(lot.remaining_quantity) * lot.purchase_price
+    remaining_cost_basis_str = format_currency(remaining_cost_basis)
+    
+    # Calculate P/L
+    realized_pnl = lot.get_realized_pnl()
+    realized_pnl_str = format_unrealized_pnl(realized_pnl) if realized_pnl != 0.0 else format_currency(0.0)
+    
+    if current_price is not None:
+        unrealized_pnl = lot.get_unrealized_pnl(current_price)
+        total_pnl = lot.get_total_pnl(current_price)
+        unrealized_pnl_str = format_unrealized_pnl(unrealized_pnl)
+        total_pnl_str = format_unrealized_pnl(total_pnl)
+    else:
+        unrealized_pnl_str = "N/A"
+        total_pnl_str = "N/A"
+    
+    # Build main lot line
+    lot_line = (
+        f"{purchase_date_str}: {original_qty} @ {purchase_price_str} | "
+        f"Remaining: {remaining_qty} @ {purchase_price_str} = {remaining_cost_basis_str} | "
+        f"Realized: {realized_pnl_str} | "
+        f"Unrealized: {unrealized_pnl_str} | "
+        f"Total: {total_pnl_str}"
+    )
+    
+    # Add matched sells if any
+    lines = [lot_line]
+    if lot.matched_sells:
+        # Sort matched sells by date (oldest first)
+        sorted_sells = sorted(lot.matched_sells, key=lambda x: x[0].date)
+        for sell_trade, quantity_sold in sorted_sells:
+            sell_date_str = sell_trade.date.strftime("%Y-%m-%d")
+            qty_sold_str = format_quantity(quantity_sold)
+            sell_price_str = format_currency(sell_trade.price)
+            lines.append(f"  Sold: {sell_date_str}, {qty_sold_str} @ {sell_price_str}")
+    
+    return "\n".join(lines)
+
+
+def cmd_show_lots(
+    composite: CompositePortfolio, ticker: str, price_service: PriceService
+) -> None:
+    """Handle 'lots <ticker>' command.
+
+    Args:
+        composite: Composite portfolio containing all assets
+        ticker: Asset ticker symbol to show lots for
+        price_service: Price service for retrieving current prices
+    """
+    # Get lots for the ticker
+    lots = composite.get_asset_lots(ticker)
+    
+    if not lots:
+        print(f"No lots found for ticker '{ticker}'.")
+        return
+    
+    # Sort lots by purchase date (oldest first)
+    sorted_lots = sorted(lots, key=lambda lot: lot.purchase_date)
+    
+    # Determine asset type from first lot to fetch current price
+    asset = sorted_lots[0].asset
+    current_price = None
+    
+    try:
+        current_price = price_service.get_price(ticker, asset.asset_type)
+    except Exception as e:
+        logger.warning(f"Price retrieval failed for {ticker}: {e}")
+        # Continue with None price - will show N/A for unrealized/total P/L
+    
+    # Display each lot
+    for lot in sorted_lots:
+        print(format_lot_line(lot, current_price))
+
+
 def run_interactive_mode(
     composite: CompositePortfolio, price_service: PriceService
 ) -> None:
@@ -487,6 +578,11 @@ def run_interactive_mode(
                     print("Unknown command: 'show'. Usage: 'show portfolio <name>' or 'show all'")
             elif command == "breakdown":
                 cmd_breakdown(composite, args)
+            elif command == "lots":
+                if len(args) == 1:
+                    cmd_show_lots(composite, args[0], price_service)
+                else:
+                    print("Error: Ticker required. Usage: lots <ticker>")
             else:
                 print(f"Unknown command: '{user_input}'. Type 'help' for available commands.")
 

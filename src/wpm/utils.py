@@ -64,7 +64,7 @@ def validate_ticker(ticker: str) -> None:
     Raises:
         ValidationError: If ticker format is invalid
     """
-    if not ticker or not isinstance(ticker, str):
+    if not isinstance(ticker, str) or not ticker:
         raise ValueError("Ticker must be a non-empty string")
 
     # Allow alphanumeric, hyphens, underscores, and dots (for non-US stocks like 2800.HK)
@@ -86,7 +86,7 @@ def normalize_date(date_str: str) -> date:
     Raises:
         ValueError: If date string format is invalid
     """
-    if not date_str or not isinstance(date_str, str):
+    if not isinstance(date_str, str) or not date_str:
         raise ValueError("Date string must be a non-empty string")
 
     try:
@@ -109,7 +109,7 @@ def validate_asset_type(asset_type: str) -> str:
     Raises:
         ValueError: If asset type is invalid
     """
-    if not asset_type or not isinstance(asset_type, str):
+    if not isinstance(asset_type, str) or not asset_type:
         raise ValueError("Asset type must be a non-empty string")
 
     normalized = asset_type.strip().title()

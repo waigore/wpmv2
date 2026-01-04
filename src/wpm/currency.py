@@ -280,13 +280,23 @@ class CurrencyService:
                 )
 
             rate = data["Close"].iloc[-1]
-
-            if pd.isna(rate) or rate <= 0:
+            
+            # Convert to scalar if it's a Series
+            if isinstance(rate, pd.Series):
+                rate = rate.iloc[0] if len(rate) > 0 else rate
+            
+            # Check for None/NaN before converting to float
+            if pd.isna(rate):
                 raise ValueError(
                     f"Invalid forex rate data for {base_currency}/{counter_currency}"
                 )
-
+            
             rate = float(rate)
+
+            if rate <= 0:
+                raise ValueError(
+                    f"Invalid forex rate data for {base_currency}/{counter_currency}"
+                )
             logger.debug(
                 f"Retrieved forex rate for {base_currency}/{counter_currency}: {rate:.6f}"
             )

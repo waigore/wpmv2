@@ -222,15 +222,20 @@ class TestCurrencyService:
         assert result == 100.0
 
     @patch("wpm.currency.yf")
-    def test_convert_to_usd_different_currency(self, mock_yf):
+    @patch("wpm.currency.CurrencyCache")
+    def test_convert_to_usd_different_currency(self, mock_cache_class, mock_yf):
         """Test converting non-USD currency to USD."""
+        mock_cache = Mock()
+        mock_cache.get_cached_rate.return_value = None  # Cache miss
+        mock_cache_class.return_value = mock_cache
+        
         mock_data = pd.DataFrame(
             {"Close": [0.128]},
             index=pd.date_range("2024-01-15", periods=1, freq="1d"),
         )
         mock_yf.download.return_value = mock_data
 
-        service = CurrencyService()
+        service = CurrencyService(cache=mock_cache)
         result = service.convert_to_usd(100.0, "HKD")
 
         # 100 HKD * 0.128 = 12.8 USD

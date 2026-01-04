@@ -148,6 +148,40 @@ wpm>
 - If composite portfolio has no assets, display: "No assets found in composite portfolio."
 - If price retrieval fails for an asset type, logs a warning and displays "N/A" for Current Value for all assets of that type, but continues processing other asset types
 
+#### `lots <ticker>`
+
+**Description:** Displays all lots (FIFO purchase records) for the specified asset ticker across all portfolios.
+
+**Arguments:**
+- `<ticker>`: Asset ticker symbol (required)
+
+**Output Format:**
+- For each lot, display:
+  - Purchase date (YYYY-MM-DD format)
+  - Purchase price per unit
+  - Original quantity and remaining quantity
+  - Remaining cost basis (purchase_price × remaining_quantity)
+  - Matched sells (if any): For each matched sell, show sell date, sell price, and quantity sold
+  - Realized P/L (if any matched sells exist)
+  - Unrealized P/L (if current price is available)
+  - Total P/L (if current price is available)
+- Lots sorted by purchase date (oldest first)
+- Each lot displayed on multiple lines:
+  - First line: Purchase info and summary
+  - Subsequent lines: Matched sells (indented) if any exist
+- Example:
+  ```
+  2025-10-01: 2.0 @ $600.00 | Remaining: 1.0 @ $600.00 = $600.00 | Realized: +$20.00 | Unrealized: +$30.00 | Total: +$50.00
+    Sold: 2025-12-01, 1.0 @ $620.00
+  2025-11-01: 1.0 @ $610.00 | Remaining: 1.0 @ $610.00 = $610.00 | Realized: $0.00 | Unrealized: +$20.00 | Total: +$20.00
+  ```
+
+**Error Handling:**
+- If ticker argument is missing: "Error: Ticker required. Usage: lots <ticker>"
+- If no lots found for ticker: "No lots found for ticker '<ticker>'."
+- If ticker doesn't exist in portfolio: "No lots found for ticker '<ticker>'." (same message)
+- If price retrieval fails for unrealized P/L: Display lots with "N/A" for unrealized and total P/L
+
 #### `breakdown [<name>] <by>`
 
 **Description:** Shows a breakdown of the portfolio by the specified dimension.
