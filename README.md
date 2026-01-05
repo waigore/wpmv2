@@ -83,10 +83,10 @@ uv add --dev pydoc-markdown
 Then generate the documentation:
 
 ```bash
-pydoc-markdown -I src -p wpm --render-toc > docs/api.md
+pydoc-markdown -I src -p wpm --render-toc > src/wpm/docs/api.md
 ```
 
-This will generate markdown documentation for all modules in `src/wpm/` and place it in the `docs/api.md` file. The generated documentation is included in version control and will be distributed with the package.
+This will generate markdown documentation for all modules in `src/wpm/` and place it in the `src/wpm/docs/api.md` file. The generated documentation is included in version control and will be distributed with the package. After installation, the documentation will be available at `wpm/docs/api.md` in the installed package.
 
 ### Project Structure
 

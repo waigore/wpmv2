@@ -23,7 +23,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `wpm/metrics.py` - Portfolio metrics and breakdown generation
 - `wpm/utils.py` - Utility functions for validation, logging setup, and helpers
 - `wpm/currency.py` - Currency conversion module using yfinance for forex rates
-- `docs/` - Generated markdown documentation (included in version control and package distribution)
+- `wpm/docs/` - Generated markdown documentation (included in version control and package distribution)
 
 ## Module Requirements
 
@@ -648,18 +648,18 @@ The library uses `pydoc-markdown` to generate markdown documentation from docstr
 
 **Documentation Format:** Markdown (.md files)
 
-**Documentation Location:** `docs/api.md` file at the project root
+**Documentation Location:** `src/wpm/docs/api.md` file within the package directory
 
 **Documentation Scope:** All modules in `src/wpm/` directory (excluding test files)
 
 **Generation Command:**
 ```bash
-pydoc-markdown -I src -p wpm --render-toc > docs/api.md
+pydoc-markdown -I src -p wpm --render-toc > src/wpm/docs/api.md
 ```
 
-**Version Control:** The generated documentation in `docs/` is included in version control (not in `.gitignore`) to ensure documentation is available and versioned alongside the codebase.
+**Version Control:** The generated documentation in `src/wpm/docs/` is included in version control (not in `.gitignore`) to ensure documentation is available and versioned alongside the codebase.
 
-**Package Distribution:** The `docs/` directory is included in the distributed package via `pyproject.toml` configuration, ensuring users have access to the documentation upon installation.
+**Package Distribution:** The `docs/` directory is included in the distributed package via `pyproject.toml` configuration using `package-data`, ensuring users have access to the documentation upon installation. After installation, the documentation will be available at `wpm/docs/api.md` in the installed package.
 
 **Installation:** `pydoc-markdown` is managed as a development dependency using `uv`:
 ```bash
