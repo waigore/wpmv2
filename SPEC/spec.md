@@ -23,6 +23,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `wpm/metrics.py` - Portfolio metrics and breakdown generation
 - `wpm/utils.py` - Utility functions for validation, logging setup, and helpers
 - `wpm/currency.py` - Currency conversion module using yfinance for forex rates
+- `docs/` - Generated markdown documentation (included in version control and package distribution)
 
 ## Module Requirements
 
@@ -633,6 +634,39 @@ Validity is determined per asset individually based on asset type:
 
 ### Optional Dependencies
 - **requests** (>=2.28.0): HTTP library (may be required by yfinance/pycoingecko)
+
+### Documentation Dependencies
+- **pydoc-markdown** (>=4.8.2): Markdown documentation generation from docstrings (development dependency)
+
+## Documentation
+
+### Documentation Generation
+
+The library uses `pydoc-markdown` to generate markdown documentation from docstrings in the source code. This format is chosen for easier consumption by AI agents and human readers. `pydoc-markdown` is compatible with Python 3.13+ and supports multiple docstring styles.
+
+**Documentation Tool:** `pydoc-markdown`
+
+**Documentation Format:** Markdown (.md files)
+
+**Documentation Location:** `docs/api.md` file at the project root
+
+**Documentation Scope:** All modules in `src/wpm/` directory (excluding test files)
+
+**Generation Command:**
+```bash
+pydoc-markdown -I src -p wpm --render-toc > docs/api.md
+```
+
+**Version Control:** The generated documentation in `docs/` is included in version control (not in `.gitignore`) to ensure documentation is available and versioned alongside the codebase.
+
+**Package Distribution:** The `docs/` directory is included in the distributed package via `pyproject.toml` configuration, ensuring users have access to the documentation upon installation.
+
+**Installation:** `pydoc-markdown` is managed as a development dependency using `uv`:
+```bash
+uv add --dev pydoc-markdown
+```
+
+**Manual Generation:** Documentation is manually generated (not automated in CI/CD). Developers should regenerate documentation when docstrings are updated.
 
 ## Testing
 

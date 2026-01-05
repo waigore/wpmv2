@@ -1,0 +1,2678 @@
+# Table of Contents
+
+* [wpm](#wpm)
+* [wpm.metrics](#wpm.metrics)
+  * [calculate\_portfolio\_metrics](#wpm.metrics.calculate_portfolio_metrics)
+  * [breakdown\_by\_asset\_type](#wpm.metrics.breakdown_by_asset_type)
+  * [breakdown\_by\_ticker](#wpm.metrics.breakdown_by_ticker)
+  * [breakdown\_by\_purchase\_period](#wpm.metrics.breakdown_by_purchase_period)
+  * [breakdown\_by\_broker](#wpm.metrics.breakdown_by_broker)
+  * [calculate\_market\_value](#wpm.metrics.calculate_market_value)
+* [wpm.config](#wpm.config)
+  * [Config](#wpm.config.Config)
+    * [CURRENCY\_CACHE\_VALIDITY\_MINUTES](#wpm.config.Config.CURRENCY_CACHE_VALIDITY_MINUTES)
+    * [COINGECKO\_API\_KEY](#wpm.config.Config.COINGECKO_API_KEY)
+    * [COINGECKO\_API\_IS\_DEMO](#wpm.config.Config.COINGECKO_API_IS_DEMO)
+* [wpm.importer](#wpm.importer)
+  * [validate\_csv\_structure](#wpm.importer.validate_csv_structure)
+  * [parse\_trade\_row](#wpm.importer.parse_trade_row)
+  * [import\_trades\_from\_csv](#wpm.importer.import_trades_from_csv)
+  * [extract\_portfolio\_name](#wpm.importer.extract_portfolio_name)
+  * [import\_csv\_files](#wpm.importer.import_csv_files)
+* [wpm.models](#wpm.models)
+  * [ValidationError](#wpm.models.ValidationError)
+  * [PortfolioError](#wpm.models.PortfolioError)
+  * [Asset](#wpm.models.Asset)
+    * [\_\_post\_init\_\_](#wpm.models.Asset.__post_init__)
+    * [\_\_hash\_\_](#wpm.models.Asset.__hash__)
+  * [Trade](#wpm.models.Trade)
+    * [price](#wpm.models.Trade.price)
+    * [price\_native](#wpm.models.Trade.price_native)
+    * [\_\_post\_init\_\_](#wpm.models.Trade.__post_init__)
+    * [total\_value](#wpm.models.Trade.total_value)
+    * [is\_buy](#wpm.models.Trade.is_buy)
+    * [is\_sell](#wpm.models.Trade.is_sell)
+  * [Lot](#wpm.models.Lot)
+    * [\_\_post\_init\_\_](#wpm.models.Lot.__post_init__)
+    * [get\_realized\_pnl](#wpm.models.Lot.get_realized_pnl)
+    * [get\_unrealized\_pnl](#wpm.models.Lot.get_unrealized_pnl)
+    * [get\_total\_pnl](#wpm.models.Lot.get_total_pnl)
+  * [Position](#wpm.models.Position)
+    * [\_\_post\_init\_\_](#wpm.models.Position.__post_init__)
+    * [get\_average\_cost](#wpm.models.Position.get_average_cost)
+    * [average\_cost](#wpm.models.Position.average_cost)
+  * [Portfolio](#wpm.models.Portfolio)
+    * [\_\_init\_\_](#wpm.models.Portfolio.__init__)
+    * [get\_positions](#wpm.models.Portfolio.get_positions)
+    * [get\_total\_cost\_basis](#wpm.models.Portfolio.get_total_cost_basis)
+    * [get\_all\_trades](#wpm.models.Portfolio.get_all_trades)
+    * [get\_asset\_trades](#wpm.models.Portfolio.get_asset_trades)
+    * [get\_total\_market\_value](#wpm.models.Portfolio.get_total_market_value)
+    * [get\_total\_unrealized\_pnl](#wpm.models.Portfolio.get_total_unrealized_pnl)
+    * [get\_asset\_lots](#wpm.models.Portfolio.get_asset_lots)
+    * [get\_total\_realized\_pnl](#wpm.models.Portfolio.get_total_realized_pnl)
+    * [get\_position](#wpm.models.Portfolio.get_position)
+* [wpm.cost\_basis](#wpm.cost_basis)
+  * [calculate\_lots\_from\_trades](#wpm.cost_basis.calculate_lots_from_trades)
+  * [calculate\_fifo\_cost\_basis](#wpm.cost_basis.calculate_fifo_cost_basis)
+* [wpm.cli](#wpm.cli)
+  * [parse\_args](#wpm.cli.parse_args)
+  * [fetch\_prices\_for\_portfolio](#wpm.cli.fetch_prices_for_portfolio)
+  * [format\_currency](#wpm.cli.format_currency)
+  * [format\_unrealized\_pnl](#wpm.cli.format_unrealized_pnl)
+  * [format\_quantity](#wpm.cli.format_quantity)
+  * [format\_position\_line](#wpm.cli.format_position_line)
+  * [cmd\_list\_portfolios](#wpm.cli.cmd_list_portfolios)
+  * [cmd\_show\_portfolio](#wpm.cli.cmd_show_portfolio)
+  * [cmd\_show\_all](#wpm.cli.cmd_show_all)
+  * [format\_breakdown\_asset\_type](#wpm.cli.format_breakdown_asset_type)
+  * [format\_breakdown\_ticker](#wpm.cli.format_breakdown_ticker)
+  * [format\_breakdown\_purchase\_period](#wpm.cli.format_breakdown_purchase_period)
+  * [format\_breakdown\_broker](#wpm.cli.format_breakdown_broker)
+  * [cmd\_breakdown](#wpm.cli.cmd_breakdown)
+  * [format\_lot\_line](#wpm.cli.format_lot_line)
+  * [cmd\_show\_lots](#wpm.cli.cmd_show_lots)
+  * [run\_interactive\_mode](#wpm.cli.run_interactive_mode)
+  * [main](#wpm.cli.main)
+* [wpm.cache\_utils](#wpm.cache_utils)
+  * [LRUCache](#wpm.cache_utils.LRUCache)
+    * [\_\_init\_\_](#wpm.cache_utils.LRUCache.__init__)
+    * [get](#wpm.cache_utils.LRUCache.get)
+    * [set](#wpm.cache_utils.LRUCache.set)
+    * [clear](#wpm.cache_utils.LRUCache.clear)
+    * [\_\_len\_\_](#wpm.cache_utils.LRUCache.__len__)
+  * [trades\_to\_cache\_key](#wpm.cache_utils.trades_to_cache_key)
+  * [trades\_to\_cache\_key\_with\_filters](#wpm.cache_utils.trades_to_cache_key_with_filters)
+* [wpm.utils](#wpm.utils)
+  * [setup\_logging](#wpm.utils.setup_logging)
+  * [validate\_ticker](#wpm.utils.validate_ticker)
+  * [normalize\_date](#wpm.utils.normalize_date)
+  * [validate\_asset\_type](#wpm.utils.validate_asset_type)
+  * [concat\_dataframes](#wpm.utils.concat_dataframes)
+  * [is\_us\_market\_open](#wpm.utils.is_us_market_open)
+  * [is\_within\_trading\_hours](#wpm.utils.is_within_trading_hours)
+* [wpm.currency](#wpm.currency)
+  * [CurrencyCache](#wpm.currency.CurrencyCache)
+    * [\_\_init\_\_](#wpm.currency.CurrencyCache.__init__)
+    * [get\_cached\_rate](#wpm.currency.CurrencyCache.get_cached_rate)
+    * [set\_cached\_rate](#wpm.currency.CurrencyCache.set_cached_rate)
+  * [CurrencyService](#wpm.currency.CurrencyService)
+    * [\_\_init\_\_](#wpm.currency.CurrencyService.__init__)
+    * [get\_forex\_rate](#wpm.currency.CurrencyService.get_forex_rate)
+    * [convert\_to\_usd](#wpm.currency.CurrencyService.convert_to_usd)
+* [wpm.portfolio](#wpm.portfolio)
+  * [SimplePortfolio](#wpm.portfolio.SimplePortfolio)
+    * [\_\_init\_\_](#wpm.portfolio.SimplePortfolio.__init__)
+    * [add\_trade](#wpm.portfolio.SimplePortfolio.add_trade)
+    * [get\_positions](#wpm.portfolio.SimplePortfolio.get_positions)
+    * [get\_total\_cost\_basis](#wpm.portfolio.SimplePortfolio.get_total_cost_basis)
+    * [get\_total\_market\_value](#wpm.portfolio.SimplePortfolio.get_total_market_value)
+    * [get\_total\_unrealized\_pnl](#wpm.portfolio.SimplePortfolio.get_total_unrealized_pnl)
+    * [get\_asset\_lots](#wpm.portfolio.SimplePortfolio.get_asset_lots)
+    * [get\_total\_realized\_pnl](#wpm.portfolio.SimplePortfolio.get_total_realized_pnl)
+    * [get\_all\_trades](#wpm.portfolio.SimplePortfolio.get_all_trades)
+    * [get\_asset\_trades](#wpm.portfolio.SimplePortfolio.get_asset_trades)
+  * [CompositePortfolio](#wpm.portfolio.CompositePortfolio)
+    * [\_\_init\_\_](#wpm.portfolio.CompositePortfolio.__init__)
+    * [add\_sub\_portfolio](#wpm.portfolio.CompositePortfolio.add_sub_portfolio)
+    * [get\_positions](#wpm.portfolio.CompositePortfolio.get_positions)
+    * [get\_total\_cost\_basis](#wpm.portfolio.CompositePortfolio.get_total_cost_basis)
+    * [get\_total\_market\_value](#wpm.portfolio.CompositePortfolio.get_total_market_value)
+    * [get\_total\_unrealized\_pnl](#wpm.portfolio.CompositePortfolio.get_total_unrealized_pnl)
+    * [get\_asset\_lots](#wpm.portfolio.CompositePortfolio.get_asset_lots)
+    * [get\_total\_realized\_pnl](#wpm.portfolio.CompositePortfolio.get_total_realized_pnl)
+    * [get\_all\_trades](#wpm.portfolio.CompositePortfolio.get_all_trades)
+    * [get\_asset\_trades](#wpm.portfolio.CompositePortfolio.get_asset_trades)
+  * [fetch\_price\_map](#wpm.portfolio.fetch_price_map)
+* [wpm.pricing.service](#wpm.pricing.service)
+  * [PriceService](#wpm.pricing.service.PriceService)
+    * [\_\_init\_\_](#wpm.pricing.service.PriceService.__init__)
+    * [get\_price](#wpm.pricing.service.PriceService.get_price)
+    * [get\_prices](#wpm.pricing.service.PriceService.get_prices)
+* [wpm.pricing.coingecko](#wpm.pricing.coingecko)
+  * [CoinGeckoRetriever](#wpm.pricing.coingecko.CoinGeckoRetriever)
+    * [\_\_init\_\_](#wpm.pricing.coingecko.CoinGeckoRetriever.__init__)
+    * [get\_price](#wpm.pricing.coingecko.CoinGeckoRetriever.get_price)
+    * [get\_prices](#wpm.pricing.coingecko.CoinGeckoRetriever.get_prices)
+* [wpm.pricing.yahoo](#wpm.pricing.yahoo)
+  * [YahooFinanceRetriever](#wpm.pricing.yahoo.YahooFinanceRetriever)
+    * [\_\_init\_\_](#wpm.pricing.yahoo.YahooFinanceRetriever.__init__)
+    * [get\_price](#wpm.pricing.yahoo.YahooFinanceRetriever.get_price)
+    * [get\_prices](#wpm.pricing.yahoo.YahooFinanceRetriever.get_prices)
+* [wpm.pricing.rate\_limiter](#wpm.pricing.rate_limiter)
+  * [RateLimiter](#wpm.pricing.rate_limiter.RateLimiter)
+    * [\_\_init\_\_](#wpm.pricing.rate_limiter.RateLimiter.__init__)
+    * [wait\_if\_needed](#wpm.pricing.rate_limiter.RateLimiter.wait_if_needed)
+* [wpm.pricing.cache](#wpm.pricing.cache)
+  * [CacheValidityStatus](#wpm.pricing.cache.CacheValidityStatus)
+  * [CacheValidity](#wpm.pricing.cache.CacheValidity)
+  * [PriceCache](#wpm.pricing.cache.PriceCache)
+    * [\_\_init\_\_](#wpm.pricing.cache.PriceCache.__init__)
+    * [get\_cached\_price](#wpm.pricing.cache.PriceCache.get_cached_price)
+    * [get\_cached\_price\_native](#wpm.pricing.cache.PriceCache.get_cached_price_native)
+    * [get\_stale\_cached\_price](#wpm.pricing.cache.PriceCache.get_stale_cached_price)
+    * [get\_stale\_cached\_price\_native](#wpm.pricing.cache.PriceCache.get_stale_cached_price_native)
+    * [set\_cached\_price](#wpm.pricing.cache.PriceCache.set_cached_price)
+    * [get\_cache\_validity](#wpm.pricing.cache.PriceCache.get_cache_validity)
+* [wpm.pricing](#wpm.pricing)
+* [wpm.pricing.base](#wpm.pricing.base)
+  * [PriceRetriever](#wpm.pricing.base.PriceRetriever)
+    * [get\_price](#wpm.pricing.base.PriceRetriever.get_price)
+    * [get\_prices](#wpm.pricing.base.PriceRetriever.get_prices)
+
+<a id="wpm"></a>
+
+# wpm
+
+WPM (Wealth Portfolio Manager) Library.
+
+<a id="wpm.metrics"></a>
+
+# wpm.metrics
+
+Portfolio metrics and breakdown generation.
+
+<a id="wpm.metrics.calculate_portfolio_metrics"></a>
+
+#### calculate\_portfolio\_metrics
+
+```python
+def calculate_portfolio_metrics(portfolio: Portfolio) -> Dict
+```
+
+Calculate comprehensive portfolio metrics.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze
+  
+
+**Returns**:
+
+  Dictionary containing portfolio metrics
+
+<a id="wpm.metrics.breakdown_by_asset_type"></a>
+
+#### breakdown\_by\_asset\_type
+
+```python
+def breakdown_by_asset_type(portfolio: Portfolio) -> Dict[str, Dict]
+```
+
+Generate breakdown grouped by asset type.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze
+  
+
+**Returns**:
+
+  Dictionary mapping asset type to aggregated metrics
+
+<a id="wpm.metrics.breakdown_by_ticker"></a>
+
+#### breakdown\_by\_ticker
+
+```python
+def breakdown_by_ticker(portfolio: Portfolio) -> Dict[str, Position]
+```
+
+Generate breakdown grouped by ticker.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze
+  
+
+**Returns**:
+
+  Dictionary mapping ticker to Position object
+
+<a id="wpm.metrics.breakdown_by_purchase_period"></a>
+
+#### breakdown\_by\_purchase\_period
+
+```python
+def breakdown_by_purchase_period(portfolio: Portfolio,
+                                 period: str = "month") -> Dict[str, Dict]
+```
+
+Generate breakdown grouped by purchase period.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze
+- `period` - Time period grouping ("month", "quarter", or "year")
+  
+
+**Returns**:
+
+  Dictionary mapping period string to aggregated metrics
+
+<a id="wpm.metrics.breakdown_by_broker"></a>
+
+#### breakdown\_by\_broker
+
+```python
+def breakdown_by_broker(portfolio: Portfolio) -> Dict[str, Dict]
+```
+
+Generate breakdown grouped by broker.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze
+  
+
+**Returns**:
+
+  Dictionary mapping broker name to aggregated metrics
+
+<a id="wpm.metrics.calculate_market_value"></a>
+
+#### calculate\_market\_value
+
+```python
+def calculate_market_value(portfolio: Portfolio, prices: Dict[Asset,
+                                                              float]) -> float
+```
+
+Calculate current market value of portfolio.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze
+- `prices` - Dictionary mapping Asset to current price
+  
+
+**Returns**:
+
+  Total market value in USD
+
+<a id="wpm.config"></a>
+
+# wpm.config
+
+Application-level configuration module.
+
+This module handles all application configuration following these principles:
+- Sensitive configuration (API keys, access tokens) loaded from .env file using python-dotenv
+- Storage configuration (cache directories, file paths) defined as class variables
+
+<a id="wpm.config.Config"></a>
+
+## Config Objects
+
+```python
+class Config()
+```
+
+Application configuration class.
+
+Sensitive configuration values are loaded from environment variables (via .env file).
+Storage configuration values are defined as class variables.
+
+<a id="wpm.config.Config.CURRENCY_CACHE_VALIDITY_MINUTES"></a>
+
+#### CURRENCY\_CACHE\_VALIDITY\_MINUTES
+
+24 hours
+
+<a id="wpm.config.Config.COINGECKO_API_KEY"></a>
+
+#### COINGECKO\_API\_KEY
+
+Optional - None if not set
+
+<a id="wpm.config.Config.COINGECKO_API_IS_DEMO"></a>
+
+#### COINGECKO\_API\_IS\_DEMO
+
+Optional - defaults to False
+
+<a id="wpm.importer"></a>
+
+# wpm.importer
+
+CSV import functionality using pandas.
+
+<a id="wpm.importer.validate_csv_structure"></a>
+
+#### validate\_csv\_structure
+
+```python
+def validate_csv_structure(df: pd.DataFrame) -> None
+```
+
+Validate CSV has required columns.
+
+**Arguments**:
+
+- `df` - DataFrame to validate
+  
+
+**Raises**:
+
+- `ValidationError` - If required columns are missing
+
+<a id="wpm.importer.parse_trade_row"></a>
+
+#### parse\_trade\_row
+
+```python
+def parse_trade_row(row: pd.Series,
+                    currency_service: CurrencyService = None) -> Trade
+```
+
+Convert CSV row to Trade object.
+
+Maps "Equity" asset type to "Stock" as per spec requirement.
+
+**Arguments**:
+
+- `row` - Pandas Series representing a CSV row
+- `currency_service` - CurrencyService instance for currency conversion (default: creates new instance)
+  
+
+**Returns**:
+
+  Trade object
+  
+
+**Raises**:
+
+- `ValidationError` - If row data is invalid
+
+<a id="wpm.importer.import_trades_from_csv"></a>
+
+#### import\_trades\_from\_csv
+
+```python
+def import_trades_from_csv(
+        file_path: str,
+        currency_service: CurrencyService = None) -> List[Trade]
+```
+
+Import trades from CSV file.
+
+**Arguments**:
+
+- `file_path` - Path to CSV file
+- `currency_service` - CurrencyService instance for currency conversion (default: creates new instance)
+  
+
+**Returns**:
+
+  List of Trade objects
+  
+
+**Raises**:
+
+- `ValidationError` - If CSV structure is invalid or data cannot be parsed
+
+<a id="wpm.importer.extract_portfolio_name"></a>
+
+#### extract\_portfolio\_name
+
+```python
+def extract_portfolio_name(filename: str, existing_names: Set[str]) -> str
+```
+
+Extract and normalize portfolio name from CSV filename.
+
+**Arguments**:
+
+- `filename` - CSV filename (with or without .csv extension)
+- `existing_names` - Set of already used portfolio names
+  
+
+**Returns**:
+
+  Normalized portfolio name (whitespace stripped, duplicates handled)
+  
+
+**Raises**:
+
+- `ValueError` - If resulting name is empty
+
+<a id="wpm.importer.import_csv_files"></a>
+
+#### import\_csv\_files
+
+```python
+def import_csv_files(import_dir: Path) -> CompositePortfolio
+```
+
+Import CSV files and create composite portfolio.
+
+**Arguments**:
+
+- `import_dir` - Directory containing CSV files
+  
+
+**Returns**:
+
+  CompositePortfolio containing all imported sub-portfolios
+  
+
+**Raises**:
+
+- `ValueError` - If no CSV files found in directory
+- `ValidationError` - If CSV import fails
+
+<a id="wpm.models"></a>
+
+# wpm.models
+
+Core data models for the WPM library.
+
+<a id="wpm.models.ValidationError"></a>
+
+## ValidationError Objects
+
+```python
+class ValidationError(ValueError)
+```
+
+Raised when validation of input data fails.
+
+<a id="wpm.models.PortfolioError"></a>
+
+## PortfolioError Objects
+
+```python
+class PortfolioError(ValueError)
+```
+
+Raised when portfolio operations are invalid.
+
+<a id="wpm.models.Asset"></a>
+
+## Asset Objects
+
+```python
+@dataclass(frozen=True, eq=True)
+class Asset()
+```
+
+Represents a financial asset with ticker and type.
+
+<a id="wpm.models.Asset.__post_init__"></a>
+
+#### \_\_post\_init\_\_
+
+```python
+def __post_init__()
+```
+
+Validate asset fields after initialization.
+
+<a id="wpm.models.Asset.__hash__"></a>
+
+#### \_\_hash\_\_
+
+```python
+def __hash__()
+```
+
+Make Asset hashable for use in sets/dictionaries.
+
+<a id="wpm.models.Trade"></a>
+
+## Trade Objects
+
+```python
+@dataclass
+class Trade()
+```
+
+Represents a single buy or sell transaction.
+
+<a id="wpm.models.Trade.price"></a>
+
+#### price
+
+Price in USD (accounting currency)
+
+<a id="wpm.models.Trade.price_native"></a>
+
+#### price\_native
+
+Price in native currency
+
+<a id="wpm.models.Trade.__post_init__"></a>
+
+#### \_\_post\_init\_\_
+
+```python
+def __post_init__()
+```
+
+Validate trade fields after initialization.
+
+<a id="wpm.models.Trade.total_value"></a>
+
+#### total\_value
+
+```python
+@property
+def total_value() -> float
+```
+
+Calculate total value of the trade (price * quantity).
+
+<a id="wpm.models.Trade.is_buy"></a>
+
+#### is\_buy
+
+```python
+def is_buy() -> bool
+```
+
+Check if trade is a buy transaction.
+
+<a id="wpm.models.Trade.is_sell"></a>
+
+#### is\_sell
+
+```python
+def is_sell() -> bool
+```
+
+Check if trade is a sell transaction.
+
+<a id="wpm.models.Lot"></a>
+
+## Lot Objects
+
+```python
+@dataclass
+class Lot()
+```
+
+Represents a purchase record (lot) for an asset with FIFO sell matching.
+
+<a id="wpm.models.Lot.__post_init__"></a>
+
+#### \_\_post\_init\_\_
+
+```python
+def __post_init__()
+```
+
+Validate lot fields after initialization.
+
+<a id="wpm.models.Lot.get_realized_pnl"></a>
+
+#### get\_realized\_pnl
+
+```python
+def get_realized_pnl() -> float
+```
+
+Calculate realized profit/loss from matched sells.
+
+**Returns**:
+
+  Realized P/L in USD (sum of (sell_price - purchase_price) * quantity_sold for all matched sells)
+
+<a id="wpm.models.Lot.get_unrealized_pnl"></a>
+
+#### get\_unrealized\_pnl
+
+```python
+def get_unrealized_pnl(current_price: float) -> float
+```
+
+Calculate unrealized profit/loss for remaining quantity.
+
+**Arguments**:
+
+- `current_price` - Current market price per unit
+  
+
+**Returns**:
+
+  Unrealized P/L in USD ((current_price - purchase_price) * remaining_quantity)
+
+<a id="wpm.models.Lot.get_total_pnl"></a>
+
+#### get\_total\_pnl
+
+```python
+def get_total_pnl(current_price: Optional[float]) -> float
+```
+
+Calculate total profit/loss (realized + unrealized).
+
+**Arguments**:
+
+- `current_price` - Current market price per unit (None if unavailable)
+  
+
+**Returns**:
+
+  Total P/L in USD (realized P/L + unrealized P/L)
+
+<a id="wpm.models.Position"></a>
+
+## Position Objects
+
+```python
+@dataclass
+class Position()
+```
+
+Represents current holdings for a specific asset within a portfolio.
+
+<a id="wpm.models.Position.__post_init__"></a>
+
+#### \_\_post\_init\_\_
+
+```python
+def __post_init__()
+```
+
+Validate position fields after initialization.
+
+<a id="wpm.models.Position.get_average_cost"></a>
+
+#### get\_average\_cost
+
+```python
+def get_average_cost() -> float
+```
+
+Calculate average cost per unit.
+
+<a id="wpm.models.Position.average_cost"></a>
+
+#### average\_cost
+
+```python
+@property
+def average_cost() -> float
+```
+
+Average cost per unit (computed property).
+
+<a id="wpm.models.Portfolio"></a>
+
+## Portfolio Objects
+
+```python
+class Portfolio(ABC)
+```
+
+Abstract base class for portfolios.
+
+<a id="wpm.models.Portfolio.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(name: str)
+```
+
+Initialize portfolio with a name.
+
+<a id="wpm.models.Portfolio.get_positions"></a>
+
+#### get\_positions
+
+```python
+@abstractmethod
+def get_positions(
+        asset_type: Optional[str] = None,
+        tickers: Optional[List[str]] = None) -> dict[Asset, "Position"]
+```
+
+Get all positions in the portfolio.
+
+**Arguments**:
+
+- `asset_type` - Optional asset type to filter by (e.g., "Stock", "ETF", "Crypto")
+- `tickers` - Optional list of ticker symbols to filter by
+  
+
+**Returns**:
+
+  Dictionary mapping Asset to Position objects
+
+<a id="wpm.models.Portfolio.get_total_cost_basis"></a>
+
+#### get\_total\_cost\_basis
+
+```python
+@abstractmethod
+def get_total_cost_basis() -> float
+```
+
+Calculate total cost basis for the portfolio.
+
+<a id="wpm.models.Portfolio.get_all_trades"></a>
+
+#### get\_all\_trades
+
+```python
+@abstractmethod
+def get_all_trades() -> list[Trade]
+```
+
+Get all trades in the portfolio (including sub-portfolios).
+
+<a id="wpm.models.Portfolio.get_asset_trades"></a>
+
+#### get\_asset\_trades
+
+```python
+@abstractmethod
+def get_asset_trades(ticker: str,
+                     start_date: Optional[date] = None,
+                     end_date: Optional[date] = None) -> List[Trade]
+```
+
+Get all trades for a specified asset (ticker) within the portfolio.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol to filter trades by
+- `start_date` - Optional start date for date range filter (inclusive).
+  If not specified, includes trades from the very beginning.
+- `end_date` - Optional end date for date range filter (inclusive).
+  If not specified, includes trades to the very end.
+  
+
+**Returns**:
+
+  List of Trade objects matching the ticker and date range
+  (includes both Buy and Sell trades)
+
+<a id="wpm.models.Portfolio.get_total_market_value"></a>
+
+#### get\_total\_market\_value
+
+```python
+@abstractmethod
+def get_total_market_value(prices: Dict[Asset, Optional[float]]) -> float
+```
+
+Calculate total market value for the portfolio.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Total market value in USD
+
+<a id="wpm.models.Portfolio.get_total_unrealized_pnl"></a>
+
+#### get\_total\_unrealized\_pnl
+
+```python
+@abstractmethod
+def get_total_unrealized_pnl(prices: Dict[Asset, Optional[float]]) -> float
+```
+
+Calculate total unrealized profit/loss for the portfolio.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Total unrealized profit/loss in USD (market_value - cost_basis)
+
+<a id="wpm.models.Portfolio.get_asset_lots"></a>
+
+#### get\_asset\_lots
+
+```python
+@abstractmethod
+def get_asset_lots(
+        ticker: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        prices: Optional[Dict[Asset, Optional[float]]] = None) -> List["Lot"]
+```
+
+Get all lots for a specified asset (ticker) within the portfolio.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol to filter lots by
+- `start_date` - Optional start date for date range filter (inclusive).
+  If not specified, includes lots from the very beginning.
+- `end_date` - Optional end date for date range filter (inclusive).
+  If not specified, includes lots to the very end.
+- `prices` - Optional dictionary mapping Asset to current price for P/L calculations
+  
+
+**Returns**:
+
+  List of Lot objects for the ticker
+
+<a id="wpm.models.Portfolio.get_total_realized_pnl"></a>
+
+#### get\_total\_realized\_pnl
+
+```python
+@abstractmethod
+def get_total_realized_pnl(prices: Dict[Asset, Optional[float]]) -> float
+```
+
+Calculate total realized profit/loss for the portfolio.
+
+Derives from lots' realized P/L.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable).
+- `Note` - Realized P/L doesn't actually depend on current prices, but included
+  for consistency with other P/L methods.
+  
+
+**Returns**:
+
+  Total realized profit/loss in USD
+
+<a id="wpm.models.Portfolio.get_position"></a>
+
+#### get\_position
+
+```python
+def get_position(asset: Asset) -> Optional["Position"]
+```
+
+Get position for a specific asset.
+
+<a id="wpm.cost_basis"></a>
+
+# wpm.cost\_basis
+
+Cost basis calculation methods (FIFO).
+
+<a id="wpm.cost_basis.calculate_lots_from_trades"></a>
+
+#### calculate\_lots\_from\_trades
+
+```python
+def calculate_lots_from_trades(trades: List[Trade]) -> Dict[Asset, List[Lot]]
+```
+
+Calculate lots from trades using FIFO method.
+
+Uses LRU caching to avoid recalculating lots for the same set of trades.
+
+**Arguments**:
+
+- `trades` - List of trades to process
+  
+
+**Returns**:
+
+  Dictionary mapping Asset to list of Lot objects
+
+<a id="wpm.cost_basis.calculate_fifo_cost_basis"></a>
+
+#### calculate\_fifo\_cost\_basis
+
+```python
+def calculate_fifo_cost_basis(trades: List[Trade]) -> Dict[Asset, Position]
+```
+
+Calculate positions using FIFO (First In, First Out) method.
+
+Now derives positions from lots internally for consistency.
+
+**Arguments**:
+
+- `trades` - List of trades to process
+  
+
+**Returns**:
+
+  Dictionary mapping Asset to Position objects
+
+<a id="wpm.cli"></a>
+
+# wpm.cli
+
+Command-line utility for WPM (Wealth Portfolio Manager).
+
+This utility orchestrates CSV imports, creates composite portfolios,
+updates price caches, and provides an interactive command interface.
+
+<a id="wpm.cli.parse_args"></a>
+
+#### parse\_args
+
+```python
+def parse_args() -> argparse.Namespace
+```
+
+Parse and validate command-line arguments.
+
+**Returns**:
+
+  Parsed arguments namespace
+
+<a id="wpm.cli.fetch_prices_for_portfolio"></a>
+
+#### fetch\_prices\_for\_portfolio
+
+```python
+def fetch_prices_for_portfolio(portfolio: CompositePortfolio,
+                               price_service: PriceService) -> None
+```
+
+Fetch prices for all assets in portfolio via PriceService.
+
+**Arguments**:
+
+- `portfolio` - Composite portfolio containing all assets
+- `price_service` - Price service for retrieving prices
+  
+
+**Raises**:
+
+- `SystemExit` - If price retrieval fails for any asset with no cache entry
+
+<a id="wpm.cli.format_currency"></a>
+
+#### format\_currency
+
+```python
+def format_currency(value: float) -> str
+```
+
+Format currency value with $ prefix and 2 decimal places.
+
+**Arguments**:
+
+- `value` - Currency value to format
+  
+
+**Returns**:
+
+  Formatted string (e.g., "$1,234.56")
+
+<a id="wpm.cli.format_unrealized_pnl"></a>
+
+#### format\_unrealized\_pnl
+
+```python
+def format_unrealized_pnl(value: float) -> str
+```
+
+Format unrealized P/L with + prefix for profit, - for loss.
+
+**Arguments**:
+
+- `value` - Unrealized P/L value to format
+  
+
+**Returns**:
+
+  Formatted string with sign prefix (e.g., "+$1,234.56" or "-$1,234.56")
+
+<a id="wpm.cli.format_quantity"></a>
+
+#### format\_quantity
+
+```python
+def format_quantity(value) -> str
+```
+
+Format quantity value appropriately.
+
+Handles Decimal and float values, rounding to 8 decimal places
+(standard for crypto precision) and removes trailing zeros.
+
+**Arguments**:
+
+- `value` - Quantity value to format (Decimal or float)
+  
+
+**Returns**:
+
+  Formatted string (integer if whole number, decimal otherwise)
+
+<a id="wpm.cli.format_position_line"></a>
+
+#### format\_position\_line
+
+```python
+def format_position_line(position: Position, price: Optional[float]) -> str
+```
+
+Format a position line for display.
+
+**Arguments**:
+
+- `position` - Position to format
+- `price` - Current price (None if unavailable)
+  
+
+**Returns**:
+
+  Formatted position line
+
+<a id="wpm.cli.cmd_list_portfolios"></a>
+
+#### cmd\_list\_portfolios
+
+```python
+def cmd_list_portfolios(composite: CompositePortfolio) -> None
+```
+
+Handle 'list portfolios' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio containing sub-portfolios
+
+<a id="wpm.cli.cmd_show_portfolio"></a>
+
+#### cmd\_show\_portfolio
+
+```python
+def cmd_show_portfolio(composite: CompositePortfolio, name: str,
+                       price_service: PriceService) -> None
+```
+
+Handle 'show portfolio <name>' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio containing sub-portfolios
+- `name` - Name of sub-portfolio to show
+- `price_service` - Price service for retrieving current prices
+
+<a id="wpm.cli.cmd_show_all"></a>
+
+#### cmd\_show\_all
+
+```python
+def cmd_show_all(composite: CompositePortfolio,
+                 price_service: PriceService) -> None
+```
+
+Handle 'show all' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio
+- `price_service` - Price service for retrieving current prices
+
+<a id="wpm.cli.format_breakdown_asset_type"></a>
+
+#### format\_breakdown\_asset\_type
+
+```python
+def format_breakdown_asset_type(breakdown: Dict[str, Dict]) -> None
+```
+
+Format breakdown by asset type for display.
+
+**Arguments**:
+
+- `breakdown` - Breakdown dictionary from breakdown_by_asset_type
+
+<a id="wpm.cli.format_breakdown_ticker"></a>
+
+#### format\_breakdown\_ticker
+
+```python
+def format_breakdown_ticker(breakdown: Dict[str, Position]) -> None
+```
+
+Format breakdown by ticker for display.
+
+**Arguments**:
+
+- `breakdown` - Breakdown dictionary from breakdown_by_ticker
+
+<a id="wpm.cli.format_breakdown_purchase_period"></a>
+
+#### format\_breakdown\_purchase\_period
+
+```python
+def format_breakdown_purchase_period(breakdown: Dict[str, Dict]) -> None
+```
+
+Format breakdown by purchase period for display.
+
+**Arguments**:
+
+- `breakdown` - Breakdown dictionary from breakdown_by_purchase_period
+
+<a id="wpm.cli.format_breakdown_broker"></a>
+
+#### format\_breakdown\_broker
+
+```python
+def format_breakdown_broker(breakdown: Dict[str, Dict]) -> None
+```
+
+Format breakdown by broker for display.
+
+**Arguments**:
+
+- `breakdown` - Breakdown dictionary from breakdown_by_broker
+
+<a id="wpm.cli.cmd_breakdown"></a>
+
+#### cmd\_breakdown
+
+```python
+def cmd_breakdown(composite: CompositePortfolio, args: List[str]) -> None
+```
+
+Handle 'breakdown [<name>] <by>' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio
+- `args` - Command arguments (optional portfolio name, required breakdown type)
+
+<a id="wpm.cli.format_lot_line"></a>
+
+#### format\_lot\_line
+
+```python
+def format_lot_line(lot: Lot, current_price: Optional[float]) -> str
+```
+
+Format a lot line with matched sells for display.
+
+**Arguments**:
+
+- `lot` - Lot to format
+- `current_price` - Current price (None if unavailable)
+  
+
+**Returns**:
+
+  Multi-line formatted string (lot summary + matched sells if any)
+
+<a id="wpm.cli.cmd_show_lots"></a>
+
+#### cmd\_show\_lots
+
+```python
+def cmd_show_lots(composite: CompositePortfolio, ticker: str,
+                  price_service: PriceService) -> None
+```
+
+Handle 'lots <ticker>' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio containing all assets
+- `ticker` - Asset ticker symbol to show lots for
+- `price_service` - Price service for retrieving current prices
+
+<a id="wpm.cli.run_interactive_mode"></a>
+
+#### run\_interactive\_mode
+
+```python
+def run_interactive_mode(composite: CompositePortfolio,
+                         price_service: PriceService) -> None
+```
+
+Run interactive command loop.
+
+**Arguments**:
+
+- `composite` - Composite portfolio
+- `price_service` - Price service for retrieving prices
+
+<a id="wpm.cli.main"></a>
+
+#### main
+
+```python
+def main() -> None
+```
+
+Main entry point for wpm CLI.
+
+<a id="wpm.cache_utils"></a>
+
+# wpm.cache\_utils
+
+Cache utilities for WPM library.
+
+<a id="wpm.cache_utils.LRUCache"></a>
+
+## LRUCache Objects
+
+```python
+class LRUCache(Generic[T])
+```
+
+Simple LRU cache implementation using OrderedDict.
+
+Provides thread-safe-like operations for single-threaded use cases.
+For multi-threaded scenarios, external synchronization would be needed.
+
+<a id="wpm.cache_utils.LRUCache.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(maxsize: int = 128)
+```
+
+Initialize LRU cache.
+
+**Arguments**:
+
+- `maxsize` - Maximum number of entries in the cache
+
+<a id="wpm.cache_utils.LRUCache.get"></a>
+
+#### get
+
+```python
+def get(key) -> Optional[T]
+```
+
+Get value from cache, moving it to end (most recently used).
+
+**Arguments**:
+
+- `key` - Cache key
+  
+
+**Returns**:
+
+  Cached value if found, None otherwise
+
+<a id="wpm.cache_utils.LRUCache.set"></a>
+
+#### set
+
+```python
+def set(key, value: T) -> None
+```
+
+Set value in cache, implementing LRU eviction if needed.
+
+**Arguments**:
+
+- `key` - Cache key
+- `value` - Value to cache
+
+<a id="wpm.cache_utils.LRUCache.clear"></a>
+
+#### clear
+
+```python
+def clear() -> None
+```
+
+Clear all entries from the cache.
+
+<a id="wpm.cache_utils.LRUCache.__len__"></a>
+
+#### \_\_len\_\_
+
+```python
+def __len__() -> int
+```
+
+Return number of entries in cache.
+
+<a id="wpm.cache_utils.trades_to_cache_key"></a>
+
+#### trades\_to\_cache\_key
+
+```python
+def trades_to_cache_key(trades: List[Trade]) -> tuple
+```
+
+Convert trades list to hashable tuple for cache key.
+
+**Arguments**:
+
+- `trades` - List of Trade objects
+  
+
+**Returns**:
+
+  Hashable tuple representation of trades
+
+<a id="wpm.cache_utils.trades_to_cache_key_with_filters"></a>
+
+#### trades\_to\_cache\_key\_with\_filters
+
+```python
+def trades_to_cache_key_with_filters(
+        trades: List[Trade],
+        asset_type: Optional[str] = None,
+        tickers: Optional[List[str]] = None) -> tuple
+```
+
+Convert trades list and filters to hashable tuple for cache key.
+
+**Arguments**:
+
+- `trades` - List of Trade objects
+- `asset_type` - Optional asset type filter
+- `tickers` - Optional tickers filter
+  
+
+**Returns**:
+
+  Hashable tuple representation
+
+<a id="wpm.utils"></a>
+
+# wpm.utils
+
+Utility functions for validation, logging, and trading hours.
+
+<a id="wpm.utils.setup_logging"></a>
+
+#### setup\_logging
+
+```python
+def setup_logging(level: int = logging.INFO) -> logging.Logger
+```
+
+Configure library logging.
+
+**Arguments**:
+
+- `level` - Logging level (default: logging.INFO)
+  
+
+**Returns**:
+
+  Configured logger instance
+
+<a id="wpm.utils.validate_ticker"></a>
+
+#### validate\_ticker
+
+```python
+def validate_ticker(ticker: str) -> None
+```
+
+Validate ticker format.
+
+**Arguments**:
+
+- `ticker` - Ticker symbol to validate
+  
+
+**Raises**:
+
+- `ValidationError` - If ticker format is invalid
+
+<a id="wpm.utils.normalize_date"></a>
+
+#### normalize\_date
+
+```python
+def normalize_date(date_str: str) -> date
+```
+
+Parse and normalize date strings in YYYY-MM-DD format.
+
+**Arguments**:
+
+- `date_str` - Date string in YYYY-MM-DD format
+  
+
+**Returns**:
+
+  Parsed date object
+  
+
+**Raises**:
+
+- `ValueError` - If date string format is invalid
+
+<a id="wpm.utils.validate_asset_type"></a>
+
+#### validate\_asset\_type
+
+```python
+def validate_asset_type(asset_type: str) -> str
+```
+
+Validate and normalize asset type.
+
+Maps "Equity" to "Stock" and normalizes case to title case.
+
+**Arguments**:
+
+- `asset_type` - Asset type string to validate
+  
+
+**Returns**:
+
+  Normalized asset type ("Stock", "ETF", or "Crypto")
+  
+
+**Raises**:
+
+- `ValueError` - If asset type is invalid
+
+<a id="wpm.utils.concat_dataframes"></a>
+
+#### concat\_dataframes
+
+```python
+def concat_dataframes(objs: Sequence[pd.DataFrame],
+                      ignore_index: bool = False,
+                      **kwargs) -> pd.DataFrame
+```
+
+Concatenate pandas DataFrames while suppressing FutureWarning for empty DataFrames.
+
+This wrapper around pd.concat suppresses the FutureWarning that pandas emits
+when concatenating DataFrames where one may be empty or all-NA. This warning
+is about future dtype inference behavior and is not critical when DataFrames
+have matching columns.
+
+**Arguments**:
+
+- `objs` - Sequence of DataFrames to concatenate
+- `ignore_index` - If True, ignore index and use default integer index
+- `**kwargs` - Additional arguments passed to pd.concat
+  
+
+**Returns**:
+
+  Concatenated DataFrame
+
+<a id="wpm.utils.is_us_market_open"></a>
+
+#### is\_us\_market\_open
+
+```python
+def is_us_market_open(timestamp: Optional[datetime] = None) -> bool
+```
+
+Determine if US market (NYSE) is currently open for regular trading hours.
+
+Accounts for weekends, official holidays, and early closes using
+pandas_market_calendars.
+
+**Arguments**:
+
+- `timestamp` - Timestamp to check (default: current time in ET timezone)
+  
+
+**Returns**:
+
+  True if market is open, False otherwise
+
+<a id="wpm.utils.is_within_trading_hours"></a>
+
+#### is\_within\_trading\_hours
+
+```python
+def is_within_trading_hours(timestamp: datetime) -> bool
+```
+
+Check if a given timestamp falls within US market trading hours.
+
+Uses NYSE calendar to account for holidays and early closes.
+
+**Arguments**:
+
+- `timestamp` - Timestamp to check
+  
+
+**Returns**:
+
+  True if timestamp is during market hours, False otherwise
+
+<a id="wpm.currency"></a>
+
+# wpm.currency
+
+Currency conversion module using yfinance for forex rates.
+
+<a id="wpm.currency.CurrencyCache"></a>
+
+## CurrencyCache Objects
+
+```python
+class CurrencyCache()
+```
+
+Manages persistent Parquet-based currency rate cache.
+
+<a id="wpm.currency.CurrencyCache.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(cache_file: Optional[Path] = None)
+```
+
+Initialize currency cache.
+
+**Arguments**:
+
+- `cache_file` - Path to cache file (default: Config.CURRENCY_CACHE_FILE)
+
+<a id="wpm.currency.CurrencyCache.get_cached_rate"></a>
+
+#### get\_cached\_rate
+
+```python
+def get_cached_rate(base_currency: str,
+                    counter_currency: str = "USD") -> Optional[float]
+```
+
+Get cached rate if valid.
+
+**Arguments**:
+
+- `base_currency` - Base currency code (e.g., "HKD")
+- `counter_currency` - Counter currency code (default: "USD")
+  
+
+**Returns**:
+
+  Cached rate if valid, None otherwise
+
+<a id="wpm.currency.CurrencyCache.set_cached_rate"></a>
+
+#### set\_cached\_rate
+
+```python
+def set_cached_rate(base_currency: str,
+                    counter_currency: str,
+                    rate: float,
+                    timestamp: Optional[datetime] = None) -> None
+```
+
+Set cached rate.
+
+**Arguments**:
+
+- `base_currency` - Base currency code
+- `counter_currency` - Counter currency code
+- `rate` - Exchange rate to cache
+- `timestamp` - Timestamp (default: current time)
+
+<a id="wpm.currency.CurrencyService"></a>
+
+## CurrencyService Objects
+
+```python
+class CurrencyService()
+```
+
+Service for currency conversion using yfinance.
+
+<a id="wpm.currency.CurrencyService.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(cache: Optional[CurrencyCache] = None)
+```
+
+Initialize currency service.
+
+**Arguments**:
+
+- `cache` - CurrencyCache instance (default: creates new instance)
+
+<a id="wpm.currency.CurrencyService.get_forex_rate"></a>
+
+#### get\_forex\_rate
+
+```python
+def get_forex_rate(base_currency: str, counter_currency: str = "USD") -> float
+```
+
+Get forex exchange rate.
+
+Uses yfinance API with format {BASE}{COUNTER}=X (e.g., HKDUSD=X).
+Returns exchange rate where 1 base = X counter.
+
+**Arguments**:
+
+- `base_currency` - Base currency code (e.g., "HKD")
+- `counter_currency` - Counter currency code (default: "USD")
+  
+
+**Returns**:
+
+  Exchange rate (1 base = X counter)
+  
+
+**Raises**:
+
+- `ValueError` - If rate cannot be retrieved
+
+<a id="wpm.currency.CurrencyService.convert_to_usd"></a>
+
+#### convert\_to\_usd
+
+```python
+def convert_to_usd(amount: float, from_currency: str) -> float
+```
+
+Convert amount from any currency to USD.
+
+**Arguments**:
+
+- `amount` - Amount to convert
+- `from_currency` - Source currency code
+  
+
+**Returns**:
+
+  Amount in USD (unchanged if from_currency is USD)
+
+<a id="wpm.portfolio"></a>
+
+# wpm.portfolio
+
+Portfolio class implementation with aggregation logic.
+
+<a id="wpm.portfolio.SimplePortfolio"></a>
+
+## SimplePortfolio Objects
+
+```python
+class SimplePortfolio(Portfolio)
+```
+
+Portfolio containing direct asset positions (trades).
+
+<a id="wpm.portfolio.SimplePortfolio.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(name: str)
+```
+
+Initialize a simple portfolio.
+
+**Arguments**:
+
+- `name` - Portfolio name
+
+<a id="wpm.portfolio.SimplePortfolio.add_trade"></a>
+
+#### add\_trade
+
+```python
+def add_trade(trade: Trade) -> None
+```
+
+Add a trade to the portfolio.
+
+**Arguments**:
+
+- `trade` - Trade to add
+
+<a id="wpm.portfolio.SimplePortfolio.get_positions"></a>
+
+#### get\_positions
+
+```python
+def get_positions(
+        asset_type: Optional[str] = None,
+        tickers: Optional[List[str]] = None) -> Dict[Asset, Position]
+```
+
+Get all positions in the portfolio.
+
+Uses LRU caching to avoid recalculating positions for the same trades.
+
+**Arguments**:
+
+- `asset_type` - Optional asset type to filter by (e.g., "Stock", "ETF", "Crypto")
+- `tickers` - Optional list of ticker symbols to filter by
+  
+
+**Returns**:
+
+  Dictionary mapping Asset to Position objects
+
+<a id="wpm.portfolio.SimplePortfolio.get_total_cost_basis"></a>
+
+#### get\_total\_cost\_basis
+
+```python
+def get_total_cost_basis() -> float
+```
+
+Calculate total cost basis for the portfolio.
+
+Uses LRU caching to avoid recalculating for the same trades.
+
+**Returns**:
+
+  Total cost basis in USD
+
+<a id="wpm.portfolio.SimplePortfolio.get_total_market_value"></a>
+
+#### get\_total\_market\_value
+
+```python
+def get_total_market_value(prices: Dict[Asset, Optional[float]]) -> float
+```
+
+Calculate total market value for the portfolio.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Total market value in USD
+
+<a id="wpm.portfolio.SimplePortfolio.get_total_unrealized_pnl"></a>
+
+#### get\_total\_unrealized\_pnl
+
+```python
+def get_total_unrealized_pnl(prices: Dict[Asset, Optional[float]]) -> float
+```
+
+Calculate total unrealized profit/loss for the portfolio.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Total unrealized profit/loss in USD (market_value - cost_basis)
+
+<a id="wpm.portfolio.SimplePortfolio.get_asset_lots"></a>
+
+#### get\_asset\_lots
+
+```python
+def get_asset_lots(
+        ticker: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        prices: Optional[Dict[Asset, Optional[float]]] = None) -> List[Lot]
+```
+
+Get all lots for a specified asset (ticker) within the portfolio.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol to filter lots by
+- `start_date` - Optional start date for date range filter (inclusive).
+  If not specified, includes lots from the very beginning.
+- `end_date` - Optional end date for date range filter (inclusive).
+  If not specified, includes lots to the very end.
+- `prices` - Optional dictionary mapping Asset to current price for P/L calculations
+  
+
+**Returns**:
+
+  List of Lot objects for the ticker
+
+<a id="wpm.portfolio.SimplePortfolio.get_total_realized_pnl"></a>
+
+#### get\_total\_realized\_pnl
+
+```python
+def get_total_realized_pnl(prices: Dict[Asset, Optional[float]]) -> float
+```
+
+Calculate total realized profit/loss for the portfolio.
+
+Derives from lots' realized P/L.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable).
+- `Note` - Realized P/L doesn't actually depend on current prices, but included
+  for consistency with other P/L methods.
+  
+
+**Returns**:
+
+  Total realized profit/loss in USD
+
+<a id="wpm.portfolio.SimplePortfolio.get_all_trades"></a>
+
+#### get\_all\_trades
+
+```python
+def get_all_trades() -> List[Trade]
+```
+
+Get all trades in the portfolio.
+
+**Returns**:
+
+  List of all trades
+
+<a id="wpm.portfolio.SimplePortfolio.get_asset_trades"></a>
+
+#### get\_asset\_trades
+
+```python
+def get_asset_trades(ticker: str,
+                     start_date: Optional[date] = None,
+                     end_date: Optional[date] = None) -> List[Trade]
+```
+
+Get all trades for a specified asset (ticker) within the portfolio.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol to filter trades by
+- `start_date` - Optional start date for date range filter (inclusive).
+  If not specified, includes trades from the very beginning.
+- `end_date` - Optional end date for date range filter (inclusive).
+  If not specified, includes trades to the very end.
+  
+
+**Returns**:
+
+  List of Trade objects matching the ticker and date range
+  (includes both Buy and Sell trades)
+
+<a id="wpm.portfolio.CompositePortfolio"></a>
+
+## CompositePortfolio Objects
+
+```python
+class CompositePortfolio(Portfolio)
+```
+
+Portfolio containing sub-portfolios.
+
+<a id="wpm.portfolio.CompositePortfolio.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(name: str)
+```
+
+Initialize a composite portfolio.
+
+**Arguments**:
+
+- `name` - Portfolio name
+
+<a id="wpm.portfolio.CompositePortfolio.add_sub_portfolio"></a>
+
+#### add\_sub\_portfolio
+
+```python
+def add_sub_portfolio(portfolio: Portfolio) -> None
+```
+
+Add a sub-portfolio to this composite portfolio.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to add as sub-portfolio
+  
+
+**Raises**:
+
+- `PortfolioError` - If portfolio name already exists or portfolio is invalid
+
+<a id="wpm.portfolio.CompositePortfolio.get_positions"></a>
+
+#### get\_positions
+
+```python
+def get_positions(
+        asset_type: Optional[str] = None,
+        tickers: Optional[List[str]] = None) -> Dict[Asset, Position]
+```
+
+Get all positions aggregated from sub-portfolios.
+
+**Arguments**:
+
+- `asset_type` - Optional asset type to filter by (e.g., "Stock", "ETF", "Crypto")
+- `tickers` - Optional list of ticker symbols to filter by
+  
+
+**Returns**:
+
+  Dictionary mapping Asset to aggregated Position objects
+
+<a id="wpm.portfolio.CompositePortfolio.get_total_cost_basis"></a>
+
+#### get\_total\_cost\_basis
+
+```python
+def get_total_cost_basis() -> float
+```
+
+Calculate total cost basis aggregated from sub-portfolios.
+
+**Returns**:
+
+  Total cost basis in USD
+
+<a id="wpm.portfolio.CompositePortfolio.get_total_market_value"></a>
+
+#### get\_total\_market\_value
+
+```python
+def get_total_market_value(prices: Dict[Asset, Optional[float]]) -> float
+```
+
+Calculate total market value aggregated from sub-portfolios.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Total market value in USD
+
+<a id="wpm.portfolio.CompositePortfolio.get_total_unrealized_pnl"></a>
+
+#### get\_total\_unrealized\_pnl
+
+```python
+def get_total_unrealized_pnl(prices: Dict[Asset, Optional[float]]) -> float
+```
+
+Calculate total unrealized profit/loss aggregated from sub-portfolios.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Total unrealized profit/loss in USD
+
+<a id="wpm.portfolio.CompositePortfolio.get_asset_lots"></a>
+
+#### get\_asset\_lots
+
+```python
+def get_asset_lots(
+        ticker: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        prices: Optional[Dict[Asset, Optional[float]]] = None) -> List[Lot]
+```
+
+Get all lots for a specified asset (ticker) within the portfolio.
+
+Aggregates lots from all sub-portfolios.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol to filter lots by
+- `start_date` - Optional start date for date range filter (inclusive).
+  If not specified, includes lots from the very beginning.
+- `end_date` - Optional end date for date range filter (inclusive).
+  If not specified, includes lots to the very end.
+- `prices` - Optional dictionary mapping Asset to current price for P/L calculations
+  
+
+**Returns**:
+
+  List of Lot objects for the ticker (aggregated from all sub-portfolios)
+
+<a id="wpm.portfolio.CompositePortfolio.get_total_realized_pnl"></a>
+
+#### get\_total\_realized\_pnl
+
+```python
+def get_total_realized_pnl(prices: Dict[Asset, Optional[float]]) -> float
+```
+
+Calculate total realized profit/loss aggregated from sub-portfolios.
+
+Derives from lots' realized P/L.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable).
+- `Note` - Realized P/L doesn't actually depend on current prices, but included
+  for consistency with other P/L methods.
+  
+
+**Returns**:
+
+  Total realized profit/loss in USD
+
+<a id="wpm.portfolio.CompositePortfolio.get_all_trades"></a>
+
+#### get\_all\_trades
+
+```python
+def get_all_trades() -> List[Trade]
+```
+
+Get all trades from all sub-portfolios.
+
+**Returns**:
+
+  List of all trades from sub-portfolios
+
+<a id="wpm.portfolio.CompositePortfolio.get_asset_trades"></a>
+
+#### get\_asset\_trades
+
+```python
+def get_asset_trades(ticker: str,
+                     start_date: Optional[date] = None,
+                     end_date: Optional[date] = None) -> List[Trade]
+```
+
+Get all trades for a specified asset (ticker) within the portfolio.
+
+Aggregates asset trades from all sub-portfolios.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol to filter trades by
+- `start_date` - Optional start date for date range filter (inclusive).
+  If not specified, includes trades from the very beginning.
+- `end_date` - Optional end date for date range filter (inclusive).
+  If not specified, includes trades to the very end.
+  
+
+**Returns**:
+
+  List of Trade objects matching the ticker and date range
+  (includes both Buy and Sell trades)
+
+<a id="wpm.portfolio.fetch_price_map"></a>
+
+#### fetch\_price\_map
+
+```python
+def fetch_price_map(
+        portfolio: Portfolio,
+        price_service: "PriceService") -> Dict[Asset, Optional[float]]
+```
+
+Fetch prices for all assets in portfolio and return a price map.
+
+Extracts assets from portfolio positions, groups them by asset type for
+batch processing, and fetches prices via PriceService. Handles exceptions
+gracefully by setting None for assets that fail to fetch.
+
+**Arguments**:
+
+- `portfolio` - Portfolio containing assets (SimplePortfolio or CompositePortfolio)
+- `price_service` - Price service for retrieving prices
+  
+
+**Returns**:
+
+  Dictionary mapping Asset to Optional[float] price (None if price unavailable)
+
+<a id="wpm.pricing.service"></a>
+
+# wpm.pricing.service
+
+Service that orchestrates price retrieval with caching and rate limiting.
+
+<a id="wpm.pricing.service.PriceService"></a>
+
+## PriceService Objects
+
+```python
+class PriceService()
+```
+
+Service that orchestrates price retrieval with caching and rate limiting.
+
+<a id="wpm.pricing.service.PriceService.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(cache_file: Optional[Path] = None,
+             rate_limit_per_minute: int = 60,
+             currency_service: CurrencyService = None)
+```
+
+Initialize price service.
+
+**Arguments**:
+
+- `cache_file` - Path to cache file (default: Config.CACHE_FILE)
+- `rate_limit_per_minute` - Rate limit for API calls per minute
+- `currency_service` - CurrencyService instance (default: creates new instance)
+
+<a id="wpm.pricing.service.PriceService.get_price"></a>
+
+#### get\_price
+
+```python
+def get_price(ticker: str,
+              asset_type: str,
+              in_native_currency: bool = False) -> float
+```
+
+Get current price for an asset (checks cache first).
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type ("Stock", "ETF", or "Crypto")
+- `in_native_currency` - If True, return price in native currency; if False, return USD (default)
+  
+
+**Returns**:
+
+  Current price in USD (or native currency if in_native_currency=True)
+
+<a id="wpm.pricing.service.PriceService.get_prices"></a>
+
+#### get\_prices
+
+```python
+def get_prices(tickers: List[str],
+               asset_type: str,
+               in_native_currency: bool = False) -> Dict[str, float]
+```
+
+Batch price retrieval with rate limiting and batch API calls.
+
+**Arguments**:
+
+- `tickers` - List of asset ticker symbols
+- `asset_type` - Asset type for all tickers
+- `in_native_currency` - If True, return prices in native currency; if False, return USD (default)
+  
+
+**Returns**:
+
+  Dictionary mapping ticker to price (in USD or native currency)
+  
+
+**Raises**:
+
+- `ValueError` - If no price data can be obtained for a ticker (no API response and no cache)
+
+<a id="wpm.pricing.coingecko"></a>
+
+# wpm.pricing.coingecko
+
+CoinGecko price retriever implementation.
+
+<a id="wpm.pricing.coingecko.CoinGeckoRetriever"></a>
+
+## CoinGeckoRetriever Objects
+
+```python
+class CoinGeckoRetriever(PriceRetriever)
+```
+
+Price retriever using CoinGecko API for cryptocurrencies.
+
+<a id="wpm.pricing.coingecko.CoinGeckoRetriever.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(api_key: Optional[str] = None, is_demo: Optional[bool] = None)
+```
+
+Initialize CoinGecko API client.
+
+**Arguments**:
+
+- `api_key` - Optional API key for CoinGecko API. If not provided, uses
+  Config.COINGECKO_API_KEY. If that is also None, uses free tier.
+- `is_demo` - Optional flag to indicate if API key is a demo key. If not provided,
+  uses Config.COINGECKO_API_IS_DEMO.
+
+<a id="wpm.pricing.coingecko.CoinGeckoRetriever.get_price"></a>
+
+#### get\_price
+
+```python
+def get_price(ticker: str, asset_type: str) -> float
+```
+
+Get current price from CoinGecko.
+
+**Arguments**:
+
+- `ticker` - Crypto ticker symbol
+- `asset_type` - Asset type (should be "Crypto")
+  
+
+**Returns**:
+
+  Current price in USD
+  
+
+**Raises**:
+
+- `ValueError` - If price cannot be retrieved
+
+<a id="wpm.pricing.coingecko.CoinGeckoRetriever.get_prices"></a>
+
+#### get\_prices
+
+```python
+def get_prices(tickers: List[str], asset_type: str) -> Dict[str, float]
+```
+
+Get current prices from CoinGecko for multiple tickers in a single batch request.
+
+**Arguments**:
+
+- `tickers` - List of crypto ticker symbols
+- `asset_type` - Asset type (should be "Crypto")
+  
+
+**Returns**:
+
+  Dictionary mapping ticker to price. Only includes successfully retrieved prices.
+
+<a id="wpm.pricing.yahoo"></a>
+
+# wpm.pricing.yahoo
+
+Yahoo Finance price retriever implementation.
+
+<a id="wpm.pricing.yahoo.YahooFinanceRetriever"></a>
+
+## YahooFinanceRetriever Objects
+
+```python
+class YahooFinanceRetriever(PriceRetriever)
+```
+
+Price retriever using yfinance for stocks and ETFs.
+
+<a id="wpm.pricing.yahoo.YahooFinanceRetriever.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(currency_service: CurrencyService = None)
+```
+
+Initialize Yahoo Finance retriever.
+
+**Arguments**:
+
+- `currency_service` - CurrencyService instance (default: creates new instance)
+
+<a id="wpm.pricing.yahoo.YahooFinanceRetriever.get_price"></a>
+
+#### get\_price
+
+```python
+def get_price(ticker: str, asset_type: str) -> float
+```
+
+Get current price from Yahoo Finance in native currency.
+
+During trading hours: tries currentPrice or regularMarketPrice from ticker.info first,
+falls back to Close from historical data if unavailable.
+Outside trading hours: uses Close from historical data.
+
+**Arguments**:
+
+- `ticker` - Stock/ETF ticker symbol
+- `asset_type` - Asset type (should be "Stock" or "ETF")
+  
+
+**Returns**:
+
+  Current price in native currency (not USD)
+  
+
+**Raises**:
+
+- `ValueError` - If price cannot be retrieved
+
+<a id="wpm.pricing.yahoo.YahooFinanceRetriever.get_prices"></a>
+
+#### get\_prices
+
+```python
+def get_prices(tickers: List[str], asset_type: str) -> Dict[str, float]
+```
+
+Get current prices from Yahoo Finance for multiple tickers in a single batch request.
+
+Prices are returned in native currency (not USD).
+
+During trading hours: tries currentPrice or regularMarketPrice from ticker.info for each ticker,
+falls back to Close from batch download if unavailable.
+Outside trading hours: uses Close from batch download.
+
+**Arguments**:
+
+- `tickers` - List of stock/ETF ticker symbols
+- `asset_type` - Asset type (should be "Stock" or "ETF")
+  
+
+**Returns**:
+
+  Dictionary mapping ticker to price in native currency. Only includes successfully retrieved prices.
+
+<a id="wpm.pricing.rate_limiter"></a>
+
+# wpm.pricing.rate\_limiter
+
+Rate limiting utility for API calls.
+
+<a id="wpm.pricing.rate_limiter.RateLimiter"></a>
+
+## RateLimiter Objects
+
+```python
+class RateLimiter()
+```
+
+Rate limiting utility for API calls.
+
+<a id="wpm.pricing.rate_limiter.RateLimiter.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(max_calls_per_minute: int = 60)
+```
+
+Initialize rate limiter.
+
+**Arguments**:
+
+- `max_calls_per_minute` - Maximum number of API calls per minute
+
+<a id="wpm.pricing.rate_limiter.RateLimiter.wait_if_needed"></a>
+
+#### wait\_if\_needed
+
+```python
+def wait_if_needed() -> None
+```
+
+Wait if rate limit would be exceeded.
+
+<a id="wpm.pricing.cache"></a>
+
+# wpm.pricing.cache
+
+Manages persistent Parquet-based price cache.
+
+<a id="wpm.pricing.cache.CacheValidityStatus"></a>
+
+## CacheValidityStatus Objects
+
+```python
+class CacheValidityStatus(Enum)
+```
+
+Cache validity status enumeration.
+
+<a id="wpm.pricing.cache.CacheValidity"></a>
+
+## CacheValidity Objects
+
+```python
+@dataclass
+class CacheValidity()
+```
+
+Cache validity status and stale entries.
+
+**Attributes**:
+
+- `status` - The validity status of the cache
+- `stale_entries` - List of stale cache entries, each containing:
+  - ticker: str
+  - asset_type: str
+  - price: float
+  - timestamp: datetime
+
+<a id="wpm.pricing.cache.PriceCache"></a>
+
+## PriceCache Objects
+
+```python
+class PriceCache()
+```
+
+Manages persistent Parquet-based price cache.
+
+<a id="wpm.pricing.cache.PriceCache.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(cache_file: Optional[Path] = None)
+```
+
+Initialize price cache.
+
+**Arguments**:
+
+- `cache_file` - Path to cache file (default: Config.CACHE_FILE)
+
+<a id="wpm.pricing.cache.PriceCache.get_cached_price"></a>
+
+#### get\_cached\_price
+
+```python
+def get_cached_price(ticker: str, asset_type: str) -> Optional[float]
+```
+
+Get cached USD price if valid.
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+  
+
+**Returns**:
+
+  Cached USD price if valid, None otherwise
+
+<a id="wpm.pricing.cache.PriceCache.get_cached_price_native"></a>
+
+#### get\_cached\_price\_native
+
+```python
+def get_cached_price_native(ticker: str, asset_type: str) -> Optional[float]
+```
+
+Get cached native currency price if valid.
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+  
+
+**Returns**:
+
+  Cached native currency price if valid, None otherwise
+
+<a id="wpm.pricing.cache.PriceCache.get_stale_cached_price"></a>
+
+#### get\_stale\_cached\_price
+
+```python
+def get_stale_cached_price(ticker: str, asset_type: str) -> Optional[float]
+```
+
+Get cached USD price even if it's expired/invalid (stale).
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+  
+
+**Returns**:
+
+  Cached USD price if entry exists (even if stale), None if no cache entry exists at all
+
+<a id="wpm.pricing.cache.PriceCache.get_stale_cached_price_native"></a>
+
+#### get\_stale\_cached\_price\_native
+
+```python
+def get_stale_cached_price_native(ticker: str,
+                                  asset_type: str) -> Optional[float]
+```
+
+Get cached native currency price even if it's expired/invalid (stale).
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+  
+
+**Returns**:
+
+  Cached native currency price if entry exists (even if stale), None if no cache entry exists at all
+
+<a id="wpm.pricing.cache.PriceCache.set_cached_price"></a>
+
+#### set\_cached\_price
+
+```python
+def set_cached_price(ticker: str,
+                     asset_type: str,
+                     price: float,
+                     native_price: float,
+                     native_currency: str,
+                     timestamp: Optional[datetime] = None) -> None
+```
+
+Set cached price (both USD and native currency).
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+- `price` - USD price to cache
+- `native_price` - Native currency price to cache
+- `native_currency` - Native currency code (e.g., "HKD", "USD")
+- `timestamp` - Timestamp (default: current time)
+
+<a id="wpm.pricing.cache.PriceCache.get_cache_validity"></a>
+
+#### get\_cache\_validity
+
+```python
+def get_cache_validity(tickers: Optional[List[str]] = None) -> CacheValidity
+```
+
+Get cache validity status.
+
+**Arguments**:
+
+- `tickers` - Optional list of tickers to check. If None, checks all entries.
+  
+
+**Returns**:
+
+  CacheValidity object with status and stale entries
+
+<a id="wpm.pricing"></a>
+
+# wpm.pricing
+
+Market price data retrieval module with caching and rate limiting.
+
+<a id="wpm.pricing.base"></a>
+
+# wpm.pricing.base
+
+Base class for price retrievers.
+
+<a id="wpm.pricing.base.PriceRetriever"></a>
+
+## PriceRetriever Objects
+
+```python
+class PriceRetriever(ABC)
+```
+
+Abstract base class for price retrievers.
+
+<a id="wpm.pricing.base.PriceRetriever.get_price"></a>
+
+#### get\_price
+
+```python
+@abstractmethod
+def get_price(ticker: str, asset_type: str) -> float
+```
+
+Get current price for an asset.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type ("Stock", "ETF", or "Crypto")
+  
+
+**Returns**:
+
+  Current price in USD
+  
+
+**Raises**:
+
+- `ValueError` - If price cannot be retrieved
+
+<a id="wpm.pricing.base.PriceRetriever.get_prices"></a>
+
+#### get\_prices
+
+```python
+@abstractmethod
+def get_prices(tickers: List[str], asset_type: str) -> Dict[str, float]
+```
+
+Get current prices for multiple assets in a single batch request.
+
+**Arguments**:
+
+- `tickers` - List of asset ticker symbols
+- `asset_type` - Asset type for all tickers ("Stock", "ETF", or "Crypto")
+  
+
+**Returns**:
+
+  Dictionary mapping ticker to price. Only includes successfully retrieved prices.
+  Tickers that fail are omitted from the result (caller should handle fallback).
+
