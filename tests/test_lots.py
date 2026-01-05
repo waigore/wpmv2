@@ -21,6 +21,7 @@ class TestLotModel:
             remaining_quantity=Decimal('1'),
             cost_basis=1200.0,
             asset=asset,
+            broker="IBKR",
             matched_sells=[],
         )
 
@@ -30,6 +31,7 @@ class TestLotModel:
         assert lot.remaining_quantity == Decimal('1')
         assert lot.cost_basis == 1200.0
         assert lot.asset == asset
+        assert lot.broker == "IBKR"
         assert lot.matched_sells == []
 
     def test_lot_validation_negative_remaining_quantity(self):
@@ -43,6 +45,7 @@ class TestLotModel:
                 remaining_quantity=Decimal('-1'),
                 cost_basis=1200.0,
                 asset=asset,
+                broker="IBKR",
             )
 
     def test_lot_validation_remaining_exceeds_original(self):
@@ -56,6 +59,21 @@ class TestLotModel:
                 remaining_quantity=Decimal('3'),
                 cost_basis=1200.0,
                 asset=asset,
+                broker="IBKR",
+            )
+
+    def test_lot_validation_invalid_broker_empty_string(self):
+        """Test lot validation rejects empty broker string."""
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        with pytest.raises(ValidationError, match="Broker must be a non-empty string"):
+            Lot(
+                purchase_date=date(2025, 10, 1),
+                purchase_price=600.0,
+                original_quantity=Decimal('2'),
+                remaining_quantity=Decimal('2'),
+                cost_basis=1200.0,
+                asset=asset,
+                broker="",
             )
 
     def test_lot_get_realized_pnl_no_sells(self):
@@ -68,6 +86,7 @@ class TestLotModel:
             remaining_quantity=Decimal('2'),
             cost_basis=1200.0,
             asset=asset,
+            broker="IBKR",
             matched_sells=[],
         )
 
@@ -94,6 +113,7 @@ class TestLotModel:
             remaining_quantity=Decimal('1'),
             cost_basis=1200.0,
             asset=asset,
+            broker="IBKR",
             matched_sells=[(sell_trade, Decimal('1'))],
         )
 
@@ -110,6 +130,7 @@ class TestLotModel:
             remaining_quantity=Decimal('1'),
             cost_basis=1200.0,
             asset=asset,
+            broker="IBKR",
         )
 
         # Unrealized P/L: 1 * (630 - 600) = 30
@@ -136,6 +157,7 @@ class TestLotModel:
             remaining_quantity=Decimal('1'),
             cost_basis=1200.0,
             asset=asset,
+            broker="IBKR",
             matched_sells=[(sell_trade, Decimal('1'))],
         )
 
@@ -171,6 +193,7 @@ class TestLotCalculation:
         assert lot.original_quantity == Decimal('2')
         assert lot.remaining_quantity == Decimal('2')
         assert lot.cost_basis == 1200.0
+        assert lot.broker == "IBKR"
         assert len(lot.matched_sells) == 0
 
     def test_calculate_lots_buy_and_sell_fifo(self):
@@ -220,6 +243,7 @@ class TestLotCalculation:
         assert lot1.purchase_price == 600.0
         assert lot1.original_quantity == Decimal('2')
         assert lot1.remaining_quantity == Decimal('1')
+        assert lot1.broker == "IBKR"
         assert len(lot1.matched_sells) == 1
         assert lot1.matched_sells[0][1] == Decimal('1')  # quantity sold
         assert lot1.get_realized_pnl() == 20.0  # 1 * (620 - 600)
@@ -230,6 +254,7 @@ class TestLotCalculation:
         assert lot2.purchase_price == 610.0
         assert lot2.original_quantity == Decimal('1')
         assert lot2.remaining_quantity == Decimal('1')
+        assert lot2.broker == "IBKR"
         assert len(lot2.matched_sells) == 0
         assert lot2.get_realized_pnl() == 0.0
 
@@ -277,6 +302,7 @@ class TestLotCalculation:
         lot = lots[0]
         assert lot.original_quantity == Decimal('3')
         assert lot.remaining_quantity == Decimal('1')
+        assert lot.broker == "IBKR"
         assert len(lot.matched_sells) == 2
         # First sell: 1 @ 620
         assert lot.matched_sells[0][0].price == 620.0

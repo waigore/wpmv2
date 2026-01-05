@@ -477,6 +477,9 @@ Represents a purchase record (lot) for an asset with FIFO sell matching. A lot t
   - Validation: Non-negative number
 - `asset` (Asset, required): The asset this lot represents
   - Validation: Must be an Asset object
+- `broker` (str, required): Broker from the buy trade that created this lot
+  - Validation: Non-empty string
+  - The broker value is derived from the initial buy trade that created the lot
 - `matched_sells` (List[Tuple[Trade, Decimal]], required): List of (sell_trade, quantity_sold) tuples
   - Tracks which sell trades matched against this lot and how much was sold
   - Validation: List of tuples where first element is a Trade object and second is a positive Decimal

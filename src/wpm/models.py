@@ -147,6 +147,7 @@ class Lot:
     remaining_quantity: Decimal
     cost_basis: float
     asset: Asset
+    broker: str
     matched_sells: List[Tuple[Trade, Decimal]] = field(default_factory=list)
 
     def __post_init__(self):
@@ -184,6 +185,9 @@ class Lot:
 
         if not isinstance(self.asset, Asset):
             raise ValidationError("Asset must be an Asset object")
+
+        if not self.broker or not isinstance(self.broker, str):
+            raise ValidationError("Broker must be a non-empty string")
 
         # Validate matched_sells
         if not isinstance(self.matched_sells, list):

@@ -50,6 +50,7 @@ def _calculate_lots_from_trades_impl(trades: List[Trade]) -> Dict[Asset, List[Lo
                 remaining_quantity=trade.quantity,
                 cost_basis=float(trade.quantity) * trade.price,
                 asset=asset,
+                broker=trade.broker,
                 matched_sells=[],
             )
             fifo_lots[asset].append(lot)
