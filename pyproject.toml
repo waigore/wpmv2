@@ -49,9 +49,6 @@ version = {file = ["src/wpm/VERSION.txt"]}
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.package-data]
-"*" = ["docs/**/*.md"]
-
 [tool.setuptools-scm]
 # Auto-generate version from git commit SHA
 # Format: {next_version}.dev{dev_num}+g{sha}
