@@ -1,8 +1,10 @@
 """CoinGecko price retriever implementation."""
 
 import logging
+from datetime import date, datetime
 from typing import Dict, List, Optional
 
+import pandas as pd
 from pycoingecko import CoinGeckoAPI
 
 from wpm.config import Config
@@ -164,4 +166,87 @@ class CoinGeckoRetriever(PriceRetriever):
         except Exception as e:
             logger.warning(f"Error in batch price retrieval from CoinGecko: {str(e)}")
             return {}
+
+    def get_historical_prices(
+        self, ticker: str, asset_type: str, start_date: date, end_date: date
+    ) -> pd.DataFrame:
+        """Get historical prices from CoinGecko over a date range.
+
+        Note: CoinGecko doesn't support multiple tickers in the same API call with date ranges,
+        so this method handles a single ticker.
+
+        Args:
+            ticker: Crypto ticker symbol
+            asset_type: Asset type (should be "Crypto")
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+
+        Returns:
+            DataFrame with date index and price column (USD)
+
+        Raises:
+            ValueError: If prices cannot be retrieved
+        """
+        logger.debug(
+            f"Fetching historical prices from CoinGecko for {ticker} ({asset_type}) "
+            f"from {start_date} to {end_date}"
+        )
+
+        try:
+            coin_id = self._get_coin_id(ticker)
+
+            # Convert dates to timestamps (Unix seconds)
+            # Start at beginning of start_date
+            start_dt = datetime.combine(start_date, datetime.min.time())
+            start_ts = int(start_dt.timestamp())
+            
+            # End at end of end_date (23:59:59)
+            end_dt = datetime.combine(end_date, datetime.max.time())
+            # Add 86399 seconds (23:59:59) to make end_date inclusive
+            end_ts = int(end_dt.timestamp()) + 86399
+
+            # Use pycoingecko library method (automatically handles API key authentication)
+            # The library's get_coin_market_chart_range_by_id() method handles API keys via extra_params
+            data = self.client.get_coin_market_chart_range_by_id(
+                id=coin_id,
+                vs_currency="usd",
+                from_timestamp=start_ts,
+                to_timestamp=end_ts
+            )
+
+            if not data or "prices" not in data:
+                raise ValueError(f"No historical price data available for {ticker}")
+
+            # prices = [[timestamp_ms, price], ...]
+            prices_list = data["prices"]
+            if not prices_list:
+                raise ValueError(f"No price data in response for {ticker}")
+
+            # Convert to DataFrame
+            df = pd.DataFrame(prices_list, columns=["timestamp", "price"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df.set_index("timestamp", inplace=True)
+            df["price"] = df["price"].astype(float)
+
+            # Resample to daily (take last price of each day)
+            df = df.resample("D").last()
+
+            # Forward fill to handle missing days
+            date_range = pd.date_range(start=start_date, end=end_date, freq="D")
+            df = df.reindex(date_range, method="ffill")
+
+            # Rename index to "date" for consistency
+            df.index.name = "date"
+
+            logger.debug(
+                f"Retrieved {len(df)} historical prices for {ticker} "
+                f"from {start_date} to {end_date}"
+            )
+
+            return df
+
+        except Exception as e:
+            raise ValueError(
+                f"Error fetching historical prices for {ticker} from CoinGecko: {str(e)}"
+            ) from e
 

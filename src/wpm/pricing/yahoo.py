@@ -1,7 +1,7 @@
 """Yahoo Finance price retriever implementation."""
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 class YahooFinanceRetriever(PriceRetriever):
     """Price retriever using yfinance for stocks and ETFs."""
 
+    # Crypto ticker mapping for yfinance
+    # Some crypto tickers have different names in yfinance
+    _CRYPTO_TICKER_MAP = {
+        "SUI-USD": "SUI20947-USD",
+        # Add more mappings as needed
+    }
+
     def __init__(self, currency_service: CurrencyService = None):
         """Initialize Yahoo Finance retriever.
 
@@ -25,6 +32,17 @@ class YahooFinanceRetriever(PriceRetriever):
             currency_service: CurrencyService instance (default: creates new instance)
         """
         self.currency_service = currency_service or CurrencyService()
+
+    def _map_crypto_ticker(self, ticker: str) -> str:
+        """Map crypto ticker to yfinance ticker format.
+        
+        Args:
+            ticker: Original crypto ticker (e.g., "SUI-USD")
+        
+        Returns:
+            yfinance ticker (e.g., "SUI20947-USD") or original if no mapping exists
+        """
+        return self._CRYPTO_TICKER_MAP.get(ticker, ticker)
 
     def _detect_currency(self, ticker: str) -> str:
         """Detect currency from ticker suffix.
@@ -238,4 +256,107 @@ class YahooFinanceRetriever(PriceRetriever):
                 logger.warning(f"Error in batch Close price retrieval from Yahoo Finance: {str(e)}")
 
         return prices
+
+    def get_historical_prices(
+        self, ticker: str, asset_type: str, start_date: date, end_date: date
+    ) -> pd.DataFrame:
+        """Get historical prices from Yahoo Finance over a date range.
+
+        Args:
+            ticker: Stock/ETF/Crypto ticker symbol
+            asset_type: Asset type (should be "Stock", "ETF", or "Crypto")
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+
+        Returns:
+            DataFrame with date index and price column (native currency, USD for crypto)
+
+        Raises:
+            ValueError: If prices cannot be retrieved
+        """
+        logger.debug(
+            f"Fetching historical prices from Yahoo Finance for {ticker} ({asset_type}) "
+            f"from {start_date} to {end_date}"
+        )
+
+        try:
+            # Map crypto ticker to yfinance format if needed
+            yfinance_ticker = ticker
+            if asset_type == "Crypto":
+                yfinance_ticker = self._map_crypto_ticker(ticker)
+                if yfinance_ticker != ticker:
+                    logger.debug(f"Mapped crypto ticker {ticker} to {yfinance_ticker} for yfinance")
+
+            # Use yf.download with start and end dates
+            data = yf.download(
+                yfinance_ticker,
+                start=start_date,
+                end=end_date,
+                progress=False,
+                auto_adjust=True,
+                actions=False,
+            )
+
+            # Handle case where yf.download returns None
+            if data is None:
+                raise ValueError(f"No historical price data available for {ticker}")
+
+            if data.empty:
+                raise ValueError(f"No historical price data available for {ticker}")
+
+            # Extract Close prices (adjusted close when auto_adjust=True)
+            # yf.download can return different structures depending on the data
+            prices = None
+            
+            if isinstance(data.columns, pd.MultiIndex):
+                # MultiIndex case - crypto data often has structure like [('Close', 'BTC-USD'), ...]
+                # Check if ticker is in level 1 (Ticker level)
+                if yfinance_ticker in data.columns.levels[1]:
+                    # Try Adj Close first, then Close
+                    if ('Adj Close', yfinance_ticker) in data.columns:
+                        prices = data[('Adj Close', yfinance_ticker)]
+                    elif ('Close', yfinance_ticker) in data.columns:
+                        prices = data[('Close', yfinance_ticker)]
+                    else:
+                        raise ValueError(f"No Close price data available for {ticker}. Available columns: {data.columns}")
+                # Check if ticker is in level 0 (Price level) - less common but possible
+                elif yfinance_ticker in data.columns.levels[0]:
+                    ticker_data = data[yfinance_ticker]
+                    if "Close" in ticker_data.columns:
+                        prices = ticker_data["Close"]
+                    elif "Adj Close" in ticker_data.columns:
+                        prices = ticker_data["Adj Close"]
+                else:
+                    raise ValueError(f"No Close price data available for {ticker}. Available columns: {data.columns}")
+            else:
+                # Single column case
+                if "Close" in data.columns:
+                    prices = data["Close"]
+                elif "Adj Close" in data.columns:
+                    prices = data["Adj Close"]
+                else:
+                    raise ValueError(f"No Close price data available for {ticker}")
+            
+            if prices is None:
+                raise ValueError(f"No Close price data available for {ticker}")
+
+            # Convert to DataFrame with date index
+            result_df = pd.DataFrame({"price": prices})
+            result_df.index.name = "date"
+
+            # Forward fill to handle missing trading days
+            date_range = pd.date_range(start=start_date, end=end_date, freq="D")
+            result_df = result_df.reindex(date_range, method="ffill")
+
+            logger.debug(
+                f"Retrieved {len(result_df)} historical prices for {ticker} "
+                f"from {start_date} to {end_date}"
+            )
+
+            return result_df
+
+        except Exception as e:
+            raise ValueError(
+                f"Error fetching historical prices for {ticker} from Yahoo Finance: {str(e)}"
+            ) from e
 

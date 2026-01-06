@@ -23,17 +23,18 @@ _cost_basis_cache: LRUCache[float] = LRUCache(maxsize=128)
 class SimplePortfolio(Portfolio):
     """Portfolio containing direct asset positions (trades)."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, is_historical: bool = False):
         """Initialize a simple portfolio.
 
         Args:
             name: Portfolio name
+            is_historical: Whether this is a historical portfolio (default: False)
         """
-        super().__init__(name)
+        super().__init__(name, is_historical=is_historical)
 
         self._trades: List[Trade] = []
 
-        logger.info(f"Created SimplePortfolio '{name}'")
+        logger.info(f"Created SimplePortfolio '{name}' (is_historical={is_historical})")
 
     def add_trade(self, trade: Trade) -> None:
         """Add a trade to the portfolio.
@@ -330,20 +331,43 @@ class SimplePortfolio(Portfolio):
 
         return filtered_trades
 
+    @property
+    def start_date(self) -> Optional[date]:
+        """Get the earliest trade date in the portfolio.
+
+        Returns:
+            Earliest trade date, or None if no trades exist
+        """
+        if not self._trades:
+            return None
+        return min(trade.date for trade in self._trades)
+
+    @property
+    def end_date(self) -> Optional[date]:
+        """Get the most recent trade date in the portfolio.
+
+        Returns:
+            Most recent trade date, or None if no trades exist
+        """
+        if not self._trades:
+            return None
+        return max(trade.date for trade in self._trades)
+
 
 class CompositePortfolio(Portfolio):
     """Portfolio containing sub-portfolios."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, is_historical: bool = False):
         """Initialize a composite portfolio.
 
         Args:
             name: Portfolio name
+            is_historical: Whether this is a historical portfolio (default: False)
         """
-        super().__init__(name)
+        super().__init__(name, is_historical=is_historical)
         self._sub_portfolios: Dict[str, Portfolio] = {}
 
-        logger.info(f"Created CompositePortfolio '{name}'")
+        logger.info(f"Created CompositePortfolio '{name}' (is_historical={is_historical})")
 
     def add_sub_portfolio(self, portfolio: Portfolio) -> None:
         """Add a sub-portfolio to this composite portfolio.
@@ -352,7 +376,8 @@ class CompositePortfolio(Portfolio):
             portfolio: Portfolio to add as sub-portfolio
 
         Raises:
-            PortfolioError: If portfolio name already exists or portfolio is invalid
+            PortfolioError: If portfolio name already exists, portfolio is invalid,
+                           or is_historical flags don't match
         """
         if not isinstance(portfolio, Portfolio):
             raise PortfolioError("Sub-portfolio must be a Portfolio object")
@@ -360,6 +385,14 @@ class CompositePortfolio(Portfolio):
         if portfolio.name in self._sub_portfolios:
             raise PortfolioError(
                 f"Sub-portfolio with name '{portfolio.name}' already exists"
+            )
+
+        # Validate that is_historical flags match
+        if portfolio.is_historical != self.is_historical:
+            raise PortfolioError(
+                f"Sub-portfolio '{portfolio.name}' has is_historical={portfolio.is_historical}, "
+                f"but composite portfolio has is_historical={self.is_historical}. "
+                f"All sub-portfolios must have identical is_historical flags."
             )
 
         self._sub_portfolios[portfolio.name] = portfolio
@@ -557,19 +590,66 @@ class CompositePortfolio(Portfolio):
 
         return all_trades
 
+    @property
+    def start_date(self) -> Optional[date]:
+        """Get the earliest start_date of all sub-portfolios.
+
+        Returns:
+            Earliest start_date, or None if no sub-portfolios exist
+        """
+        if not self._sub_portfolios:
+            return None
+        
+        start_dates = [
+            sub_portfolio.start_date
+            for sub_portfolio in self._sub_portfolios.values()
+            if sub_portfolio.start_date is not None
+        ]
+        
+        if not start_dates:
+            return None
+        
+        return min(start_dates)
+
+    @property
+    def end_date(self) -> Optional[date]:
+        """Get the most recent end_date of all sub-portfolios.
+
+        Returns:
+            Most recent end_date, or None if no sub-portfolios exist
+        """
+        if not self._sub_portfolios:
+            return None
+        
+        end_dates = [
+            sub_portfolio.end_date
+            for sub_portfolio in self._sub_portfolios.values()
+            if sub_portfolio.end_date is not None
+        ]
+        
+        if not end_dates:
+            return None
+        
+        return max(end_dates)
+
 
 def fetch_price_map(
-    portfolio: Portfolio, price_service: "PriceService"
+    portfolio: Portfolio,
+    price_service: "PriceService",
+    target_date: Optional[date] = None,
 ) -> Dict[Asset, Optional[float]]:
     """Fetch prices for all assets in portfolio and return a price map.
 
     Extracts assets from portfolio positions, groups them by asset type for
-    batch processing, and fetches prices via PriceService. Handles exceptions
-    gracefully by setting None for assets that fail to fetch.
+    batch processing, and fetches prices via PriceService. For historical portfolios,
+    uses historical prices. Handles exceptions gracefully by setting None for assets
+    that fail to fetch.
 
     Args:
         portfolio: Portfolio containing assets (SimplePortfolio or CompositePortfolio)
         price_service: Price service for retrieving prices
+        target_date: Optional target date for historical prices. If None and portfolio
+                    is historical, uses portfolio.end_date
 
     Returns:
         Dictionary mapping Asset to Optional[float] price (None if price unavailable)
@@ -580,6 +660,17 @@ def fetch_price_map(
     if not assets:
         logger.debug("No assets found in portfolio, returning empty price map")
         return {}
+
+    # Determine if we should use historical prices
+    use_historical = portfolio.is_historical
+    if use_historical and target_date is None:
+        target_date = portfolio.end_date
+        if target_date is None:
+            logger.warning(
+                f"Historical portfolio '{portfolio.name}' has no end_date, "
+                f"cannot fetch historical prices"
+            )
+            use_historical = False
 
     # Group assets by asset_type for batch processing
     assets_by_type: Dict[str, List[Asset]] = {}
@@ -594,7 +685,24 @@ def fetch_price_map(
     for asset_type, asset_list in assets_by_type.items():
         tickers = [asset.ticker for asset in asset_list]
         try:
-            prices = price_service.get_prices(tickers, asset_type)
+            if use_historical and target_date is not None:
+                # Use historical prices
+                # For historical prices, we need start_date and end_date
+                # Use portfolio dates if available, otherwise use target_date for both
+                start_date = portfolio.start_date if portfolio.start_date is not None else target_date
+                end_date = target_date
+
+                logger.debug(
+                    f"Fetching historical prices for {asset_type} assets "
+                    f"from {start_date} to {end_date}"
+                )
+                prices = price_service.get_historical_prices(
+                    tickers, asset_type, start_date, end_date
+                )
+            else:
+                # Use current prices
+                prices = price_service.get_prices(tickers, asset_type)
+
             # Map tickers back to assets
             for asset in asset_list:
                 price_map[asset] = prices.get(asset.ticker)

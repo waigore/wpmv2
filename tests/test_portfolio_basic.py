@@ -537,3 +537,183 @@ class TestCompositePortfolio:
         # From sub2: 0 (no sells)
         assert realized_pnl == 20.0
 
+
+class TestPortfolioHistoricalProperties:
+    """Tests for historical portfolio properties."""
+
+    def test_simple_portfolio_is_historical(self):
+        """Test is_historical flag for simple portfolio."""
+        portfolio = SimplePortfolio(name="Test", is_historical=False)
+        assert not portfolio.is_historical
+
+        historical_portfolio = SimplePortfolio(name="Test", is_historical=True)
+        assert historical_portfolio.is_historical
+
+    def test_composite_portfolio_is_historical(self):
+        """Test is_historical flag for composite portfolio."""
+        portfolio = CompositePortfolio(name="Test", is_historical=False)
+        assert not portfolio.is_historical
+
+        historical_portfolio = CompositePortfolio(name="Test", is_historical=True)
+        assert historical_portfolio.is_historical
+
+    def test_simple_portfolio_start_date_end_date(self):
+        """Test start_date and end_date properties for simple portfolio."""
+        portfolio = SimplePortfolio(name="Test")
+        
+        # Empty portfolio
+        assert portfolio.start_date is None
+        assert portfolio.end_date is None
+
+        # Add trades
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 2, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=140.0,
+                price_native=140.0,
+                quantity=5.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 3, 15),
+                asset=asset,
+                action="Sell",
+                broker="IBKR",
+                currency="USD",
+                price=160.0,
+                price_native=160.0,
+                quantity=3.0,
+            )
+        )
+
+        # start_date should be earliest trade
+        assert portfolio.start_date == date(2024, 1, 15)
+        # end_date should be most recent trade
+        assert portfolio.end_date == date(2024, 3, 15)
+
+    def test_composite_portfolio_start_date_end_date(self):
+        """Test start_date and end_date properties for composite portfolio."""
+        composite = CompositePortfolio(name="Test")
+        
+        # Empty composite
+        assert composite.start_date is None
+        assert composite.end_date is None
+
+        # Add sub-portfolios
+        sub1 = SimplePortfolio(name="Sub1")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        sub1.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        sub1.add_trade(
+            Trade(
+                date=date(2024, 3, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=160.0,
+                price_native=160.0,
+                quantity=5.0,
+            )
+        )
+
+        sub2 = SimplePortfolio(name="Sub2")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        sub2.add_trade(
+            Trade(
+                date=date(2024, 2, 15),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+        sub2.add_trade(
+            Trade(
+                date=date(2024, 4, 15),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=210.0,
+                price_native=210.0,
+                quantity=3.0,
+            )
+        )
+
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+
+        # start_date should be earliest of all sub-portfolios
+        assert composite.start_date == date(2024, 1, 15)
+        # end_date should be most recent of all sub-portfolios
+        assert composite.end_date == date(2024, 4, 15)
+
+    def test_composite_portfolio_is_historical_validation(self):
+        """Test that composite portfolio validates is_historical flags match."""
+        composite = CompositePortfolio(name="Test", is_historical=True)
+        
+        sub1 = SimplePortfolio(name="Sub1", is_historical=True)
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        sub1.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        composite.add_sub_portfolio(sub1)  # Should work
+
+        # Try to add portfolio with different is_historical flag
+        sub2 = SimplePortfolio(name="Sub2", is_historical=False)
+        sub2.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        with pytest.raises(PortfolioError, match="is_historical"):
+            composite.add_sub_portfolio(sub2)
+

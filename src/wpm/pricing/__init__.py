@@ -3,6 +3,7 @@
 from wpm.pricing.base import PriceRetriever
 from wpm.pricing.cache import CacheValidity, CacheValidityStatus, PriceCache
 from wpm.pricing.coingecko import CoinGeckoRetriever
+from wpm.pricing.historical_cache import HistoricalPriceCache
 from wpm.pricing.rate_limiter import RateLimiter
 from wpm.pricing.service import PriceService
 from wpm.pricing.yahoo import YahooFinanceRetriever
@@ -13,6 +14,7 @@ __all__ = [
     "CoinGeckoRetriever",
     "RateLimiter",
     "PriceCache",
+    "HistoricalPriceCache",
     "PriceService",
     "CacheValidity",
     "CacheValidityStatus",

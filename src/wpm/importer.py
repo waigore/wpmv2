@@ -1,9 +1,10 @@
 """CSV import functionality using pandas."""
 
 import logging
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Set
+from typing import List, Optional, Set
 
 import pandas as pd
 
@@ -130,12 +131,15 @@ def parse_trade_row(row: pd.Series, currency_service: CurrencyService = None) ->
         raise ValidationError(f"Error parsing trade row: {str(e)}") from e
 
 
-def import_trades_from_csv(file_path: str, currency_service: CurrencyService = None) -> List[Trade]:
+def import_trades_from_csv(
+    file_path: str, currency_service: CurrencyService = None, end_date: Optional[date] = None
+) -> List[Trade]:
     """Import trades from CSV file.
 
     Args:
         file_path: Path to CSV file
         currency_service: CurrencyService instance for currency conversion (default: creates new instance)
+        end_date: Optional end date (inclusive). If provided, only trades with date <= end_date are included
 
     Returns:
         List of Trade objects
@@ -144,6 +148,8 @@ def import_trades_from_csv(file_path: str, currency_service: CurrencyService = N
         ValidationError: If CSV structure is invalid or data cannot be parsed
     """
     logger.info(f"Starting CSV import from '{file_path}'")
+    if end_date is not None:
+        logger.info(f"Filtering trades up to end date: {end_date}")
 
     if currency_service is None:
         currency_service = CurrencyService()
@@ -163,6 +169,14 @@ def import_trades_from_csv(file_path: str, currency_service: CurrencyService = N
     for idx, row in df.iterrows():
         try:
             trade = parse_trade_row(row, currency_service)
+            
+            # Filter by end_date if provided
+            if end_date is not None and trade.date > end_date:
+                logger.debug(
+                    f"Skipping trade on {trade.date} (after end_date {end_date})"
+                )
+                continue
+            
             trades.append(trade)
         except ValidationError as e:
             error_msg = f"Row {idx + 1}: {str(e)}"
@@ -174,6 +188,8 @@ def import_trades_from_csv(file_path: str, currency_service: CurrencyService = N
         logger.warning(f"Encountered {len(errors)} validation errors during import")
 
     logger.info(f"CSV import completed. Successfully imported {len(trades)} trades")
+    if end_date is not None:
+        logger.info(f"Filtered to {len(trades)} trades on or before {end_date}")
 
     if not trades and errors:
         raise ValidationError(
@@ -221,11 +237,13 @@ def extract_portfolio_name(filename: str, existing_names: Set[str]) -> str:
     return name
 
 
-def import_csv_files(import_dir: Path) -> CompositePortfolio:
+def import_csv_files(import_dir: Path, end_date: Optional[date] = None) -> CompositePortfolio:
     """Import CSV files and create composite portfolio.
 
     Args:
         import_dir: Directory containing CSV files
+        end_date: Optional end date (inclusive). If provided, only trades with date <= end_date are included,
+                  and all created portfolios will have is_historical=True
 
     Returns:
         CompositePortfolio containing all imported sub-portfolios
@@ -235,6 +253,8 @@ def import_csv_files(import_dir: Path) -> CompositePortfolio:
         ValidationError: If CSV import fails
     """
     logger.info(f"Scanning directory for CSV files: {import_dir}")
+    if end_date is not None:
+        logger.info(f"Importing historical portfolio up to {end_date}")
 
     csv_files = sorted(import_dir.glob("*.csv"))
 
@@ -244,7 +264,8 @@ def import_csv_files(import_dir: Path) -> CompositePortfolio:
 
     logger.info(f"Found {len(csv_files)} CSV file(s)")
 
-    composite = CompositePortfolio("Composite")
+    is_historical = end_date is not None
+    composite = CompositePortfolio("Composite", is_historical=is_historical)
     existing_names: Set[str] = set()
 
     for csv_file in csv_files:
@@ -255,10 +276,10 @@ def import_csv_files(import_dir: Path) -> CompositePortfolio:
         existing_names.add(portfolio_name)
 
         # Import trades
-        trades = import_trades_from_csv(str(csv_file))
+        trades = import_trades_from_csv(str(csv_file), end_date=end_date)
 
         # Create portfolio and add trades
-        portfolio = SimplePortfolio(portfolio_name)
+        portfolio = SimplePortfolio(portfolio_name, is_historical=is_historical)
         for trade in trades:
             portfolio.add_trade(trade)
 

@@ -286,11 +286,17 @@ class Position:
 class Portfolio(ABC):
     """Abstract base class for portfolios."""
 
-    def __init__(self, name: str):
-        """Initialize portfolio with a name."""
+    def __init__(self, name: str, is_historical: bool = False):
+        """Initialize portfolio with a name.
+
+        Args:
+            name: Portfolio name
+            is_historical: Whether this is a historical portfolio (default: False)
+        """
         if not name or not isinstance(name, str):
             raise ValidationError("Portfolio name must be a non-empty string")
         self.name = name
+        self.is_historical = is_historical
 
     @abstractmethod
     def get_positions(

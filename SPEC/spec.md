@@ -58,6 +58,17 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `SimplePortfolio`: Portfolio containing direct asset positions
 - `CompositePortfolio`: Portfolio containing sub-portfolios
 
+**Portfolio Properties:**
+- `is_historical` (bool): Flag indicating whether this is a historical portfolio (default: False)
+- `start_date` (Optional[date]): Computed property returning the earliest trade date (SimplePortfolio) or earliest start_date of sub-portfolios (CompositePortfolio)
+- `end_date` (Optional[date]): Computed property returning the most recent trade date (SimplePortfolio) or most recent end_date of sub-portfolios (CompositePortfolio)
+
+**Historical Portfolio Support:**
+- Historical portfolios are created by filtering trades up to a specific end_date
+- Historical portfolios have `is_historical=True` and use historical prices for calculations
+- For composite portfolios, all sub-portfolios must have identical `is_historical` flags (enforced in `add_sub_portfolio()`)
+- When fetching prices for historical portfolios, the system automatically uses historical prices from the portfolio's `end_date`
+
 **Key Functions:**
 - `add_trade(trade)`: Add a trade to the portfolio
 - `get_positions(asset_type=None, tickers=None)`: Get all asset positions in the portfolio
@@ -93,6 +104,15 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `get_total_quantity(ticker)`: Get total quantity for a specific asset
 - `add_sub_portfolio(portfolio)`: Add a sub-portfolio (for composite portfolios)
 
+**Key Functions:**
+- `fetch_price_map(portfolio, price_service, target_date=None)`: Fetch prices for all assets in portfolio
+  - Extracts assets from portfolio positions, groups them by asset type for batch processing
+  - For historical portfolios (`is_historical=True`), automatically uses historical prices
+  - If `target_date` is provided and portfolio is historical, uses that date; otherwise uses `portfolio.end_date`
+  - For non-historical portfolios, uses current prices
+  - Returns dictionary mapping Asset to Optional[float] price (None if price unavailable)
+  - Handles exceptions gracefully by setting None for assets that fail to fetch
+
 **Artefacts:**
 - Portfolio class implementations
 - Aggregation logic for hierarchical structures
@@ -106,7 +126,10 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - Handle missing or malformed data gracefully
 
 **Key Functions:**
-- `import_trades_from_csv(file_path)`: Main import function
+- `import_trades_from_csv(file_path, currency_service=None, end_date=None)`: Main import function
+  - `end_date` (Optional[date]): If provided, only trades with date <= end_date are included
+- `import_csv_files(import_dir, end_date=None)`: Import CSV files and create composite portfolio
+  - `end_date` (Optional[date]): If provided, filters trades and creates historical portfolios with `is_historical=True`
 - `validate_csv_structure(df)`: Validate CSV has required columns
 - `parse_trade_row(row)`: Convert CSV row to Trade object
 
@@ -163,6 +186,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
    - `CACHE_VALIDITY_MINUTES`: Cache validity threshold in minutes (default: 10)
    - `CURRENCY_CACHE_FILE`: Default currency cache file path (`CACHE_DIR / "currency_cache.parquet"`)
    - `CURRENCY_CACHE_VALIDITY_MINUTES`: Currency cache validity threshold in minutes (default: 1440, i.e., 24 hours)
+   - `HISTORICAL_CACHE_FILE`: Default historical price cache file path (`CACHE_DIR / "historical_price_cache.parquet"`)
 
 **Usage:**
 - Other modules import `Config` class and access configuration via class attributes
@@ -198,24 +222,31 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 **Key Methods:**
 - `get_price(ticker, asset_type)`: Abstract method to get current price for an asset
 - `get_prices(tickers, asset_type)`: Abstract method to get current prices for multiple assets in a batch request
+- `get_historical_prices(ticker, asset_type, start_date, end_date)`: Abstract method to get historical prices over a date range
+  - Returns DataFrame with date index and price column (native currency)
 
 #### wpm/pricing/yahoo.py
 
 **Responsibilities:**
 - Implement Yahoo Finance price retrieval using yfinance
 - Support both single and batch price retrieval for stocks/ETFs
+- Support historical price retrieval for crypto (via yfinance)
 - Handle yfinance API responses and data extraction
 - Use trading hours to determine appropriate price source (real-time prices during market hours, close prices otherwise)
 - Detect currency from ticker suffix (e.g., `.HK` → `HKD`)
 - Support Hong Kong stocks (ticker format: `XXXX.HK`, currency: `HKD`)
+- Map crypto tickers to yfinance format when needed
 
 **Key Classes:**
-- `YahooFinanceRetriever`: yfinance-based retriever for stocks/ETFs (implements batch retrieval by default)
+- `YahooFinanceRetriever`: yfinance-based retriever for stocks/ETFs and historical crypto prices (implements batch retrieval by default)
 
 **Key Methods:**
 - `_detect_currency(ticker)`: Detect currency from ticker suffix
   - Returns "HKD" for Hong Kong stocks (`.HK` suffix)
   - Returns "USD" for US stocks/ETFs (default)
+- `_map_crypto_ticker(ticker)`: Map crypto ticker to yfinance ticker format
+  - Returns mapped ticker if mapping exists (e.g., "SUI-USD" → "SUI20947-USD"), otherwise returns original ticker
+  - Used internally by `get_historical_prices()` when `asset_type == "Crypto"`
 - `get_price(ticker, asset_type)`: Get current price for a single stock/ETF in native currency
   - Detects currency from ticker
   - During trading hours: tries `currentPrice` or `regularMarketPrice` from `ticker.info` first, falls back to `Close` from historical data if unavailable
@@ -225,6 +256,12 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
   - During trading hours: tries `currentPrice` or `regularMarketPrice` from `ticker.info` for each ticker, falls back to `Close` from batch download if unavailable
   - Outside trading hours: uses `Close` from batch download
   - Returns prices in native currency (not USD)
+- `get_historical_prices(ticker, asset_type, start_date, end_date)`: Get historical prices over a date range
+  - Uses `yf.download()` with start and end date parameters
+  - Returns DataFrame with date index and Close prices (native currency, USD for crypto)
+  - Handles single ticker and multiple tickers (batch retrieval)
+  - Supports crypto tickers (e.g., "BTC-USD", "ETH-USD") via yfinance
+  - Uses `_map_crypto_ticker()` to map crypto tickers to yfinance format when needed (e.g., "SUI-USD" → "SUI20947-USD")
 
 #### wpm/pricing/coingecko.py
 
@@ -240,6 +277,10 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 **Key Methods:**
 - `get_price(ticker, asset_type)`: Get current price for a single cryptocurrency
 - `get_prices(tickers, asset_type)`: Batch price retrieval using CoinGecko's batch API endpoint to fetch multiple tickers in a single API request
+- `get_historical_prices(ticker, asset_type, start_date, end_date)`: Get historical prices over a date range
+  - **Note**: This method is NOT used for historical crypto prices. Historical crypto prices use `YahooFinanceRetriever` via `PriceService.get_historical_prices()`.
+  - CoinGeckoRetriever is only used for current price retrieval (`get_price()`, `get_prices()`)
+  - Historical price retrieval for crypto was moved to yfinance due to CoinGecko free tier limitations (365 days)
 
 #### wpm/pricing/cache.py
 
@@ -281,6 +322,35 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - Cache file contains: ticker, asset_type, price (USD), native_price, native_currency, timestamp columns
 - Cache schema migration: Automatically migrates old cache files (without native_price/native_currency) to new schema
 
+#### wpm/pricing/historical_cache.py
+
+**Responsibilities:**
+- Manage persistent Parquet-based historical price cache
+- Store daily prices for date ranges per asset
+- Provide methods to retrieve historical prices for specific dates or date ranges
+- Support clearing prices for specific assets or entire cache
+
+**Key Classes:**
+- `HistoricalPriceCache`: Manages persistent Parquet-based historical price cache
+
+**Key Methods:**
+- `get_cached_prices(ticker, asset_type, start_date, end_date)`: Get cached prices for a date range
+  - Returns DataFrame with date index and price column if cache has coverage for the range
+  - Returns None if no cache entry exists
+- `get_cached_price(ticker, asset_type, target_date)`: Get cached price for a specific date
+  - Returns most recent price available up to target_date
+  - Returns None if no cache entry exists
+- `set_cached_prices(ticker, asset_type, prices_df, native_prices_df, native_currency)`: Store daily prices for a date range
+  - Stores both USD and native currency prices
+  - Merges with existing cached data (overwrites overlapping dates)
+- `clear_asset(ticker, asset_type)`: Clear all cached prices for a specific asset
+- `clear_all()`: Clear entire historical cache
+
+**Artefacts:**
+- Persistent Parquet cache file (default path from `wpm.config.Config.HISTORICAL_CACHE_FILE`)
+- Cache file contains: ticker, asset_type, date, price (USD), native_price, native_currency columns
+- Cache validity: Historical cache entries are always valid (no expiration)
+
 #### wpm/pricing/rate_limiter.py
 
 **Responsibilities:**
@@ -315,7 +385,20 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
   - For stocks/ETFs: detects currency for each ticker, converts native prices to USD, stores both in cache
   - Returns USD prices by default, native currency prices if `in_native_currency=True`
   - For tickers that fail API retrieval: if stale cache exists, log warning and use stale price; if no cache exists, raise ValueError
-- `_get_retriever(asset_type)`: Internal method to get appropriate price retriever (YahooFinanceRetriever for Stock/ETF, CoinGeckoRetriever for Crypto)
+- `get_historical_price(ticker, asset_type, target_date, in_native_currency=False)`: Get historical price for an asset on a specific date
+  - Returns price for target_date (most recent available up to target_date)
+  - Returns USD price by default, native currency price if `in_native_currency=True`
+  - Uses historical cache and retrievers as needed
+- `get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False)`: Get historical prices for multiple assets over a date range
+  - Returns prices for end_date (most recent available up to end_date) for each ticker
+  - Checks historical cache first, fetches missing data from retrievers
+  - **For crypto**: Uses `YahooFinanceRetriever` (yfinance) instead of `CoinGeckoRetriever` to support longer historical ranges
+  - **For stocks/ETFs**: Uses `YahooFinanceRetriever` as before
+  - Stores fetched prices in historical cache
+  - Handles currency conversion for stocks/ETFs
+  - Returns USD prices by default, native currency prices if `in_native_currency=True`
+- `_get_retriever(asset_type)`: Internal method to get appropriate price retriever for current prices (YahooFinanceRetriever for Stock/ETF, CoinGeckoRetriever for Crypto)
+  - Note: For historical prices, crypto uses YahooFinanceRetriever instead of CoinGeckoRetriever
 
 **Artefacts:**
 - Current market prices for assets

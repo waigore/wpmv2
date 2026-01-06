@@ -13,20 +13,29 @@ The `wpm` command-line utility serves as an orchestrator for the WPM library. It
 
 ### Initial Command
 
-The utility accepts one command-line argument:
+The utility accepts one command-line argument with an optional parameter:
 
 ```
-wpm import
+wpm import [--end-date YYYY-MM-DD]
 ```
 
 **Note:** The `wpm` command is available after installing the package (via console script entry point defined in `pyproject.toml`). Alternatively, it can be run as a Python module: `python -m wpm.cli import`
 
+**Parameters:**
+- `--end-date YYYY-MM-DD` (optional): End date for historical portfolio import. If provided:
+  - Only trades with date <= end_date are included
+  - All created portfolios will have `is_historical=True`
+  - Historical prices will be fetched for calculations
+  - Clear messaging is displayed indicating historical import mode
+
 **Behavior:**
 - Scans the `import/` directory for all CSV files
 - Imports each CSV file as a separate sub-portfolio
+- If `--end-date` is provided, filters trades and creates historical portfolios
 - Creates a composite portfolio containing all imported sub-portfolios
 - Each sub-portfolio is named based on the CSV filename (see Portfolio Naming below)
 - After import, fetches prices for all assets via PriceService (which manages cache internally)
+  - For historical portfolios, uses historical prices from the end_date
 - Enters interactive mode after successful import
 
 **Error Handling:**
@@ -91,22 +100,35 @@ wpm>
 - `<name>`: Name of the sub-portfolio (required)
 
 **Output Format:**
-- For each asset, display: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | Current Value = Market Value`
+- For each asset, display: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | {Value Label} = Market Value @ Price`
 - One asset per line
 - Sorted by ticker
-- Market Value is calculated as: `Quantity × Current Price`
-- Current Price is retrieved using batch fetching via `PriceService.get_prices()` (grouped by asset_type)
+- Market Value is calculated as: `Quantity × Current/Historical Price`
+- Price is retrieved using batch fetching via `PriceService.get_prices()` or `PriceService.get_historical_prices()` (grouped by asset_type)
 - Prices are fetched in batches for efficiency - PriceService handles cache checking and API fetching internally
-- If price retrieval fails for an asset type, display "N/A" for Current Value for all assets of that type
+- Value Label:
+  - For historical portfolios: `Historical Value (yyyy-MM-dd)` where the date is the portfolio's `end_date`
+  - For current portfolios: `Current Value`
+- If price retrieval fails for an asset type, display "N/A" for the value (price is not shown when value is N/A)
 - After all position lines, display a summary section with:
   - Total Market Value: `<formatted_value>` (or "N/A" if no prices available)
   - Total Cost Basis: `<formatted_value>` (always displayed, doesn't depend on prices)
   - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no prices available)
-- Example:
+- Example (current portfolio):
   ```
-  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
-  ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
-  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00
+  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00
+  ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00 @ $2,600.00
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00
+
+  Total Market Value: $64,000.00
+  Total Cost Basis: $62,500.00
+  Total Unrealized P/L: +$1,500.00
+  ```
+- Example (historical portfolio):
+  ```
+  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Historical Value (2024-01-15) = $23,000.00 @ $46,000.00
+  ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Historical Value (2024-01-15) = $26,000.00 @ $2,600.00
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Historical Value (2024-01-15) = $16,000.00 @ $160.00
 
   Total Market Value: $64,000.00
   Total Cost Basis: $62,500.00
@@ -116,7 +138,7 @@ wpm>
 **Error Handling:**
 - If portfolio name not found, display: "Portfolio '<name>' not found."
 - If portfolio has no assets, display: "Portfolio '<name>' has no assets."
-- If price retrieval fails for an asset, display "N/A" for Current Value and continue displaying other assets
+- If price retrieval fails for an asset, display "N/A" for the value (price is not shown when value is N/A) and continue displaying other assets
 
 #### `show all`
 
@@ -125,19 +147,22 @@ wpm>
 **Output Format:**
 - Same format as `show portfolio`, but showing aggregated positions
 - If the same asset appears in multiple sub-portfolios, show the combined quantity and cost basis
-- Market Value is calculated using the aggregated quantity and current price
-- Current Price is retrieved using batch fetching via `PriceService.get_prices()` (grouped by asset_type)
+- Market Value is calculated using the aggregated quantity and current/historical price
+- Price is retrieved using batch fetching via `PriceService.get_prices()` or `PriceService.get_historical_prices()` (grouped by asset_type)
 - Prices are fetched in batches for efficiency - PriceService handles cache checking and API fetching internally
-- If price retrieval fails for an asset type, logs a warning and displays "N/A" for Current Value for all assets of that type, but continues processing other asset types
+- Value Label:
+  - For historical portfolios: `Historical Value (yyyy-MM-dd)` where the date is the composite portfolio's `end_date`
+  - For current portfolios: `Current Value`
+- If price retrieval fails for an asset type, logs a warning and displays "N/A" for the value (price is not shown when value is N/A) for all assets of that type, but continues processing other asset types
 - After all position lines, display a summary section with:
   - Total Market Value: `<formatted_value>` (or "N/A" if no prices available)
   - Total Cost Basis: `<formatted_value>` (always displayed, doesn't depend on prices)
   - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no prices available)
-- Example:
+- Example (current portfolio):
   ```
-  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00
-  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
-  GOOG (Stock): 50.0 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00
+  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00
+  GOOG (Stock): 50.0 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00 @ $2,100.00
 
   Total Market Value: $144,000.00
   Total Cost Basis: $137,500.00
@@ -146,7 +171,7 @@ wpm>
 
 **Error Handling:**
 - If composite portfolio has no assets, display: "No assets found in composite portfolio."
-- If price retrieval fails for an asset type, logs a warning and displays "N/A" for Current Value for all assets of that type, but continues processing other asset types
+- If price retrieval fails for an asset type, logs a warning and displays "N/A" for the value (price is not shown when value is N/A) for all assets of that type, but continues processing other asset types
 
 #### `lots <ticker>`
 
@@ -411,18 +436,18 @@ Crypto
 USStocks
 
 wpm> show portfolio Crypto
-BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
-ETH-USD (Crypto): 10 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
+BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00
+ETH-USD (Crypto): 10 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00 @ $2,600.00
 
 Total Market Value: $49,000.00
 Total Cost Basis: $47,500.00
 Total Unrealized P/L: +$1,500.00
 
 wpm> show all
-AAPL (Stock): 100 @ $150.00 = $15,000.00 | Current Value = $16,000.00
-BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00
-ETH-USD (Crypto): 10 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00
-GOOG (Stock): 50 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00
+AAPL (Stock): 100 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00
+BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00
+ETH-USD (Crypto): 10 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00 @ $2,600.00
+GOOG (Stock): 50 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00 @ $2,100.00
 
 Total Market Value: $170,000.00
 Total Cost Basis: $162,500.00

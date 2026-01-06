@@ -9,6 +9,7 @@ import argparse
 import logging
 import sys
 from collections import defaultdict
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -23,7 +24,7 @@ from wpm.metrics import (
 from wpm.models import Asset, Lot, Portfolio, Position, ValidationError
 from wpm.portfolio import CompositePortfolio, fetch_price_map, SimplePortfolio
 from wpm.pricing import PriceService
-from wpm.utils import setup_logging
+from wpm.utils import normalize_date, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,12 @@ def parse_args() -> argparse.Namespace:
         choices=["import"],
         help="Command to execute (currently only 'import' is supported)",
     )
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        help="End date (YYYY-MM-DD) for historical portfolio import. "
+             "Only trades on or before this date will be included.",
+    )
 
     return parser.parse_args()
 
@@ -54,6 +61,8 @@ def fetch_prices_for_portfolio(
     portfolio: CompositePortfolio, price_service: PriceService
 ) -> None:
     """Fetch prices for all assets in portfolio via PriceService.
+
+    For historical portfolios, uses historical prices.
 
     Args:
         portfolio: Composite portfolio containing all assets
@@ -69,9 +78,15 @@ def fetch_prices_for_portfolio(
         logger.info("No assets found in portfolio, skipping price fetch")
         return
 
-    logger.info(f"Fetching prices for {len(assets)} assets...")
+    if portfolio.is_historical:
+        logger.info(
+            f"Fetching historical prices for {len(assets)} assets "
+            f"(historical portfolio up to {portfolio.end_date})..."
+        )
+    else:
+        logger.info(f"Fetching prices for {len(assets)} assets...")
 
-    # Use helper function to fetch prices
+    # Use helper function to fetch prices (automatically uses historical prices for historical portfolios)
     price_map = fetch_price_map(portfolio, price_service)
 
     # Check for any missing prices and exit if found (this function requires all prices)
@@ -79,7 +94,8 @@ def fetch_prices_for_portfolio(
     if not missing_prices:
         # Display summary
         total = len(assets)
-        summary = f"Prices fetched for {total} assets"
+        price_type = "historical prices" if portfolio.is_historical else "prices"
+        summary = f"{price_type.capitalize()} fetched for {total} assets"
         print(summary)
         logger.info(summary)
         return
@@ -93,8 +109,9 @@ def fetch_prices_for_portfolio(
         f"{', '.join(tickers)} ({asset_type})"
         for asset_type, tickers in missing_by_type.items()
     ]
+    price_type = "historical price" if portfolio.is_historical else "price"
     error_msg = (
-        f"Error: No price data available for: {', '.join(error_parts)}. "
+        f"Error: No {price_type} data available for: {', '.join(error_parts)}. "
         f"API retrieval failed and no cache entry exists."
     )
     print(error_msg, file=sys.stderr)
@@ -160,12 +177,19 @@ def format_quantity(value) -> str:
     return formatted
 
 
-def format_position_line(position: Position, price: Optional[float]) -> str:
+def format_position_line(
+    position: Position,
+    price: Optional[float],
+    is_historical: bool = False,
+    end_date: Optional[date] = None,
+) -> str:
     """Format a position line for display.
 
     Args:
         position: Position to format
-        price: Current price (None if unavailable)
+        price: Current or historical price (None if unavailable)
+        is_historical: Whether this is a historical portfolio
+        end_date: End date for historical portfolios (used in label)
 
     Returns:
         Formatted position line
@@ -177,18 +201,25 @@ def format_position_line(position: Position, price: Optional[float]) -> str:
     avg_cost = format_currency(position.get_average_cost())
     cost_basis = format_currency(position.cost_basis)
 
+    # Determine value label
+    if is_historical and end_date is not None:
+        value_label = f"Historical Value ({end_date.strftime('%Y-%m-%d')})"
+    else:
+        value_label = "Current Value"
+
     if price is not None:
         # Convert Decimal quantity to float for market value calculation
         market_value = float(position.quantity) * price
-        current_value_str = format_currency(market_value)
+        market_value_str = format_currency(market_value)
+        price_str = format_currency(price)
         return (
             f"{ticker} ({asset_type}): {quantity} @ {avg_cost} = {cost_basis} | "
-            f"Current Value = {current_value_str}"
+            f"{value_label} = {market_value_str} @ {price_str}"
         )
 
     return (
         f"{ticker} ({asset_type}): {quantity} @ {avg_cost} = {cost_basis} | "
-        f"Current Value = N/A"
+        f"{value_label} = N/A"
     )
 
 
@@ -239,7 +270,7 @@ def cmd_show_portfolio(
     sorted_positions = sorted(positions.items(), key=lambda x: x[0].ticker)
     for asset, position in sorted_positions:
         price = price_map.get(asset)
-        print(format_position_line(position, price))
+        print(format_position_line(position, price, portfolio.is_historical, portfolio.end_date))
 
     # Display summary
     print()  # Blank line before summary
@@ -280,7 +311,7 @@ def cmd_show_all(
     sorted_positions = sorted(positions.items(), key=lambda x: x[0].ticker)
     for asset, position in sorted_positions:
         price = price_map.get(asset)
-        print(format_position_line(position, price))
+        print(format_position_line(position, price, composite.is_historical, composite.end_date))
 
     # Display summary
     print()  # Blank line before summary
@@ -610,9 +641,24 @@ def main() -> None:
     args = parse_args()
 
     if args.command == "import":
+        # Parse end_date if provided
+        end_date: Optional[date] = None
+        if args.end_date:
+            try:
+                end_date = normalize_date(args.end_date)
+                print(f"Importing historical portfolio up to {end_date}")
+                logger.info(f"Historical import requested with end_date: {end_date}")
+            except ValueError as e:
+                print(f"Error: Invalid end-date format: {str(e)}", file=sys.stderr)
+                print("Expected format: YYYY-MM-DD", file=sys.stderr)
+                logger.error(f"Invalid end-date format: {str(e)}")
+                sys.exit(1)
+
         # Import CSV files
         try:
-            composite = import_csv_files(IMPORT_DIR)
+            composite = import_csv_files(IMPORT_DIR, end_date=end_date)
+            if end_date is not None:
+                print(f"Successfully created historical portfolio (end_date: {end_date})")
         except ValueError as e:
             print(f"Error: {str(e)}", file=sys.stderr)
             logger.error(str(e))

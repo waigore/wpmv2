@@ -627,3 +627,71 @@ class TestImportCSVFiles:
             assert "Crypto_1" in composite._sub_portfolios
             assert "Crypto_2" in composite._sub_portfolios
 
+    @patch("wpm.importer.CurrencyService")
+    def test_import_trades_from_csv_with_end_date(self, mock_currency_service_class):
+        """Test import_trades_from_csv filters trades by end_date."""
+        mock_service = Mock()
+        def convert_side_effect(amount, currency):
+            return amount if currency == "USD" else amount * 0.128
+        mock_service.convert_to_usd.side_effect = convert_side_effect
+        mock_currency_service_class.return_value = mock_service
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            csv_path = Path(temp_dir) / "trades.csv"
+            csv_path.write_text(
+                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Price,Currency,Quantity\n"
+                "2024-01-15,GOOG,Stock,Buy,IBKR,150.0,USD,10.0\n"
+                "2024-02-15,GOOG,Stock,Buy,IBKR,160.0,USD,5.0\n"
+                "2024-03-15,GOOG,Stock,Sell,IBKR,170.0,USD,3.0\n"
+            )
+
+            # Import without end_date - should get all trades
+            all_trades = import_trades_from_csv(str(csv_path))
+            assert len(all_trades) == 3
+
+            # Import with end_date before all trades - should get none
+            early_trades = import_trades_from_csv(str(csv_path), end_date=date(2024, 1, 1))
+            assert len(early_trades) == 0
+
+            # Import with end_date in middle - should get first two trades
+            mid_trades = import_trades_from_csv(str(csv_path), end_date=date(2024, 2, 20))
+            assert len(mid_trades) == 2
+            assert all(trade.date <= date(2024, 2, 20) for trade in mid_trades)
+
+            # Import with end_date after all trades - should get all trades
+            late_trades = import_trades_from_csv(str(csv_path), end_date=date(2024, 12, 31))
+            assert len(late_trades) == 3
+
+    @patch("wpm.importer.CurrencyService")
+    def test_import_csv_files_with_end_date(self, mock_currency_service_class):
+        """Test import_csv_files creates historical portfolios with end_date."""
+        mock_service = Mock()
+        def convert_side_effect(amount, currency):
+            return amount if currency == "USD" else amount * 0.128
+        mock_service.convert_to_usd.side_effect = convert_side_effect
+        mock_currency_service_class.return_value = mock_service
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            csv_path = Path(temp_dir) / "trades.csv"
+            csv_path.write_text(
+                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Price,Currency,Quantity\n"
+                "2024-01-15,GOOG,Stock,Buy,IBKR,150.0,USD,10.0\n"
+                "2024-02-15,GOOG,Stock,Buy,IBKR,160.0,USD,5.0\n"
+            )
+
+            # Import without end_date - should create normal portfolio
+            composite = import_csv_files(Path(temp_dir))
+            assert not composite.is_historical
+            for sub_portfolio in composite._sub_portfolios.values():
+                assert not sub_portfolio.is_historical
+
+            # Import with end_date - should create historical portfolio
+            historical_composite = import_csv_files(Path(temp_dir), end_date=date(2024, 1, 31))
+            assert historical_composite.is_historical
+            for sub_portfolio in historical_composite._sub_portfolios.values():
+                assert sub_portfolio.is_historical
+                # Should only have trades up to end_date
+                trades = sub_portfolio.get_all_trades()
+                assert len(trades) == 1
+                assert trades[0].date == date(2024, 1, 15)
+
