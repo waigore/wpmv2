@@ -331,6 +331,113 @@ class SimplePortfolio(Portfolio):
 
         return filtered_trades
 
+    def clone(
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        _skip_end_date_validation: bool = False,
+    ) -> "SimplePortfolio":
+        """Create a deep copy of the portfolio.
+
+        Args:
+            start_date: Optional start date for filtering trades (inclusive).
+                Must be within portfolio's date range if provided.
+            end_date: Optional end date for filtering trades (inclusive).
+                Must be within portfolio's date range if provided.
+            _skip_end_date_validation: Internal flag to skip end_date validation
+                when cloning sub-portfolios in composite portfolios.
+
+        Returns:
+            New SimplePortfolio instance with cloned trades
+
+        Raises:
+            PortfolioError: If date range is outside portfolio's date range
+        """
+        # Create new portfolio with same name and is_historical flag
+        cloned_portfolio = SimplePortfolio(name=self.name, is_historical=self.is_historical)
+
+        # If no date filtering, clone all trades
+        if start_date is None and end_date is None:
+            for trade in self._trades:
+                # Deep clone trade by creating new Trade object
+                cloned_trade = Trade(
+                    date=trade.date,
+                    asset=trade.asset,  # Asset is frozen/immutable, can reuse
+                    action=trade.action,
+                    broker=trade.broker,
+                    order_instruction=trade.order_instruction,
+                    trade_type=trade.trade_type,
+                    currency=trade.currency,
+                    price=trade.price,
+                    price_native=trade.price_native,
+                    quantity=trade.quantity,
+                )
+                cloned_portfolio.add_trade(cloned_trade)
+        else:
+            # Validate date range
+            if start_date is not None and end_date is not None:
+                if start_date > end_date:
+                    raise PortfolioError(
+                        f"start_date {start_date} is after end_date {end_date}"
+                    )
+
+            # Validate date range is within portfolio's date range (if portfolio has trades)
+            if self._trades:
+                portfolio_start = self.start_date
+                portfolio_end = self.end_date
+
+                if start_date is not None:
+                    if portfolio_start is not None and start_date < portfolio_start:
+                        raise PortfolioError(
+                            f"start_date {start_date} is before portfolio's start_date {portfolio_start}"
+                        )
+
+                # For end_date validation: we validate strictly for direct cloning.
+                # When cloning sub-portfolios in composite portfolios, we skip this validation
+                # to allow composite date ranges that extend beyond individual sub-portfolio ranges.
+                if (
+                    end_date is not None
+                    and portfolio_end is not None
+                    and not _skip_end_date_validation
+                ):
+                    if end_date > portfolio_end:
+                        raise PortfolioError(
+                            f"end_date {end_date} is after portfolio's end_date {portfolio_end}"
+                        )
+
+            # Filter and clone trades within date range
+            for trade in self._trades:
+                # Filter by start_date if provided
+                if start_date is not None and trade.date < start_date:
+                    continue
+
+                # Filter by end_date if provided
+                if end_date is not None and trade.date > end_date:
+                    continue
+
+                # Deep clone trade by creating new Trade object
+                cloned_trade = Trade(
+                    date=trade.date,
+                    asset=trade.asset,  # Asset is frozen/immutable, can reuse
+                    action=trade.action,
+                    broker=trade.broker,
+                    order_instruction=trade.order_instruction,
+                    trade_type=trade.trade_type,
+                    currency=trade.currency,
+                    price=trade.price,
+                    price_native=trade.price_native,
+                    quantity=trade.quantity,
+                )
+                cloned_portfolio.add_trade(cloned_trade)
+
+        logger.info(
+            f"Cloned portfolio '{self.name}' "
+            f"(start_date={start_date}, end_date={end_date}, "
+            f"trades={len(cloned_portfolio._trades)})"
+        )
+
+        return cloned_portfolio
+
     @property
     def start_date(self) -> Optional[date]:
         """Get the earliest trade date in the portfolio.
@@ -632,6 +739,81 @@ class CompositePortfolio(Portfolio):
         
         return max(end_dates)
 
+    def clone(
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        _skip_end_date_validation: bool = False,
+    ) -> "CompositePortfolio":
+        """Create a deep copy of the portfolio.
+
+        Args:
+            start_date: Optional start date for filtering sub-portfolios (inclusive).
+                Must be within portfolio's date range if provided.
+            end_date: Optional end date for filtering sub-portfolios (inclusive).
+                Must be within portfolio's date range if provided.
+            _skip_end_date_validation: Internal flag to skip end_date validation
+                when cloning sub-portfolios in composite portfolios.
+
+        Returns:
+            New CompositePortfolio instance with cloned sub-portfolios
+
+        Raises:
+            PortfolioError: If date range is outside portfolio's date range
+        """
+        # Create new portfolio with same name and is_historical flag
+        cloned_portfolio = CompositePortfolio(name=self.name, is_historical=self.is_historical)
+
+        # Validate date range if portfolio has sub-portfolios
+        if self._sub_portfolios:
+            portfolio_start = self.start_date
+            portfolio_end = self.end_date
+
+            if start_date is not None:
+                if portfolio_start is None or start_date < portfolio_start:
+                    raise PortfolioError(
+                        f"start_date {start_date} is before portfolio's start_date {portfolio_start}"
+                    )
+
+            if end_date is not None:
+                if portfolio_end is None or end_date > portfolio_end:
+                    raise PortfolioError(
+                        f"end_date {end_date} is after portfolio's end_date {portfolio_end}"
+                    )
+
+            if start_date is not None and end_date is not None:
+                if start_date > end_date:
+                    raise PortfolioError(
+                        f"start_date {start_date} is after end_date {end_date}"
+                    )
+
+        # Recursively clone all sub-portfolios
+        # Skip end_date validation for sub-portfolios to allow composite date ranges
+        # that extend beyond individual sub-portfolio ranges
+        for sub_portfolio in self._sub_portfolios.values():
+            # Pass _skip_end_date_validation to nested composites as well
+            if isinstance(sub_portfolio, CompositePortfolio):
+                cloned_sub = sub_portfolio.clone(
+                    start_date=start_date,
+                    end_date=end_date,
+                    _skip_end_date_validation=True,
+                )
+            else:
+                cloned_sub = sub_portfolio.clone(
+                    start_date=start_date,
+                    end_date=end_date,
+                    _skip_end_date_validation=True,
+                )
+            cloned_portfolio.add_sub_portfolio(cloned_sub)
+
+        logger.info(
+            f"Cloned composite portfolio '{self.name}' "
+            f"(start_date={start_date}, end_date={end_date}, "
+            f"sub_portfolios={len(cloned_portfolio._sub_portfolios)})"
+        )
+
+        return cloned_portfolio
+
 
 def fetch_price_map(
     portfolio: Portfolio,
@@ -715,4 +897,66 @@ def fetch_price_map(
                 price_map[asset] = None
 
     return price_map
+
+
+def generate_historical_snapshots(
+    portfolio: Portfolio,
+    start_date: date,
+    end_date: date,
+) -> List[Portfolio]:
+    """Generate historical snapshots of a portfolio for each date in range.
+
+    Creates a clone of the portfolio for each date from start_date to end_date
+    (inclusive), where each snapshot represents the portfolio state as of that date.
+
+    Args:
+        portfolio: Portfolio to generate snapshots for
+        start_date: Start date for snapshot generation (inclusive)
+        end_date: End date for snapshot generation (inclusive)
+
+    Returns:
+        List of Portfolio clones, one for each date in the range
+
+    Raises:
+        PortfolioError: If date range is invalid or outside portfolio's date range
+    """
+    # Validate date range
+    if start_date > end_date:
+        raise PortfolioError(
+            f"start_date {start_date} is after end_date {end_date}"
+        )
+
+    # Validate date range is within portfolio's date range (if portfolio has date range)
+    portfolio_start = portfolio.start_date
+    portfolio_end = portfolio.end_date
+
+    if portfolio_start is not None and start_date < portfolio_start:
+        raise PortfolioError(
+            f"start_date {start_date} is before portfolio's start_date {portfolio_start}"
+        )
+
+    if portfolio_end is not None and end_date > portfolio_end:
+        raise PortfolioError(
+            f"end_date {end_date} is after portfolio's end_date {portfolio_end}"
+        )
+
+    # Generate snapshots for each date in range
+    snapshots: List[Portfolio] = []
+    current_date = start_date
+
+    # Import timedelta for date iteration
+    from datetime import timedelta
+
+    while current_date <= end_date:
+        # Clone portfolio with end_date set to current_date
+        snapshot = portfolio.clone(start_date=None, end_date=current_date)
+        snapshots.append(snapshot)
+        current_date += timedelta(days=1)
+
+    logger.info(
+        f"Generated {len(snapshots)} historical snapshots for portfolio '{portfolio.name}' "
+        f"from {start_date} to {end_date}"
+    )
+
+    return snapshots
 

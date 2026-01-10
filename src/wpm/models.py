@@ -405,6 +405,21 @@ class Portfolio(ABC):
         """
         pass
 
+    @abstractmethod
+    def clone(self, start_date: Optional[date] = None, end_date: Optional[date] = None) -> "Portfolio":
+        """Create a deep copy of the portfolio.
+
+        Args:
+            start_date: Optional start date for filtering (inclusive).
+                Must be within portfolio's date range if provided.
+            end_date: Optional end date for filtering (inclusive).
+                Must be within portfolio's date range if provided.
+
+        Returns:
+            New Portfolio instance with cloned data
+        """
+        pass
+
     def get_position(self, asset: Asset) -> Optional["Position"]:
         """Get position for a specific asset."""
         positions = self.get_positions()

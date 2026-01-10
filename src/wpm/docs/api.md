@@ -51,6 +51,7 @@
     * [get\_total\_unrealized\_pnl](#wpm.models.Portfolio.get_total_unrealized_pnl)
     * [get\_asset\_lots](#wpm.models.Portfolio.get_asset_lots)
     * [get\_total\_realized\_pnl](#wpm.models.Portfolio.get_total_realized_pnl)
+    * [clone](#wpm.models.Portfolio.clone)
     * [get\_position](#wpm.models.Portfolio.get_position)
 * [wpm.cost\_basis](#wpm.cost_basis)
   * [calculate\_lots\_from\_trades](#wpm.cost_basis.calculate_lots_from_trades)
@@ -112,6 +113,9 @@
     * [get\_total\_realized\_pnl](#wpm.portfolio.SimplePortfolio.get_total_realized_pnl)
     * [get\_all\_trades](#wpm.portfolio.SimplePortfolio.get_all_trades)
     * [get\_asset\_trades](#wpm.portfolio.SimplePortfolio.get_asset_trades)
+    * [clone](#wpm.portfolio.SimplePortfolio.clone)
+    * [start\_date](#wpm.portfolio.SimplePortfolio.start_date)
+    * [end\_date](#wpm.portfolio.SimplePortfolio.end_date)
   * [CompositePortfolio](#wpm.portfolio.CompositePortfolio)
     * [\_\_init\_\_](#wpm.portfolio.CompositePortfolio.__init__)
     * [add\_sub\_portfolio](#wpm.portfolio.CompositePortfolio.add_sub_portfolio)
@@ -123,22 +127,30 @@
     * [get\_total\_realized\_pnl](#wpm.portfolio.CompositePortfolio.get_total_realized_pnl)
     * [get\_all\_trades](#wpm.portfolio.CompositePortfolio.get_all_trades)
     * [get\_asset\_trades](#wpm.portfolio.CompositePortfolio.get_asset_trades)
+    * [start\_date](#wpm.portfolio.CompositePortfolio.start_date)
+    * [end\_date](#wpm.portfolio.CompositePortfolio.end_date)
+    * [clone](#wpm.portfolio.CompositePortfolio.clone)
   * [fetch\_price\_map](#wpm.portfolio.fetch_price_map)
+  * [generate\_historical\_snapshots](#wpm.portfolio.generate_historical_snapshots)
 * [wpm.pricing.service](#wpm.pricing.service)
   * [PriceService](#wpm.pricing.service.PriceService)
     * [\_\_init\_\_](#wpm.pricing.service.PriceService.__init__)
     * [get\_price](#wpm.pricing.service.PriceService.get_price)
     * [get\_prices](#wpm.pricing.service.PriceService.get_prices)
+    * [get\_historical\_price](#wpm.pricing.service.PriceService.get_historical_price)
+    * [get\_historical\_prices](#wpm.pricing.service.PriceService.get_historical_prices)
 * [wpm.pricing.coingecko](#wpm.pricing.coingecko)
   * [CoinGeckoRetriever](#wpm.pricing.coingecko.CoinGeckoRetriever)
     * [\_\_init\_\_](#wpm.pricing.coingecko.CoinGeckoRetriever.__init__)
     * [get\_price](#wpm.pricing.coingecko.CoinGeckoRetriever.get_price)
     * [get\_prices](#wpm.pricing.coingecko.CoinGeckoRetriever.get_prices)
+    * [get\_historical\_prices](#wpm.pricing.coingecko.CoinGeckoRetriever.get_historical_prices)
 * [wpm.pricing.yahoo](#wpm.pricing.yahoo)
   * [YahooFinanceRetriever](#wpm.pricing.yahoo.YahooFinanceRetriever)
     * [\_\_init\_\_](#wpm.pricing.yahoo.YahooFinanceRetriever.__init__)
     * [get\_price](#wpm.pricing.yahoo.YahooFinanceRetriever.get_price)
     * [get\_prices](#wpm.pricing.yahoo.YahooFinanceRetriever.get_prices)
+    * [get\_historical\_prices](#wpm.pricing.yahoo.YahooFinanceRetriever.get_historical_prices)
 * [wpm.pricing.rate\_limiter](#wpm.pricing.rate_limiter)
   * [RateLimiter](#wpm.pricing.rate_limiter.RateLimiter)
     * [\_\_init\_\_](#wpm.pricing.rate_limiter.RateLimiter.__init__)
@@ -155,10 +167,19 @@
     * [set\_cached\_price](#wpm.pricing.cache.PriceCache.set_cached_price)
     * [get\_cache\_validity](#wpm.pricing.cache.PriceCache.get_cache_validity)
 * [wpm.pricing](#wpm.pricing)
+* [wpm.pricing.historical\_cache](#wpm.pricing.historical_cache)
+  * [HistoricalPriceCache](#wpm.pricing.historical_cache.HistoricalPriceCache)
+    * [\_\_init\_\_](#wpm.pricing.historical_cache.HistoricalPriceCache.__init__)
+    * [get\_cached\_prices](#wpm.pricing.historical_cache.HistoricalPriceCache.get_cached_prices)
+    * [get\_cached\_price](#wpm.pricing.historical_cache.HistoricalPriceCache.get_cached_price)
+    * [set\_cached\_prices](#wpm.pricing.historical_cache.HistoricalPriceCache.set_cached_prices)
+    * [clear\_asset](#wpm.pricing.historical_cache.HistoricalPriceCache.clear_asset)
+    * [clear\_all](#wpm.pricing.historical_cache.HistoricalPriceCache.clear_all)
 * [wpm.pricing.base](#wpm.pricing.base)
   * [PriceRetriever](#wpm.pricing.base.PriceRetriever)
     * [get\_price](#wpm.pricing.base.PriceRetriever.get_price)
     * [get\_prices](#wpm.pricing.base.PriceRetriever.get_prices)
+    * [get\_historical\_prices](#wpm.pricing.base.PriceRetriever.get_historical_prices)
 
 <a id="wpm"></a>
 
@@ -389,9 +410,9 @@ Maps "Equity" asset type to "Stock" as per spec requirement.
 #### import\_trades\_from\_csv
 
 ```python
-def import_trades_from_csv(
-        file_path: str,
-        currency_service: CurrencyService = None) -> List[Trade]
+def import_trades_from_csv(file_path: str,
+                           currency_service: CurrencyService = None,
+                           end_date: Optional[date] = None) -> List[Trade]
 ```
 
 Import trades from CSV file.
@@ -400,6 +421,7 @@ Import trades from CSV file.
 
 - `file_path` - Path to CSV file
 - `currency_service` - CurrencyService instance for currency conversion (default: creates new instance)
+- `end_date` - Optional end date (inclusive). If provided, only trades with date <= end_date are included
   
 
 **Returns**:
@@ -441,7 +463,8 @@ Extract and normalize portfolio name from CSV filename.
 #### import\_csv\_files
 
 ```python
-def import_csv_files(import_dir: Path) -> CompositePortfolio
+def import_csv_files(import_dir: Path,
+                     end_date: Optional[date] = None) -> CompositePortfolio
 ```
 
 Import CSV files and create composite portfolio.
@@ -449,6 +472,8 @@ Import CSV files and create composite portfolio.
 **Arguments**:
 
 - `import_dir` - Directory containing CSV files
+- `end_date` - Optional end date (inclusive). If provided, only trades with date <= end_date are included,
+  and all created portfolios will have is_historical=True
   
 
 **Returns**:
@@ -712,10 +737,15 @@ Abstract base class for portfolios.
 #### \_\_init\_\_
 
 ```python
-def __init__(name: str)
+def __init__(name: str, is_historical: bool = False)
 ```
 
 Initialize portfolio with a name.
+
+**Arguments**:
+
+- `name` - Portfolio name
+- `is_historical` - Whether this is a historical portfolio (default: False)
 
 <a id="wpm.models.Portfolio.get_positions"></a>
 
@@ -882,6 +912,30 @@ Derives from lots' realized P/L.
 
   Total realized profit/loss in USD
 
+<a id="wpm.models.Portfolio.clone"></a>
+
+#### clone
+
+```python
+@abstractmethod
+def clone(start_date: Optional[date] = None,
+          end_date: Optional[date] = None) -> "Portfolio"
+```
+
+Create a deep copy of the portfolio.
+
+**Arguments**:
+
+- `start_date` - Optional start date for filtering (inclusive).
+  Must be within portfolio's date range if provided.
+- `end_date` - Optional end date for filtering (inclusive).
+  Must be within portfolio's date range if provided.
+  
+
+**Returns**:
+
+  New Portfolio instance with cloned data
+
 <a id="wpm.models.Portfolio.get_position"></a>
 
 #### get\_position
@@ -974,6 +1028,8 @@ def fetch_prices_for_portfolio(portfolio: CompositePortfolio,
 
 Fetch prices for all assets in portfolio via PriceService.
 
+For historical portfolios, uses historical prices.
+
 **Arguments**:
 
 - `portfolio` - Composite portfolio containing all assets
@@ -1049,7 +1105,10 @@ Handles Decimal and float values, rounding to 8 decimal places
 #### format\_position\_line
 
 ```python
-def format_position_line(position: Position, price: Optional[float]) -> str
+def format_position_line(position: Position,
+                         price: Optional[float],
+                         is_historical: bool = False,
+                         end_date: Optional[date] = None) -> str
 ```
 
 Format a position line for display.
@@ -1057,7 +1116,9 @@ Format a position line for display.
 **Arguments**:
 
 - `position` - Position to format
-- `price` - Current price (None if unavailable)
+- `price` - Current or historical price (None if unavailable)
+- `is_historical` - Whether this is a historical portfolio
+- `end_date` - End date for historical portfolios (used in label)
   
 
 **Returns**:
@@ -1704,7 +1765,7 @@ Portfolio containing direct asset positions (trades).
 #### \_\_init\_\_
 
 ```python
-def __init__(name: str)
+def __init__(name: str, is_historical: bool = False)
 ```
 
 Initialize a simple portfolio.
@@ -1712,6 +1773,7 @@ Initialize a simple portfolio.
 **Arguments**:
 
 - `name` - Portfolio name
+- `is_historical` - Whether this is a historical portfolio (default: False)
 
 <a id="wpm.portfolio.SimplePortfolio.add_trade"></a>
 
@@ -1896,6 +1958,67 @@ Get all trades for a specified asset (ticker) within the portfolio.
   List of Trade objects matching the ticker and date range
   (includes both Buy and Sell trades)
 
+<a id="wpm.portfolio.SimplePortfolio.clone"></a>
+
+#### clone
+
+```python
+def clone(start_date: Optional[date] = None,
+          end_date: Optional[date] = None,
+          _skip_end_date_validation: bool = False) -> "SimplePortfolio"
+```
+
+Create a deep copy of the portfolio.
+
+**Arguments**:
+
+- `start_date` - Optional start date for filtering trades (inclusive).
+  Must be within portfolio's date range if provided.
+- `end_date` - Optional end date for filtering trades (inclusive).
+  Must be within portfolio's date range if provided.
+- `_skip_end_date_validation` - Internal flag to skip end_date validation
+  when cloning sub-portfolios in composite portfolios.
+  
+
+**Returns**:
+
+  New SimplePortfolio instance with cloned trades
+  
+
+**Raises**:
+
+- `PortfolioError` - If date range is outside portfolio's date range
+
+<a id="wpm.portfolio.SimplePortfolio.start_date"></a>
+
+#### start\_date
+
+```python
+@property
+def start_date() -> Optional[date]
+```
+
+Get the earliest trade date in the portfolio.
+
+**Returns**:
+
+  Earliest trade date, or None if no trades exist
+
+<a id="wpm.portfolio.SimplePortfolio.end_date"></a>
+
+#### end\_date
+
+```python
+@property
+def end_date() -> Optional[date]
+```
+
+Get the most recent trade date in the portfolio.
+
+**Returns**:
+
+  Most recent trade date, or None if no trades exist
+
 <a id="wpm.portfolio.CompositePortfolio"></a>
 
 ## CompositePortfolio Objects
@@ -1911,7 +2034,7 @@ Portfolio containing sub-portfolios.
 #### \_\_init\_\_
 
 ```python
-def __init__(name: str)
+def __init__(name: str, is_historical: bool = False)
 ```
 
 Initialize a composite portfolio.
@@ -1919,6 +2042,7 @@ Initialize a composite portfolio.
 **Arguments**:
 
 - `name` - Portfolio name
+- `is_historical` - Whether this is a historical portfolio (default: False)
 
 <a id="wpm.portfolio.CompositePortfolio.add_sub_portfolio"></a>
 
@@ -1937,7 +2061,8 @@ Add a sub-portfolio to this composite portfolio.
 
 **Raises**:
 
-- `PortfolioError` - If portfolio name already exists or portfolio is invalid
+- `PortfolioError` - If portfolio name already exists, portfolio is invalid,
+  or is_historical flags don't match
 
 <a id="wpm.portfolio.CompositePortfolio.get_positions"></a>
 
@@ -2108,6 +2233,67 @@ Aggregates asset trades from all sub-portfolios.
   List of Trade objects matching the ticker and date range
   (includes both Buy and Sell trades)
 
+<a id="wpm.portfolio.CompositePortfolio.start_date"></a>
+
+#### start\_date
+
+```python
+@property
+def start_date() -> Optional[date]
+```
+
+Get the earliest start_date of all sub-portfolios.
+
+**Returns**:
+
+  Earliest start_date, or None if no sub-portfolios exist
+
+<a id="wpm.portfolio.CompositePortfolio.end_date"></a>
+
+#### end\_date
+
+```python
+@property
+def end_date() -> Optional[date]
+```
+
+Get the most recent end_date of all sub-portfolios.
+
+**Returns**:
+
+  Most recent end_date, or None if no sub-portfolios exist
+
+<a id="wpm.portfolio.CompositePortfolio.clone"></a>
+
+#### clone
+
+```python
+def clone(start_date: Optional[date] = None,
+          end_date: Optional[date] = None,
+          _skip_end_date_validation: bool = False) -> "CompositePortfolio"
+```
+
+Create a deep copy of the portfolio.
+
+**Arguments**:
+
+- `start_date` - Optional start date for filtering sub-portfolios (inclusive).
+  Must be within portfolio's date range if provided.
+- `end_date` - Optional end date for filtering sub-portfolios (inclusive).
+  Must be within portfolio's date range if provided.
+- `_skip_end_date_validation` - Internal flag to skip end_date validation
+  when cloning sub-portfolios in composite portfolios.
+  
+
+**Returns**:
+
+  New CompositePortfolio instance with cloned sub-portfolios
+  
+
+**Raises**:
+
+- `PortfolioError` - If date range is outside portfolio's date range
+
 <a id="wpm.portfolio.fetch_price_map"></a>
 
 #### fetch\_price\_map
@@ -2115,24 +2301,58 @@ Aggregates asset trades from all sub-portfolios.
 ```python
 def fetch_price_map(
         portfolio: Portfolio,
-        price_service: "PriceService") -> Dict[Asset, Optional[float]]
+        price_service: "PriceService",
+        target_date: Optional[date] = None) -> Dict[Asset, Optional[float]]
 ```
 
 Fetch prices for all assets in portfolio and return a price map.
 
 Extracts assets from portfolio positions, groups them by asset type for
-batch processing, and fetches prices via PriceService. Handles exceptions
-gracefully by setting None for assets that fail to fetch.
+batch processing, and fetches prices via PriceService. For historical portfolios,
+uses historical prices. Handles exceptions gracefully by setting None for assets
+that fail to fetch.
 
 **Arguments**:
 
 - `portfolio` - Portfolio containing assets (SimplePortfolio or CompositePortfolio)
 - `price_service` - Price service for retrieving prices
+- `target_date` - Optional target date for historical prices. If None and portfolio
+  is historical, uses portfolio.end_date
   
 
 **Returns**:
 
   Dictionary mapping Asset to Optional[float] price (None if price unavailable)
+
+<a id="wpm.portfolio.generate_historical_snapshots"></a>
+
+#### generate\_historical\_snapshots
+
+```python
+def generate_historical_snapshots(portfolio: Portfolio, start_date: date,
+                                  end_date: date) -> List[Portfolio]
+```
+
+Generate historical snapshots of a portfolio for each date in range.
+
+Creates a clone of the portfolio for each date from start_date to end_date
+(inclusive), where each snapshot represents the portfolio state as of that date.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to generate snapshots for
+- `start_date` - Start date for snapshot generation (inclusive)
+- `end_date` - End date for snapshot generation (inclusive)
+  
+
+**Returns**:
+
+  List of Portfolio clones, one for each date in the range
+  
+
+**Raises**:
+
+- `PortfolioError` - If date range is invalid or outside portfolio's date range
 
 <a id="wpm.pricing.service"></a>
 
@@ -2156,6 +2376,7 @@ Service that orchestrates price retrieval with caching and rate limiting.
 
 ```python
 def __init__(cache_file: Optional[Path] = None,
+             historical_cache_file: Optional[Path] = None,
              rate_limit_per_minute: int = 60,
              currency_service: CurrencyService = None)
 ```
@@ -2165,6 +2386,7 @@ Initialize price service.
 **Arguments**:
 
 - `cache_file` - Path to cache file (default: Config.CACHE_FILE)
+- `historical_cache_file` - Path to historical cache file (default: Config.HISTORICAL_CACHE_FILE)
 - `rate_limit_per_minute` - Rate limit for API calls per minute
 - `currency_service` - CurrencyService instance (default: creates new instance)
 
@@ -2218,6 +2440,71 @@ Batch price retrieval with rate limiting and batch API calls.
 **Raises**:
 
 - `ValueError` - If no price data can be obtained for a ticker (no API response and no cache)
+
+<a id="wpm.pricing.service.PriceService.get_historical_price"></a>
+
+#### get\_historical\_price
+
+```python
+def get_historical_price(ticker: str,
+                         asset_type: str,
+                         target_date: date,
+                         in_native_currency: bool = False) -> float
+```
+
+Get historical price for an asset on a specific date.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type ("Stock", "ETF", or "Crypto")
+- `target_date` - Target date (inclusive). Returns most recent price available up to this date
+- `in_native_currency` - If True, return price in native currency; if False, return USD (default)
+  
+
+**Returns**:
+
+  Historical price in USD (or native currency if in_native_currency=True)
+  
+
+**Raises**:
+
+- `ValueError` - If price cannot be retrieved
+
+<a id="wpm.pricing.service.PriceService.get_historical_prices"></a>
+
+#### get\_historical\_prices
+
+```python
+def get_historical_prices(
+        tickers: List[str],
+        asset_type: str,
+        start_date: date,
+        end_date: date,
+        in_native_currency: bool = False) -> Dict[str, float]
+```
+
+Get historical prices for multiple assets over a date range.
+
+Returns prices for the end_date (most recent available up to end_date).
+
+**Arguments**:
+
+- `tickers` - List of asset ticker symbols
+- `asset_type` - Asset type for all tickers
+- `start_date` - Start date (inclusive)
+- `end_date` - End date (inclusive). Prices returned are for this date (most recent available)
+- `in_native_currency` - If True, return prices in native currency; if False, return USD (default)
+  
+
+**Returns**:
+
+  Dictionary mapping ticker to price on end_date (in USD or native currency)
+  
+
+**Raises**:
+
+- `ValueError` - If no price data can be obtained for a ticker
 
 <a id="wpm.pricing.coingecko"></a>
 
@@ -2296,6 +2583,37 @@ Get current prices from CoinGecko for multiple tickers in a single batch request
 **Returns**:
 
   Dictionary mapping ticker to price. Only includes successfully retrieved prices.
+
+<a id="wpm.pricing.coingecko.CoinGeckoRetriever.get_historical_prices"></a>
+
+#### get\_historical\_prices
+
+```python
+def get_historical_prices(ticker: str, asset_type: str, start_date: date,
+                          end_date: date) -> pd.DataFrame
+```
+
+Get historical prices from CoinGecko over a date range.
+
+Note: CoinGecko doesn't support multiple tickers in the same API call with date ranges,
+so this method handles a single ticker.
+
+**Arguments**:
+
+- `ticker` - Crypto ticker symbol
+- `asset_type` - Asset type (should be "Crypto")
+- `start_date` - Start date (inclusive)
+- `end_date` - End date (inclusive)
+  
+
+**Returns**:
+
+  DataFrame with date index and price column (USD)
+  
+
+**Raises**:
+
+- `ValueError` - If prices cannot be retrieved
 
 <a id="wpm.pricing.yahoo"></a>
 
@@ -2381,6 +2699,34 @@ Outside trading hours: uses Close from batch download.
 **Returns**:
 
   Dictionary mapping ticker to price in native currency. Only includes successfully retrieved prices.
+
+<a id="wpm.pricing.yahoo.YahooFinanceRetriever.get_historical_prices"></a>
+
+#### get\_historical\_prices
+
+```python
+def get_historical_prices(ticker: str, asset_type: str, start_date: date,
+                          end_date: date) -> pd.DataFrame
+```
+
+Get historical prices from Yahoo Finance over a date range.
+
+**Arguments**:
+
+- `ticker` - Stock/ETF/Crypto ticker symbol
+- `asset_type` - Asset type (should be "Stock", "ETF", or "Crypto")
+- `start_date` - Start date (inclusive)
+- `end_date` - End date (inclusive)
+  
+
+**Returns**:
+
+  DataFrame with date index and price column (native currency, USD for crypto)
+  
+
+**Raises**:
+
+- `ValueError` - If prices cannot be retrieved
 
 <a id="wpm.pricing.rate_limiter"></a>
 
@@ -2612,6 +2958,134 @@ Get cache validity status.
 
 Market price data retrieval module with caching and rate limiting.
 
+<a id="wpm.pricing.historical_cache"></a>
+
+# wpm.pricing.historical\_cache
+
+Manages persistent Parquet-based historical price cache.
+
+<a id="wpm.pricing.historical_cache.HistoricalPriceCache"></a>
+
+## HistoricalPriceCache Objects
+
+```python
+class HistoricalPriceCache()
+```
+
+Manages persistent Parquet-based historical price cache.
+
+Stores daily prices for date ranges per asset. Historical cache entries
+are always valid (no expiration).
+
+<a id="wpm.pricing.historical_cache.HistoricalPriceCache.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(cache_file: Optional[Path] = None)
+```
+
+Initialize historical price cache.
+
+**Arguments**:
+
+- `cache_file` - Path to cache file (default: Config.HISTORICAL_CACHE_FILE)
+
+<a id="wpm.pricing.historical_cache.HistoricalPriceCache.get_cached_prices"></a>
+
+#### get\_cached\_prices
+
+```python
+def get_cached_prices(ticker: str, asset_type: str, start_date: date,
+                      end_date: date) -> Optional[pd.DataFrame]
+```
+
+Get cached prices for a date range.
+
+Returns DataFrame only if cache has complete coverage for the requested range.
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+- `start_date` - Start date (inclusive)
+- `end_date` - End date (inclusive)
+  
+
+**Returns**:
+
+  DataFrame with date index and price column if cache has full coverage,
+  None otherwise
+
+<a id="wpm.pricing.historical_cache.HistoricalPriceCache.get_cached_price"></a>
+
+#### get\_cached\_price
+
+```python
+def get_cached_price(ticker: str, asset_type: str,
+                     target_date: date) -> Optional[float]
+```
+
+Get cached price for a specific date (most recent available up to target_date).
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+- `target_date` - Target date (inclusive)
+  
+
+**Returns**:
+
+  Cached price if available, None otherwise
+
+<a id="wpm.pricing.historical_cache.HistoricalPriceCache.set_cached_prices"></a>
+
+#### set\_cached\_prices
+
+```python
+def set_cached_prices(ticker: str,
+                      asset_type: str,
+                      prices_df: pd.DataFrame,
+                      native_prices_df: Optional[pd.DataFrame] = None,
+                      native_currency: str = "USD") -> None
+```
+
+Store daily prices for a date range.
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+- `prices_df` - DataFrame with date index and price column (USD prices)
+- `native_prices_df` - Optional DataFrame with date index and native_price column
+- `native_currency` - Native currency code (default: "USD")
+
+<a id="wpm.pricing.historical_cache.HistoricalPriceCache.clear_asset"></a>
+
+#### clear\_asset
+
+```python
+def clear_asset(ticker: str, asset_type: str) -> None
+```
+
+Clear all cached prices for a specific asset.
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+
+<a id="wpm.pricing.historical_cache.HistoricalPriceCache.clear_all"></a>
+
+#### clear\_all
+
+```python
+def clear_all() -> None
+```
+
+Clear entire historical cache.
+
 <a id="wpm.pricing.base"></a>
 
 # wpm.pricing.base
@@ -2675,4 +3149,33 @@ Get current prices for multiple assets in a single batch request.
 
   Dictionary mapping ticker to price. Only includes successfully retrieved prices.
   Tickers that fail are omitted from the result (caller should handle fallback).
+
+<a id="wpm.pricing.base.PriceRetriever.get_historical_prices"></a>
+
+#### get\_historical\_prices
+
+```python
+@abstractmethod
+def get_historical_prices(ticker: str, asset_type: str, start_date: date,
+                          end_date: date) -> pd.DataFrame
+```
+
+Get historical prices for an asset over a date range.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type ("Stock", "ETF", or "Crypto")
+- `start_date` - Start date (inclusive)
+- `end_date` - End date (inclusive)
+  
+
+**Returns**:
+
+  DataFrame with date index and price column (native currency)
+  
+
+**Raises**:
+
+- `ValueError` - If prices cannot be retrieved
 

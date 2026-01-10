@@ -103,6 +103,13 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
   - NOT cached (prices change frequently, though realized P/L doesn't depend on current prices)
 - `get_total_quantity(ticker)`: Get total quantity for a specific asset
 - `add_sub_portfolio(portfolio)`: Add a sub-portfolio (for composite portfolios)
+- `clone(start_date=None, end_date=None)`: Create a deep copy of the portfolio
+  - `start_date` (date, optional): Start date for filtering trades/sub-portfolios (inclusive). Must be within portfolio's date range if provided
+  - `end_date` (date, optional): End date for filtering trades/sub-portfolios (inclusive). Must be within portfolio's date range if provided
+  - Returns new Portfolio instance with cloned data
+  - For SimplePortfolio: Deep clones all trades (creates new Trade objects). If date range provided, filters trades to those within the range (inclusive)
+  - For CompositePortfolio: Recursively clones all sub-portfolios. If date range provided, passes it to sub-portfolio clones
+  - Date range validation: For historical portfolios, the provided date range must be wholly contained within the portfolio's date range (inclusive)
 
 **Key Functions:**
 - `fetch_price_map(portfolio, price_service, target_date=None)`: Fetch prices for all assets in portfolio
@@ -112,6 +119,13 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
   - For non-historical portfolios, uses current prices
   - Returns dictionary mapping Asset to Optional[float] price (None if price unavailable)
   - Handles exceptions gracefully by setting None for assets that fail to fetch
+- `generate_historical_snapshots(portfolio, start_date, end_date)`: Generate historical snapshots of a portfolio for each date in range
+  - `portfolio` (Portfolio, required): Portfolio to generate snapshots for
+  - `start_date` (date, required): Start date for snapshot generation (inclusive)
+  - `end_date` (date, required): End date for snapshot generation (inclusive)
+  - Returns list of Portfolio clones, one for each date in the range
+  - Each snapshot represents the portfolio state as of that date (cloned with `end_date=current_date`)
+  - Date range must be within portfolio's date range (if portfolio has a date range)
 
 **Artefacts:**
 - Portfolio class implementations
