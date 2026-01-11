@@ -138,9 +138,17 @@ class HistoricalPriceCache:
         required_dates = set(date_range.date)
 
         # For historical prices, we don't need every single day (markets are closed on weekends/holidays)
-        # Instead, check if we have at least one price in the range and can get the most recent
-        # We'll consider it sufficient if we have prices covering the range (not necessarily every day)
+        # However, we must ensure the cache extends to or beyond the requested end_date
+        # Forward fill should only fill gaps within the cached range, not extend beyond it
         if not cached_dates:
+            return None
+        
+        # Check if cache extends to or beyond the requested end_date
+        # If not, return None to trigger a fetch for the missing dates
+        all_cached_dates = sorted([d for d in matches["date"]])
+        max_cached_date = max(all_cached_dates) if all_cached_dates else None
+        if max_cached_date is None or max_cached_date < end_date:
+            # Cache doesn't extend to end_date, need to fetch missing dates
             return None
 
         # Create DataFrame with date index and price column

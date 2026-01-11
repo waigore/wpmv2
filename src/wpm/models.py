@@ -433,6 +433,7 @@ class PortfolioHistoryPoint:
     date: date
     total_market_value: float
     asset_positions: Dict[str, float]  # Maps ticker to position value (quantity * price)
+    prices: Dict[str, float]  # Maps ticker to price on that date
 
     def __post_init__(self):
         """Validate history point fields after initialization."""
@@ -445,6 +446,9 @@ class PortfolioHistoryPoint:
         if not isinstance(self.asset_positions, dict):
             raise ValidationError("Asset positions must be a dictionary")
 
+        if not isinstance(self.prices, dict):
+            raise ValidationError("Prices must be a dictionary")
+
         for ticker, position_value in self.asset_positions.items():
             if not isinstance(ticker, str):
                 raise ValidationError("Asset positions keys must be strings (tickers)")
@@ -453,3 +457,10 @@ class PortfolioHistoryPoint:
                     f"Asset position value for {ticker} must be a non-negative number"
                 )
 
+        for ticker, price in self.prices.items():
+            if not isinstance(ticker, str):
+                raise ValidationError("Prices keys must be strings (tickers)")
+            if not isinstance(price, (int, float)) or price < 0:
+                raise ValidationError(
+                    f"Price for {ticker} must be a non-negative number"
+                )

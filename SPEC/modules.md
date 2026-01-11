@@ -109,10 +109,12 @@
     - `date`: The date this point represents
     - `total_market_value`: Total market value of the portfolio on that date
     - `asset_positions`: Dictionary mapping ticker symbols to position values (quantity * historical price)
+    - `prices`: Dictionary mapping ticker symbols to historical prices on that date
   - Fetches all prices upfront in batch using `price_service.get_historical_prices()` once per asset type for the entire date range
   - Filters trades directly instead of cloning portfolio snapshots for better performance
   - For assets that exist in the final portfolio but weren't purchased by a given date, position value is 0.0
   - For composite portfolios, asset positions from sub-portfolios with the same ticker are automatically merged (summed)
+  - Prices dict includes prices for all tickers in asset_positions (same keys)
   - Raises PortfolioError if date range is invalid or outside portfolio's date range
   - Raises ValueError if historical prices cannot be retrieved for any required assets (per user requirement)
   - Daily frequency means one history point per calendar day, including weekends (markets may be closed but portfolio state is valid)
@@ -502,12 +504,27 @@
   - `up_to_date` (Optional[date]): If provided and portfolio is historical, shows portfolio state up to this date with weekly performance summary
 - `cmd_show_portfolio(composite, name, price_service, up_to_date=None)`: Handle 'show portfolio <name>' command
   - `up_to_date` (Optional[date]): If provided and portfolio is historical, shows portfolio state up to this date with weekly performance summary
+- `cmd_show_asset(composite, ticker, price_service, from_date=None)`: Handle 'show asset <ticker>' command
+  - `ticker` (str, required): Asset ticker symbol to show
+  - `price_service` (PriceService, required): Price service for retrieving prices
+  - `from_date` (Optional[date]): Optional start date for historical portfolios. If provided and portfolio is historical, shows historical positions from this date onwards
+  - For current portfolios: Shows current position with summary
+  - For historical portfolios: Shows daily positions over date range (past 30 days if from_date not provided, or from from_date to portfolio.end_date)
 - `cmd_list_portfolios(composite)`: Handle 'list portfolios' command
 - `cmd_breakdown(composite, args)`: Handle 'breakdown' command
 - `cmd_show_lots(composite, ticker, price_service)`: Handle 'lots <ticker>' command
 - `parse_up_to_date(args)`: Parse --up-to date argument from command args
   - Returns tuple of (up_to_date or None, remaining args)
   - Parses `--up-to YYYY-MM-DD` format
+- `parse_from_date(args)`: Parse --from date argument from command args
+  - Returns tuple of (from_date or None, remaining args)
+  - Parses `--from YYYY-MM-DD` format
+- `format_historical_asset_line(history_point, ticker, asset_type)`: Format a simplified line for historical asset positions
+  - `history_point` (PortfolioHistoryPoint, required): History point containing position and price data
+  - `ticker` (str, required): Asset ticker symbol
+  - `asset_type` (str, required): Asset type (e.g., "Stock", "ETF", "Crypto")
+  - Returns formatted string: `YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price`
+  - Uses data directly from PortfolioHistoryPoint (date, asset_positions, prices)
 
 **CLI Commands:**
 - `import [--end-date YYYY-MM-DD]`: Import CSV files and create composite portfolio

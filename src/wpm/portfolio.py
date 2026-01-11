@@ -1139,6 +1139,7 @@ def get_historical_performance(
 
         # Calculate asset positions: quantity * price for each asset
         total_market_value = 0.0
+        asset_prices: Dict[str, float] = {}
 
         for asset in all_assets:
             ticker = asset_to_ticker[asset]
@@ -1151,10 +1152,14 @@ def get_historical_performance(
                     continue
                 position_value = float(position.quantity) * price
                 asset_positions[ticker] = position_value
+                asset_prices[ticker] = price
                 total_market_value += position_value
             else:
                 # Asset not yet purchased or fully sold - position already set to 0.0
                 asset_positions[ticker] = 0.0
+                # Include price even if position is 0 (for consistency, use price from prices_by_ticker if available)
+                if ticker in prices_by_ticker:
+                    asset_prices[ticker] = prices_by_ticker[ticker]
 
         # For composite portfolios, calculate_fifo_cost_basis correctly merges positions
         # for the same asset across all trades (from all sub-portfolios), since it groups
@@ -1166,6 +1171,7 @@ def get_historical_performance(
             date=current_date,
             total_market_value=total_market_value,
             asset_positions=asset_positions.copy(),
+            prices=asset_prices.copy(),
         )
         history_points.append(history_point)
 

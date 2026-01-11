@@ -173,6 +173,54 @@ wpm>
 - If composite portfolio has no assets, display: "No assets found in composite portfolio."
 - If price retrieval fails for an asset type, logs a warning and displays "N/A" for the value (price is not shown when value is N/A) for all assets of that type, but continues processing other asset types
 
+#### `show asset <ticker> [--from YYYY-MM-DD]`
+
+**Description:** Shows the current or historical asset position in the imported portfolio for the specified ticker.
+
+**Arguments:**
+- `<ticker>`: Asset ticker symbol (required)
+- `[--from YYYY-MM-DD]`: Optional start date for historical portfolios. Only valid for historical portfolios (imported with --end-date)
+
+**Output Format:**
+
+**For current portfolios:**
+- Same format as `show all`, but filtered to include only the specified asset
+- Format: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | Current Value = Market Value @ Price`
+- After the position line, display a summary section with:
+  - Total Market Value: `<formatted_value>` (or "N/A" if no price available)
+  - Total Cost Basis: `<formatted_value>` (always displayed)
+  - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no price available)
+- Example:
+  ```
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00
+
+  Total Market Value: $16,000.00
+  Total Cost Basis: $15,000.00
+  Total Unrealized P/L: +$1,000.00
+  ```
+
+**For historical portfolios:**
+- Without `--from`: Shows historical asset positions for the past 30 days (from portfolio.end_date backwards 30 days)
+- With `--from`: Shows historical asset positions from the specified date to portfolio.end_date
+- One line per day, showing the position on that date
+- Format: `YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price`
+- Only shows days where the asset has a position (position_value > 0)
+- Example:
+  ```
+  2024-01-01: AAPL (Stock) = $15,000.00 @ $150.00
+  2024-01-02: AAPL (Stock) = $15,200.00 @ $152.00
+  2024-01-03: AAPL (Stock) = $15,400.00 @ $154.00
+  ...
+  ```
+- No summary section for historical portfolios (just daily position lines)
+
+**Error Handling:**
+- If ticker is missing: "Error: Ticker required. Usage: show asset <ticker> [--from YYYY-MM-DD]"
+- If asset not found: "Asset '<ticker>' not found in portfolio."
+- If `--from` is used with non-historical portfolio: "Error: --from can only be used with historical portfolios."
+- If `--from` date is invalid or outside portfolio date range: Display appropriate error message
+- If price is unavailable for a date (historical): Display "N/A" instead of price (e.g., `2024-01-01: AAPL (Stock) = $15,000.00 @ N/A`)
+
 #### `lots <ticker>`
 
 **Description:** Displays all lots (FIFO purchase records) for the specified asset ticker across all portfolios.

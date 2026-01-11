@@ -216,6 +216,33 @@ def parse_up_to_date(args: List[str]) -> tuple[Optional[date], List[str]]:
     return up_to_date, remaining_args
 
 
+def parse_from_date(args: List[str]) -> tuple[Optional[date], List[str]]:
+    """Parse --from date argument from command args.
+
+    Args:
+        args: Command arguments list
+
+    Returns:
+        Tuple of (from_date or None, remaining args without --from flag and date)
+    """
+    from_date = None
+    remaining_args = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--from" and i + 1 < len(args):
+            try:
+                from_date = normalize_date(args[i + 1])
+                i += 2  # Skip both --from and the date
+            except ValueError:
+                # Invalid date format, keep the --from flag in remaining args
+                remaining_args.append(args[i])
+                i += 1
+        else:
+            remaining_args.append(args[i])
+            i += 1
+    return from_date, remaining_args
+
+
 def _display_weekly_summary(history_points: List[PortfolioHistoryPoint]) -> None:
     """Display weekly performance summary from history points.
 
@@ -310,6 +337,31 @@ def format_position_line(
         f"{ticker} ({asset_type}): {quantity} @ {avg_cost} = {cost_basis} | "
         f"{value_label} = N/A"
     )
+
+
+def format_historical_asset_line(
+    history_point: PortfolioHistoryPoint, ticker: str, asset_type: str
+) -> str:
+    """Format a simplified line for historical asset positions.
+
+    Args:
+        history_point: History point containing position and price data
+        ticker: Asset ticker symbol
+        asset_type: Asset type (e.g., "Stock", "ETF", "Crypto")
+
+    Returns:
+        Formatted string: YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price
+    """
+    date_str = history_point.date.strftime("%Y-%m-%d")
+    position_value = history_point.asset_positions.get(ticker, 0.0)
+    position_value_str = format_currency(position_value)
+    price = history_point.prices.get(ticker)
+
+    if price is not None:
+        price_str = format_currency(price)
+        return f"{date_str}: {ticker} ({asset_type}) = {position_value_str} @ {price_str}"
+
+    return f"{date_str}: {ticker} ({asset_type}) = {position_value_str} @ N/A"
 
 
 def cmd_list_portfolios(composite: CompositePortfolio) -> None:
@@ -467,6 +519,105 @@ def cmd_show_all(
     print(f"Total Cost Basis: {format_currency(total_cost_basis)}")
     if has_prices:
         print(f"Total Unrealized P/L: {format_unrealized_pnl(total_unrealized_pnl)}")
+    else:
+        print("Total Unrealized P/L: N/A")
+
+
+def cmd_show_asset(
+    composite: CompositePortfolio,
+    ticker: str,
+    price_service: PriceService,
+    from_date: Optional[date] = None,
+) -> None:
+    """Handle 'show asset <ticker>' command.
+
+    Args:
+        composite: Composite portfolio
+        ticker: Asset ticker symbol to show
+        price_service: Price service for retrieving prices
+        from_date: Optional start date for historical portfolios
+    """
+    # Get asset from current portfolio to validate it exists and get asset_type
+    positions = composite.get_positions(tickers=[ticker])
+
+    if not positions:
+        print(f"Asset '{ticker}' not found in portfolio.")
+        return
+
+    # Get the asset object (should only be one)
+    asset = next(iter(positions.keys()))
+    asset_type = asset.asset_type
+
+    # Handle historical portfolios
+    if composite.is_historical:
+        # Validate portfolio has end_date
+        if composite.end_date is None:
+            print("Error: Portfolio has no end date, cannot calculate historical performance.")
+            return
+        # Validate --from argument
+        if from_date is not None:
+            if composite.end_date is None:
+                print("Error: Portfolio has no end date, cannot calculate historical performance.")
+                return
+
+            if from_date > composite.end_date:
+                print(f"Error: --from date ({from_date}) is after portfolio end date ({composite.end_date}).")
+                return
+
+            if composite.start_date is not None and from_date < composite.start_date:
+                print(f"Error: --from date ({from_date}) is before portfolio start date ({composite.start_date}).")
+                return
+
+            start_date = from_date
+        else:
+            # Default to past 30 days
+            if composite.end_date is None:
+                print("Error: Portfolio has no end date, cannot calculate historical performance.")
+                return
+
+            start_date = composite.end_date - timedelta(days=30)
+            if composite.start_date is not None and start_date < composite.start_date:
+                start_date = composite.start_date
+
+        end_date = composite.end_date
+
+        try:
+            history_points = get_historical_performance(
+                composite, price_service, start_date, end_date
+            )
+        except Exception as e:
+            print(f"Error calculating historical performance: {e}")
+            logger.error(f"Error calculating historical performance: {e}", exc_info=True)
+            return
+
+        # Filter and display history points for this ticker
+        for history_point in history_points:
+            position_value = history_point.asset_positions.get(ticker, 0.0)
+            # Skip days where asset has no position
+            if position_value > 0:
+                print(format_historical_asset_line(history_point, ticker, asset_type))
+        return
+
+    # Handle current portfolios
+    position = positions[asset]
+
+    # Fetch price using helper function
+    price_map = fetch_price_map(composite, price_service)
+    price = price_map.get(asset)
+
+    # Display position line
+    print(format_position_line(position, price, composite.is_historical, composite.end_date))
+
+    # Display summary
+    print()  # Blank line before summary
+    cost_basis = position.cost_basis
+    market_value = float(position.quantity) * price if price is not None else 0.0
+    unrealized_pnl = market_value - cost_basis if price is not None else 0.0
+
+    print(f"Total Market Value: {format_currency(market_value) if price is not None else 'N/A'}")
+    print(f"Total Cost Basis: {format_currency(cost_basis)}")
+    if price is not None:
+        print(f"Total Unrealized P/L: {format_unrealized_pnl(unrealized_pnl)}")
     else:
         print("Total Unrealized P/L: N/A")
 
@@ -757,8 +908,19 @@ def run_interactive_mode(
                         print("Unknown arguments: 'show portfolio <name>' only accepts --up-to YYYY-MM-DD")
                     else:
                         cmd_show_portfolio(composite, portfolio_name, price_service, up_to_date)
+                elif len(args) >= 2 and args[0] == "asset":
+                    # Parse --from argument if present
+                    ticker = args[1]
+                    from_date, remaining_args = parse_from_date(args[2:])
+                    if remaining_args:
+                        print("Unknown arguments: 'show asset <ticker>' only accepts --from YYYY-MM-DD")
+                    else:
+                        if from_date is not None and not composite.is_historical:
+                            print("Error: --from can only be used with historical portfolios.")
+                        else:
+                            cmd_show_asset(composite, ticker, price_service, from_date)
                 else:
-                    print("Unknown command: 'show'. Usage: 'show portfolio <name> [--up-to YYYY-MM-DD]' or 'show all [--up-to YYYY-MM-DD]'")
+                    print("Unknown command: 'show'. Usage: 'show portfolio <name> [--up-to YYYY-MM-DD]', 'show all [--up-to YYYY-MM-DD]', or 'show asset <ticker> [--from YYYY-MM-DD]'")
             elif command == "breakdown":
                 cmd_breakdown(composite, args)
             elif command == "lots":
