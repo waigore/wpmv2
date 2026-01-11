@@ -1139,3 +1139,182 @@ def get_historical_performance(
 
     return history_points
 
+
+def get_historical_performance_v2(
+    portfolio: Portfolio,
+    price_service: "PriceService",
+    start_date: date,
+    end_date: date,
+) -> List[PortfolioHistoryPoint]:
+    """Get historical performance of a portfolio over a date range (v2 - optimized).
+
+    Returns a list of history points, one for each day from start_date to end_date
+    (inclusive). Each history point contains the total market value of the portfolio
+    and asset positions (quantity * historical price) for each asset on that date.
+
+    For assets that exist in the final portfolio but were purchased after the start date,
+    history points before the asset purchase will show a position of 0.0. For composite
+    portfolios, asset positions from sub-portfolios with the same ticker are merged.
+
+    This v2 version calculates historical performance without creating portfolio snapshots,
+    resulting in better performance by filtering trades directly and using calculate_fifo_cost_basis.
+
+    Args:
+        portfolio: Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+        price_service: Price service for retrieving historical prices
+        start_date: Start date for performance tracking (inclusive)
+        end_date: End date for performance tracking (inclusive)
+
+    Returns:
+        List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
+
+    Raises:
+        PortfolioError: If date range is invalid or outside portfolio's date range
+        ValueError: If historical prices cannot be retrieved for any required assets
+    """
+    logger.info(
+        f"Calculating historical performance (v2) for portfolio '{portfolio.name}' "
+        f"from {start_date} to {end_date}"
+    )
+
+    # Validate date range
+    if start_date > end_date:
+        raise PortfolioError(
+            f"start_date {start_date} is after end_date {end_date}"
+        )
+
+    # Get all assets that exist in the final portfolio state
+    # This ensures we track all assets even if they weren't purchased by start_date
+    final_positions = portfolio.get_positions()
+    all_assets = list(final_positions.keys())
+
+    # Note: We allow flexible date ranges:
+    # - start_date can be before portfolio_start (assets will show 0.0 positions before purchase)
+    # - end_date can be after portfolio_end (we can calculate performance for dates after trades,
+    #   showing current positions as of those dates)
+    # This allows users to analyze performance across any date range, even extending beyond
+    # the portfolio's actual trade date range
+
+    # Create a mapping of asset to ticker for quick lookup
+    asset_to_ticker = {asset: asset.ticker for asset in all_assets}
+
+    # Group assets by asset type for efficient batch price fetching
+    assets_by_type: Dict[str, List[Asset]] = {}
+    for asset in all_assets:
+        asset_type = asset.asset_type
+        if asset_type not in assets_by_type:
+            assets_by_type[asset_type] = []
+        assets_by_type[asset_type].append(asset)
+
+    # Get all trades once (works for both SimplePortfolio and CompositePortfolio)
+    all_trades = portfolio.get_all_trades()
+
+    # Generate history points for each date in range
+    history_points: List[PortfolioHistoryPoint] = []
+    current_date = start_date
+
+    while current_date <= end_date:
+        # Filter trades directly by date (instead of cloning portfolio)
+        # Only include trades up to and including current_date
+        filtered_trades = [t for t in all_trades if t.date <= current_date]
+
+        # Calculate positions from filtered trades using calculate_fifo_cost_basis
+        # This avoids creating portfolio snapshots
+        snapshot_positions = calculate_fifo_cost_basis(filtered_trades)
+
+        # Initialize asset positions dictionary with all assets from final portfolio
+        # This ensures all assets are present even if not purchased by current_date
+        asset_positions: Dict[str, float] = {
+            asset_to_ticker[asset]: 0.0 for asset in all_assets
+        }
+
+        # Fetch historical prices only for assets with positions on current date
+        # Group by asset type for batch processing
+        prices_by_ticker: Dict[str, float] = {}
+
+        for asset_type, asset_list in assets_by_type.items():
+            # Only fetch prices for assets that have positions on this date
+            assets_with_positions = [
+                asset for asset in asset_list
+                if asset in snapshot_positions and snapshot_positions[asset].quantity > 0
+            ]
+            tickers = [asset.ticker for asset in assets_with_positions]
+            
+            # Skip if no assets of this type have positions on this date
+            if not tickers:
+                continue
+                
+            try:
+                # Fetch historical prices for this date (use current_date for both start and end)
+                prices = price_service.get_historical_prices(
+                    tickers, asset_type, current_date, current_date
+                )
+                # get_historical_prices may return a partial dict if some tickers fail
+                # but will log warnings. We need all prices, so check for missing ones.
+                prices_by_ticker.update(prices)
+            except ValueError as e:
+                # get_historical_prices raises ValueError if all tickers fail
+                logger.error(
+                    f"Failed to retrieve historical prices for {asset_type} assets "
+                    f"on {current_date}: {e}"
+                )
+                raise ValueError(
+                    f"Historical prices unavailable for {asset_type} assets on {current_date}: {e}"
+                ) from e
+
+        # Check if all required prices were retrieved (only for assets with positions)
+        # get_historical_prices may return partial results if some tickers fail,
+        # but according to requirements, we need all prices or should raise error
+        missing_prices = []
+        for asset in all_assets:
+            # Only require prices for assets that have positions on this date
+            if asset in snapshot_positions and snapshot_positions[asset].quantity > 0:
+                ticker = asset_to_ticker[asset]
+                if ticker not in prices_by_ticker:
+                    missing_prices.append(ticker)
+
+        if missing_prices:
+            raise ValueError(
+                f"Historical prices unavailable for tickers on {current_date}: {', '.join(missing_prices)}"
+            )
+
+        # Calculate asset positions: quantity * price for each asset
+        total_market_value = 0.0
+
+        for asset in all_assets:
+            ticker = asset_to_ticker[asset]
+            position = snapshot_positions.get(asset)
+
+            if position is not None and position.quantity > 0:
+                # Asset has a position in the snapshot
+                price = prices_by_ticker[ticker]
+                position_value = float(position.quantity) * price
+                asset_positions[ticker] = position_value
+                total_market_value += position_value
+            else:
+                # Asset not yet purchased or fully sold - position already set to 0.0
+                asset_positions[ticker] = 0.0
+
+        # For composite portfolios, calculate_fifo_cost_basis correctly merges positions
+        # for the same asset across all trades (from all sub-portfolios), since it groups
+        # by Asset (ticker + asset_type). This is functionally equivalent to get_positions()
+        # on a cloned CompositePortfolio.
+
+        # Create history point
+        history_point = PortfolioHistoryPoint(
+            date=current_date,
+            total_market_value=total_market_value,
+            asset_positions=asset_positions.copy(),
+        )
+        history_points.append(history_point)
+
+        # Move to next day
+        current_date += timedelta(days=1)
+
+    logger.info(
+        f"Generated {len(history_points)} history points (v2) for portfolio '{portfolio.name}' "
+        f"from {start_date} to {end_date}"
+    )
+
+    return history_points
+

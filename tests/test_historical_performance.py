@@ -1,5 +1,6 @@
 """Tests for historical portfolio performance functionality."""
 
+import time
 import pytest
 from datetime import date, timedelta
 from decimal import Decimal
@@ -10,6 +11,7 @@ from wpm.portfolio import (
     CompositePortfolio,
     SimplePortfolio,
     get_historical_performance,
+    get_historical_performance_v2,
 )
 from wpm.pricing import PriceService
 
@@ -546,3 +548,406 @@ class TestGetHistoricalPerformanceCompositePortfolio:
         for i in range(5, 11):
             assert history_points[i].asset_positions["GOOG"] == 10.0 * 155.0
             assert history_points[i].asset_positions["AAPL"] == 5.0 * 185.0
+
+
+class TestGetHistoricalPerformanceV2FunctionalEquivalence:
+    """Tests to verify v2 produces same results as v1."""
+
+    def test_v2_simple_portfolio_basic(self):
+        """Test v2 produces same results as v1 for basic simple portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        mock_price_service = Mock(spec=PriceService)
+        mock_price_service.get_historical_prices.return_value = {"GOOG": 155.0}
+
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 17)
+
+        history_points_v1 = get_historical_performance(
+            portfolio, mock_price_service, start_date, end_date
+        )
+
+        # Reset mock for v2
+        mock_price_service.reset_mock()
+        mock_price_service.get_historical_prices.return_value = {"GOOG": 155.0}
+
+        history_points_v2 = get_historical_performance_v2(
+            portfolio, mock_price_service, start_date, end_date
+        )
+
+        # Compare results
+        assert len(history_points_v1) == len(history_points_v2)
+        for v1_point, v2_point in zip(history_points_v1, history_points_v2):
+            assert v1_point.date == v2_point.date
+            assert v1_point.total_market_value == v2_point.total_market_value
+            assert v1_point.asset_positions == v2_point.asset_positions
+
+    def test_v2_simple_portfolio_multiple_assets(self):
+        """Test v2 produces same results as v1 for multiple assets."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        trade1 = Trade(
+            date=date(2024, 1, 15),
+            asset=asset1,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        trade2 = Trade(
+            date=date(2024, 1, 20),
+            asset=asset2,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=180.0,
+            price_native=180.0,
+            quantity=5.0,
+        )
+        portfolio.add_trade(trade1)
+        portfolio.add_trade(trade2)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date):
+            prices = {}
+            if "GOOG" in tickers:
+                prices["GOOG"] = 155.0
+            if "AAPL" in tickers:
+                prices["AAPL"] = 185.0
+            return prices
+
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 22)
+
+        history_points_v1 = get_historical_performance(
+            portfolio, mock_price_service, start_date, end_date
+        )
+
+        # Reset mock for v2
+        mock_price_service.reset_mock()
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+
+        history_points_v2 = get_historical_performance_v2(
+            portfolio, mock_price_service, start_date, end_date
+        )
+
+        # Compare results
+        assert len(history_points_v1) == len(history_points_v2)
+        for v1_point, v2_point in zip(history_points_v1, history_points_v2):
+            assert v1_point.date == v2_point.date
+            assert abs(v1_point.total_market_value - v2_point.total_market_value) < 0.01
+            assert v1_point.asset_positions.keys() == v2_point.asset_positions.keys()
+            for ticker in v1_point.asset_positions:
+                assert abs(
+                    v1_point.asset_positions[ticker] - v2_point.asset_positions[ticker]
+                ) < 0.01
+
+    def test_v2_simple_portfolio_with_sells(self):
+        """Test v2 produces same results as v1 with sell trades."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="MSFT", asset_type="Stock")
+        buy_trade = Trade(
+            date=date(2024, 1, 10),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=300.0,
+            price_native=300.0,
+            quantity=10.0,
+        )
+        sell_trade = Trade(
+            date=date(2024, 1, 20),
+            asset=asset,
+            action="Sell",
+            broker="IBKR",
+            currency="USD",
+            price=320.0,
+            price_native=320.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(buy_trade)
+        portfolio.add_trade(sell_trade)
+
+        mock_price_service = Mock(spec=PriceService)
+        mock_price_service.get_historical_prices.return_value = {"MSFT": 310.0}
+
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 25)
+
+        history_points_v1 = get_historical_performance(
+            portfolio, mock_price_service, start_date, end_date
+        )
+
+        # Reset mock for v2
+        mock_price_service.reset_mock()
+        mock_price_service.get_historical_prices.return_value = {"MSFT": 310.0}
+
+        history_points_v2 = get_historical_performance_v2(
+            portfolio, mock_price_service, start_date, end_date
+        )
+
+        # Compare results
+        assert len(history_points_v1) == len(history_points_v2)
+        for v1_point, v2_point in zip(history_points_v1, history_points_v2):
+            assert v1_point.date == v2_point.date
+            assert abs(v1_point.total_market_value - v2_point.total_market_value) < 0.01
+            assert v1_point.asset_positions == v2_point.asset_positions
+
+    def test_v2_composite_portfolio_merging(self):
+        """Test v2 produces same results as v1 for composite portfolio with merging."""
+        portfolio1 = SimplePortfolio(name="P1")
+        asset1 = Asset(ticker="BTC-USD", asset_type="Crypto")
+        trade1 = Trade(
+            date=date(2024, 1, 15),
+            asset=asset1,
+            action="Buy",
+            broker="Coinbase",
+            currency="USD",
+            price=40000.0,
+            price_native=40000.0,
+            quantity=0.5,
+        )
+        portfolio1.add_trade(trade1)
+
+        portfolio2 = SimplePortfolio(name="P2")
+        asset2 = Asset(ticker="BTC-USD", asset_type="Crypto")
+        trade2 = Trade(
+            date=date(2024, 1, 15),
+            asset=asset2,
+            action="Buy",
+            broker="Binance",
+            currency="USD",
+            price=40000.0,
+            price_native=40000.0,
+            quantity=0.3,
+        )
+        portfolio2.add_trade(trade2)
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio1)
+        composite.add_sub_portfolio(portfolio2)
+
+        mock_price_service = Mock(spec=PriceService)
+        mock_price_service.get_historical_prices.return_value = {"BTC-USD": 45000.0}
+
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 17)
+
+        history_points_v1 = get_historical_performance(
+            composite, mock_price_service, start_date, end_date
+        )
+
+        # Reset mock for v2
+        mock_price_service.reset_mock()
+        mock_price_service.get_historical_prices.return_value = {"BTC-USD": 45000.0}
+
+        history_points_v2 = get_historical_performance_v2(
+            composite, mock_price_service, start_date, end_date
+        )
+
+        # Compare results
+        assert len(history_points_v1) == len(history_points_v2)
+        for v1_point, v2_point in zip(history_points_v1, history_points_v2):
+            assert v1_point.date == v2_point.date
+            assert abs(v1_point.total_market_value - v2_point.total_market_value) < 0.01
+            assert v1_point.asset_positions.keys() == v2_point.asset_positions.keys()
+            for ticker in v1_point.asset_positions:
+                assert abs(
+                    v1_point.asset_positions[ticker] - v2_point.asset_positions[ticker]
+                ) < 0.01
+
+
+class TestGetHistoricalPerformanceV2Performance:
+    """Performance benchmarks comparing v1 vs v2."""
+
+    def test_performance_simple_portfolio_small(self):
+        """Benchmark v1 vs v2 with small simple portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        for i in range(10):
+            trade = Trade(
+                date=date(2024, 1, 15) + timedelta(days=i),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0 + i,
+                price_native=150.0 + i,
+                quantity=10.0,
+            )
+            portfolio.add_trade(trade)
+
+        mock_price_service = Mock(spec=PriceService)
+        mock_price_service.get_historical_prices.return_value = {"GOOG": 155.0}
+
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 31)
+
+        # Time v1
+        start_v1 = time.perf_counter()
+        history_points_v1 = get_historical_performance(
+            portfolio, mock_price_service, start_date, end_date
+        )
+        time_v1 = time.perf_counter() - start_v1
+
+        # Reset mock for v2
+        mock_price_service.reset_mock()
+        mock_price_service.get_historical_prices.return_value = {"GOOG": 155.0}
+
+        # Time v2
+        start_v2 = time.perf_counter()
+        history_points_v2 = get_historical_performance_v2(
+            portfolio, mock_price_service, start_date, end_date
+        )
+        time_v2 = time.perf_counter() - start_v2
+
+        # Verify results are the same
+        assert len(history_points_v1) == len(history_points_v2)
+        for v1_point, v2_point in zip(history_points_v1, history_points_v2):
+            assert v1_point.date == v2_point.date
+            assert abs(v1_point.total_market_value - v2_point.total_market_value) < 0.01
+
+        # Log performance comparison
+        print(
+            f"\nSimple Portfolio (small): v1={time_v1:.4f}s, v2={time_v2:.4f}s, "
+            f"speedup={time_v1/time_v2:.2f}x"
+        )
+
+        # v2 should be faster (or at least not significantly slower)
+        # Note: We don't assert on speedup since performance can vary, but we log it
+
+    def test_performance_simple_portfolio_large_date_range(self):
+        """Benchmark v1 vs v2 with large date range."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        asset3 = Asset(ticker="MSFT", asset_type="Stock")
+
+        for i in range(20):
+            for asset in [asset1, asset2, asset3]:
+                trade = Trade(
+                    date=date(2024, 1, 1) + timedelta(days=i),
+                    asset=asset,
+                    action="Buy",
+                    broker="IBKR",
+                    currency="USD",
+                    price=100.0 + i,
+                    price_native=100.0 + i,
+                    quantity=10.0,
+                )
+                portfolio.add_trade(trade)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date):
+            return {ticker: 150.0 for ticker in tickers}
+
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+
+        start_date = date(2024, 1, 1)
+        end_date = date(2024, 12, 31)  # Large date range
+
+        # Time v1
+        start_v1 = time.perf_counter()
+        history_points_v1 = get_historical_performance(
+            portfolio, mock_price_service, start_date, end_date
+        )
+        time_v1 = time.perf_counter() - start_v1
+
+        # Reset mock for v2
+        mock_price_service.reset_mock()
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+
+        # Time v2
+        start_v2 = time.perf_counter()
+        history_points_v2 = get_historical_performance_v2(
+            portfolio, mock_price_service, start_date, end_date
+        )
+        time_v2 = time.perf_counter() - start_v2
+
+        # Verify results are the same
+        assert len(history_points_v1) == len(history_points_v2)
+
+        # Log performance comparison
+        print(
+            f"\nSimple Portfolio (large date range): v1={time_v1:.4f}s, v2={time_v2:.4f}s, "
+            f"speedup={time_v1/time_v2:.2f}x"
+        )
+
+    def test_performance_composite_portfolio(self):
+        """Benchmark v1 vs v2 with composite portfolio."""
+        # Create multiple sub-portfolios
+        composite = CompositePortfolio(name="Composite")
+        for p_idx in range(5):
+            portfolio = SimplePortfolio(name=f"P{p_idx}")
+            asset = Asset(ticker=f"ASSET{p_idx}", asset_type="Stock")
+            for i in range(10):
+                trade = Trade(
+                    date=date(2024, 1, 1) + timedelta(days=i * 2),
+                    asset=asset,
+                    action="Buy",
+                    broker="IBKR",
+                    currency="USD",
+                    price=100.0 + i,
+                    price_native=100.0 + i,
+                    quantity=10.0,
+                )
+                portfolio.add_trade(trade)
+            composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date):
+            return {ticker: 150.0 for ticker in tickers}
+
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+
+        start_date = date(2024, 1, 1)
+        end_date = date(2024, 1, 31)
+
+        # Time v1
+        start_v1 = time.perf_counter()
+        history_points_v1 = get_historical_performance(
+            composite, mock_price_service, start_date, end_date
+        )
+        time_v1 = time.perf_counter() - start_v1
+
+        # Reset mock for v2
+        mock_price_service.reset_mock()
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+
+        # Time v2
+        start_v2 = time.perf_counter()
+        history_points_v2 = get_historical_performance_v2(
+            composite, mock_price_service, start_date, end_date
+        )
+        time_v2 = time.perf_counter() - start_v2
+
+        # Verify results are the same
+        assert len(history_points_v1) == len(history_points_v2)
+
+        # Log performance comparison
+        print(
+            f"\nComposite Portfolio: v1={time_v1:.4f}s, v2={time_v2:.4f}s, "
+            f"speedup={time_v1/time_v2:.2f}x"
+        )

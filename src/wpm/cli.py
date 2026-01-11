@@ -32,7 +32,7 @@ from wpm.models import (
 from wpm.portfolio import (
     CompositePortfolio,
     fetch_price_map,
-    get_historical_performance,
+    get_historical_performance_v2,
     SimplePortfolio,
 )
 from wpm.pricing import PriceService
@@ -363,7 +363,7 @@ def cmd_show_portfolio(
 
         # Show weekly performance summary
         try:
-            history_points = get_historical_performance(
+            history_points = get_historical_performance_v2(
                 portfolio, price_service, portfolio.start_date, up_to_date
             )
             _display_weekly_summary(history_points)
@@ -429,7 +429,7 @@ def cmd_show_all(
 
         # Show weekly performance summary
         try:
-            history_points = get_historical_performance(
+            history_points = get_historical_performance_v2(
                 composite, price_service, composite.start_date, up_to_date
             )
             _display_weekly_summary(history_points)

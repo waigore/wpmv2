@@ -137,6 +137,7 @@
   * [fetch\_price\_map](#wpm.portfolio.fetch_price_map)
   * [generate\_historical\_snapshots](#wpm.portfolio.generate_historical_snapshots)
   * [get\_historical\_performance](#wpm.portfolio.get_historical_performance)
+  * [get\_historical\_performance\_v2](#wpm.portfolio.get_historical_performance_v2)
 * [wpm.pricing.service](#wpm.pricing.service)
   * [PriceService](#wpm.pricing.service.PriceService)
     * [\_\_init\_\_](#wpm.pricing.service.PriceService.__init__)
@@ -2429,6 +2430,47 @@ and asset positions (quantity * historical price) for each asset on that date.
 For assets that exist in the final portfolio but were purchased after the start date,
 history points before the asset purchase will show a position of 0.0. For composite
 portfolios, asset positions from sub-portfolios with the same ticker are merged.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+- `price_service` - Price service for retrieving historical prices
+- `start_date` - Start date for performance tracking (inclusive)
+- `end_date` - End date for performance tracking (inclusive)
+  
+
+**Returns**:
+
+  List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
+  
+
+**Raises**:
+
+- `PortfolioError` - If date range is invalid or outside portfolio's date range
+- `ValueError` - If historical prices cannot be retrieved for any required assets
+
+<a id="wpm.portfolio.get_historical_performance_v2"></a>
+
+#### get\_historical\_performance\_v2
+
+```python
+def get_historical_performance_v2(
+        portfolio: Portfolio, price_service: "PriceService", start_date: date,
+        end_date: date) -> List[PortfolioHistoryPoint]
+```
+
+Get historical performance of a portfolio over a date range (v2 - optimized).
+
+Returns a list of history points, one for each day from start_date to end_date
+(inclusive). Each history point contains the total market value of the portfolio
+and asset positions (quantity * historical price) for each asset on that date.
+
+For assets that exist in the final portfolio but were purchased after the start date,
+history points before the asset purchase will show a position of 0.0. For composite
+portfolios, asset positions from sub-portfolios with the same ticker are merged.
+
+This v2 version calculates historical performance without creating portfolio snapshots,
+resulting in better performance by filtering trades directly and using calculate_fifo_cost_basis.
 
 **Arguments**:
 
