@@ -55,6 +55,7 @@
     * [get\_position](#wpm.models.Portfolio.get_position)
   * [PortfolioHistoryPoint](#wpm.models.PortfolioHistoryPoint)
     * [asset\_positions](#wpm.models.PortfolioHistoryPoint.asset_positions)
+    * [prices](#wpm.models.PortfolioHistoryPoint.prices)
     * [\_\_post\_init\_\_](#wpm.models.PortfolioHistoryPoint.__post_init__)
 * [wpm.cost\_basis](#wpm.cost_basis)
   * [calculate\_lots\_from\_trades](#wpm.cost_basis.calculate_lots_from_trades)
@@ -66,10 +67,13 @@
   * [format\_unrealized\_pnl](#wpm.cli.format_unrealized_pnl)
   * [format\_quantity](#wpm.cli.format_quantity)
   * [parse\_up\_to\_date](#wpm.cli.parse_up_to_date)
+  * [parse\_from\_date](#wpm.cli.parse_from_date)
   * [format\_position\_line](#wpm.cli.format_position_line)
+  * [format\_historical\_asset\_line](#wpm.cli.format_historical_asset_line)
   * [cmd\_list\_portfolios](#wpm.cli.cmd_list_portfolios)
   * [cmd\_show\_portfolio](#wpm.cli.cmd_show_portfolio)
   * [cmd\_show\_all](#wpm.cli.cmd_show_all)
+  * [cmd\_show\_asset](#wpm.cli.cmd_show_asset)
   * [format\_breakdown\_asset\_type](#wpm.cli.format_breakdown_asset_type)
   * [format\_breakdown\_ticker](#wpm.cli.format_breakdown_ticker)
   * [format\_breakdown\_purchase\_period](#wpm.cli.format_breakdown_purchase_period)
@@ -968,6 +972,12 @@ Represents a portfolio state at a specific point in time.
 
 Maps ticker to position value (quantity * price)
 
+<a id="wpm.models.PortfolioHistoryPoint.prices"></a>
+
+#### prices
+
+Maps ticker to price on that date
+
 <a id="wpm.models.PortfolioHistoryPoint.__post_init__"></a>
 
 #### \_\_post\_init\_\_
@@ -1151,6 +1161,25 @@ Parse --up-to date argument from command args.
 
   Tuple of (up_to_date or None, remaining args without --up-to flag and date)
 
+<a id="wpm.cli.parse_from_date"></a>
+
+#### parse\_from\_date
+
+```python
+def parse_from_date(args: List[str]) -> tuple[Optional[date], List[str]]
+```
+
+Parse --from date argument from command args.
+
+**Arguments**:
+
+- `args` - Command arguments list
+  
+
+**Returns**:
+
+  Tuple of (from_date or None, remaining args without --from flag and date)
+
 <a id="wpm.cli.format_position_line"></a>
 
 #### format\_position\_line
@@ -1175,6 +1204,28 @@ Format a position line for display.
 **Returns**:
 
   Formatted position line
+
+<a id="wpm.cli.format_historical_asset_line"></a>
+
+#### format\_historical\_asset\_line
+
+```python
+def format_historical_asset_line(history_point: PortfolioHistoryPoint,
+                                 ticker: str, asset_type: str) -> str
+```
+
+Format a simplified line for historical asset positions.
+
+**Arguments**:
+
+- `history_point` - History point containing position and price data
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type (e.g., "Stock", "ETF", "Crypto")
+  
+
+**Returns**:
+
+  Formatted string: YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price
 
 <a id="wpm.cli.cmd_list_portfolios"></a>
 
@@ -1227,6 +1278,26 @@ Handle 'show all' command.
 - `composite` - Composite portfolio
 - `price_service` - Price service for retrieving current prices
 - `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
+
+<a id="wpm.cli.cmd_show_asset"></a>
+
+#### cmd\_show\_asset
+
+```python
+def cmd_show_asset(composite: CompositePortfolio,
+                   ticker: str,
+                   price_service: PriceService,
+                   from_date: Optional[date] = None) -> None
+```
+
+Handle 'show asset <ticker>' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio
+- `ticker` - Asset ticker symbol to show
+- `price_service` - Price service for retrieving prices
+- `from_date` - Optional start date for historical portfolios
 
 <a id="wpm.cli.format_breakdown_asset_type"></a>
 
