@@ -1050,7 +1050,7 @@ def get_historical_performance(
     # Fetch all prices upfront for the entire date range (batch fetch by asset type)
     # Structure: Dict[asset_type, Dict[ticker, Dict[date, price]]]
     all_prices_by_type: Dict[str, Dict[str, Dict[date, float]]] = {}
-    
+
     for asset_type, asset_list in assets_by_type.items():
         tickers = [asset.ticker for asset in asset_list]
         if not tickers:
@@ -1093,28 +1093,26 @@ def get_historical_performance(
         # Look up prices from pre-fetched data
         prices_by_ticker: Dict[str, float] = {}
 
-        for asset_type, asset_list in assets_by_type.items():
-            # Only get prices for assets that have positions on this date
-            assets_with_positions = [
-                asset for asset in asset_list
-                if asset in snapshot_positions and snapshot_positions[asset].quantity > 0
-            ]
-            tickers = [asset.ticker for asset in assets_with_positions]
-            
-            # Skip if no assets of this type have positions on this date
-            if not tickers:
-                continue
+        # Look up prices for all assets with positions on current_date
+        # Iterate through assets with positions directly to ensure we get prices for all of them
+        for asset in all_assets:
+            if asset in snapshot_positions and snapshot_positions[asset].quantity > 0:
+                asset_type = asset.asset_type
+                ticker = asset_to_ticker[asset]
+                
+                # Skip if we already have a price for this ticker (in case of duplicates)
+                if ticker in prices_by_ticker:
+                    continue
+                
+                # Get prices for this asset type from pre-fetched data
+                if asset_type not in all_prices_by_type:
+                    continue
 
-            # Get prices for this asset type from pre-fetched data
-            if asset_type not in all_prices_by_type:
-                continue
-
-            type_prices = all_prices_by_type[asset_type]
-
-            # Extract prices for current_date
-            for ticker in tickers:
+                type_prices = all_prices_by_type[asset_type]
+                
                 if ticker in type_prices:
                     ticker_prices = type_prices[ticker]
+
                     # Find price for current_date (or most recent available up to current_date)
                     if current_date in ticker_prices:
                         prices_by_ticker[ticker] = ticker_prices[current_date]
@@ -1148,7 +1146,9 @@ def get_historical_performance(
 
             if position is not None and position.quantity > 0:
                 # Asset has a position in the snapshot
-                price = prices_by_ticker[ticker]
+                price = prices_by_ticker.get(ticker)
+                if price is None:
+                    continue
                 position_value = float(position.quantity) * price
                 asset_positions[ticker] = position_value
                 total_market_value += position_value
