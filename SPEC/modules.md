@@ -99,6 +99,23 @@
   - Returns list of Portfolio clones, one for each date in the range
   - Each snapshot represents the portfolio state as of that date (cloned with `end_date=current_date`)
   - Date range must be within portfolio's date range (if portfolio has a date range)
+- `get_historical_performance(portfolio, price_service, start_date, end_date)`: Get historical performance of a portfolio over a date range
+  - `portfolio` (Portfolio, required): Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+  - `price_service` (PriceService, required): Price service for retrieving historical prices
+  - `start_date` (date, required): Start date for performance tracking (inclusive)
+  - `end_date` (date, required): End date for performance tracking (inclusive)
+  - Returns list of PortfolioHistoryPoint objects, one for each day from start_date to end_date (inclusive)
+  - Each history point contains:
+    - `date`: The date this point represents
+    - `total_market_value`: Total market value of the portfolio on that date
+    - `asset_positions`: Dictionary mapping ticker symbols to position values (quantity * historical price)
+  - Uses `portfolio.clone(end_date=current_date)` to generate historical snapshots for each date
+  - Uses `price_service.get_historical_prices()` to fetch historical prices for each date
+  - For assets that exist in the final portfolio but weren't purchased by a given date, position value is 0.0
+  - For composite portfolios, asset positions from sub-portfolios with the same ticker are automatically merged (summed)
+  - Raises PortfolioError if date range is invalid or outside portfolio's date range
+  - Raises ValueError if historical prices cannot be retrieved for any required assets (per user requirement)
+  - Daily frequency means one history point per calendar day, including weekends (markets may be closed but portfolio state is valid)
 
 **Artefacts:**
 - Portfolio class implementations
@@ -463,3 +480,46 @@
 - Configured logger instance
 - Validation utilities
 
+## wpm/cli.py
+
+**Responsibilities:**
+- Provide command-line interface for portfolio management
+- Handle CSV import and portfolio creation
+- Interactive command loop for portfolio analysis
+- Display portfolio information and metrics
+
+**Key Functions:**
+- `main()`: Main entry point for wpm CLI
+- `run_interactive_mode(composite, price_service)`: Run interactive command loop
+- `cmd_show_all(composite, price_service, up_to_date=None)`: Handle 'show all' command
+  - `up_to_date` (Optional[date]): If provided and portfolio is historical, shows portfolio state up to this date with weekly performance summary
+- `cmd_show_portfolio(composite, name, price_service, up_to_date=None)`: Handle 'show portfolio <name>' command
+  - `up_to_date` (Optional[date]): If provided and portfolio is historical, shows portfolio state up to this date with weekly performance summary
+- `cmd_list_portfolios(composite)`: Handle 'list portfolios' command
+- `cmd_breakdown(composite, args)`: Handle 'breakdown' command
+- `cmd_show_lots(composite, ticker, price_service)`: Handle 'lots <ticker>' command
+- `parse_up_to_date(args)`: Parse --up-to date argument from command args
+  - Returns tuple of (up_to_date or None, remaining args)
+  - Parses `--up-to YYYY-MM-DD` format
+
+**CLI Commands:**
+- `import [--end-date YYYY-MM-DD]`: Import CSV files and create composite portfolio
+  - `--end-date`: Optional end date for historical portfolio import
+- `show all [--up-to YYYY-MM-DD]`: Show all assets in composite portfolio
+  - `--up-to`: Optional date for historical portfolios. Shows weekly performance summary up to (and including) this date
+- `show portfolio <name> [--up-to YYYY-MM-DD]`: Show specific portfolio
+  - `--up-to`: Optional date for historical portfolios. Shows weekly performance summary up to (and including) this date
+- `list portfolios`: List all sub-portfolios
+- `breakdown [<name>] <type>`: Show portfolio breakdown by type (asset_type, ticker, purchase_period, broker)
+- `lots <ticker>`: Show lots for a specific ticker
+
+**Weekly Performance Summary:**
+- When `--up-to` is specified for historical portfolios, displays weekly performance summary
+- Uses `get_historical_performance()` to calculate history points from portfolio start_date to up_to_date
+- Groups history points by calendar week (Monday to Sunday)
+- Displays weekly totals: date range and total_market_value for each week
+- Shows portfolio's weekly overall performance progression
+
+**Artefacts:**
+- Command-line interface for portfolio management
+- Interactive command loop

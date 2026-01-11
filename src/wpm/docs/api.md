@@ -53,6 +53,9 @@
     * [get\_total\_realized\_pnl](#wpm.models.Portfolio.get_total_realized_pnl)
     * [clone](#wpm.models.Portfolio.clone)
     * [get\_position](#wpm.models.Portfolio.get_position)
+  * [PortfolioHistoryPoint](#wpm.models.PortfolioHistoryPoint)
+    * [asset\_positions](#wpm.models.PortfolioHistoryPoint.asset_positions)
+    * [\_\_post\_init\_\_](#wpm.models.PortfolioHistoryPoint.__post_init__)
 * [wpm.cost\_basis](#wpm.cost_basis)
   * [calculate\_lots\_from\_trades](#wpm.cost_basis.calculate_lots_from_trades)
   * [calculate\_fifo\_cost\_basis](#wpm.cost_basis.calculate_fifo_cost_basis)
@@ -62,6 +65,7 @@
   * [format\_currency](#wpm.cli.format_currency)
   * [format\_unrealized\_pnl](#wpm.cli.format_unrealized_pnl)
   * [format\_quantity](#wpm.cli.format_quantity)
+  * [parse\_up\_to\_date](#wpm.cli.parse_up_to_date)
   * [format\_position\_line](#wpm.cli.format_position_line)
   * [cmd\_list\_portfolios](#wpm.cli.cmd_list_portfolios)
   * [cmd\_show\_portfolio](#wpm.cli.cmd_show_portfolio)
@@ -132,6 +136,7 @@
     * [clone](#wpm.portfolio.CompositePortfolio.clone)
   * [fetch\_price\_map](#wpm.portfolio.fetch_price_map)
   * [generate\_historical\_snapshots](#wpm.portfolio.generate_historical_snapshots)
+  * [get\_historical\_performance](#wpm.portfolio.get_historical_performance)
 * [wpm.pricing.service](#wpm.pricing.service)
   * [PriceService](#wpm.pricing.service.PriceService)
     * [\_\_init\_\_](#wpm.pricing.service.PriceService.__init__)
@@ -946,6 +951,33 @@ def get_position(asset: Asset) -> Optional["Position"]
 
 Get position for a specific asset.
 
+<a id="wpm.models.PortfolioHistoryPoint"></a>
+
+## PortfolioHistoryPoint Objects
+
+```python
+@dataclass
+class PortfolioHistoryPoint()
+```
+
+Represents a portfolio state at a specific point in time.
+
+<a id="wpm.models.PortfolioHistoryPoint.asset_positions"></a>
+
+#### asset\_positions
+
+Maps ticker to position value (quantity * price)
+
+<a id="wpm.models.PortfolioHistoryPoint.__post_init__"></a>
+
+#### \_\_post\_init\_\_
+
+```python
+def __post_init__()
+```
+
+Validate history point fields after initialization.
+
 <a id="wpm.cost_basis"></a>
 
 # wpm.cost\_basis
@@ -1100,6 +1132,25 @@ Handles Decimal and float values, rounding to 8 decimal places
 
   Formatted string (integer if whole number, decimal otherwise)
 
+<a id="wpm.cli.parse_up_to_date"></a>
+
+#### parse\_up\_to\_date
+
+```python
+def parse_up_to_date(args: List[str]) -> tuple[Optional[date], List[str]]
+```
+
+Parse --up-to date argument from command args.
+
+**Arguments**:
+
+- `args` - Command arguments list
+  
+
+**Returns**:
+
+  Tuple of (up_to_date or None, remaining args without --up-to flag and date)
+
 <a id="wpm.cli.format_position_line"></a>
 
 #### format\_position\_line
@@ -1144,8 +1195,10 @@ Handle 'list portfolios' command.
 #### cmd\_show\_portfolio
 
 ```python
-def cmd_show_portfolio(composite: CompositePortfolio, name: str,
-                       price_service: PriceService) -> None
+def cmd_show_portfolio(composite: CompositePortfolio,
+                       name: str,
+                       price_service: PriceService,
+                       up_to_date: Optional[date] = None) -> None
 ```
 
 Handle 'show portfolio <name>' command.
@@ -1155,6 +1208,7 @@ Handle 'show portfolio <name>' command.
 - `composite` - Composite portfolio containing sub-portfolios
 - `name` - Name of sub-portfolio to show
 - `price_service` - Price service for retrieving current prices
+- `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
 
 <a id="wpm.cli.cmd_show_all"></a>
 
@@ -1162,7 +1216,8 @@ Handle 'show portfolio <name>' command.
 
 ```python
 def cmd_show_all(composite: CompositePortfolio,
-                 price_service: PriceService) -> None
+                 price_service: PriceService,
+                 up_to_date: Optional[date] = None) -> None
 ```
 
 Handle 'show all' command.
@@ -1171,6 +1226,7 @@ Handle 'show all' command.
 
 - `composite` - Composite portfolio
 - `price_service` - Price service for retrieving current prices
+- `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
 
 <a id="wpm.cli.format_breakdown_asset_type"></a>
 
@@ -2353,6 +2409,44 @@ Creates a clone of the portfolio for each date from start_date to end_date
 **Raises**:
 
 - `PortfolioError` - If date range is invalid or outside portfolio's date range
+
+<a id="wpm.portfolio.get_historical_performance"></a>
+
+#### get\_historical\_performance
+
+```python
+def get_historical_performance(portfolio: Portfolio,
+                               price_service: "PriceService", start_date: date,
+                               end_date: date) -> List[PortfolioHistoryPoint]
+```
+
+Get historical performance of a portfolio over a date range.
+
+Returns a list of history points, one for each day from start_date to end_date
+(inclusive). Each history point contains the total market value of the portfolio
+and asset positions (quantity * historical price) for each asset on that date.
+
+For assets that exist in the final portfolio but were purchased after the start date,
+history points before the asset purchase will show a position of 0.0. For composite
+portfolios, asset positions from sub-portfolios with the same ticker are merged.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+- `price_service` - Price service for retrieving historical prices
+- `start_date` - Start date for performance tracking (inclusive)
+- `end_date` - End date for performance tracking (inclusive)
+  
+
+**Returns**:
+
+  List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
+  
+
+**Raises**:
+
+- `PortfolioError` - If date range is invalid or outside portfolio's date range
+- `ValueError` - If historical prices cannot be retrieved for any required assets
 
 <a id="wpm.pricing.service"></a>
 

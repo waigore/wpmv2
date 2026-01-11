@@ -171,6 +171,25 @@ Represents a collection of asset positions or sub-portfolios.
 - Portfolio cannot be both simple (has trades) and composite (has sub-portfolios) simultaneously
 - Sub-portfolios must have unique names within a composite portfolio
 
+## PortfolioHistoryPoint
+
+Represents a portfolio state at a specific point in time, used for historical performance tracking.
+
+**Fields:**
+- `date` (date, required): The date this history point represents
+  - Validation: Valid date object
+- `total_market_value` (float, required): Total market value of the portfolio on this date
+  - Validation: Non-negative number
+- `asset_positions` (Dict[str, float], required): Dictionary mapping ticker symbols to position values (quantity * historical price)
+  - Validation: Dictionary with string keys (tickers) and non-negative float values
+  - Assets that exist in the final portfolio but weren't purchased by this date have position value of 0.0
+  - For composite portfolios, positions from sub-portfolios with the same ticker are merged (summed)
+
+**Usage Notes:**
+- Used by `get_historical_performance()` function to represent portfolio state at each date in a date range
+- Asset positions dictionary includes all assets from the final portfolio state, ensuring consistent tracking even for assets purchased after the start date
+- For composite portfolios, asset positions from sub-portfolios are automatically merged by ticker
+
 ## Price Cache Entry
 
 Represents a cached price entry stored in the Parquet cache file.

@@ -59,6 +59,7 @@ The library defines the following core data models:
 - **Position**: Current holdings for a specific asset (quantity and cost basis)
 - **Lot**: Purchase record with FIFO sell matching for tracking realized/unrealized P/L
 - **Portfolio**: Collection of asset positions or sub-portfolios (supports simple and composite portfolios)
+- **PortfolioHistoryPoint**: Historical snapshot of portfolio state at a specific point in time
 - **Price Cache Entry**: Cached price entry stored in Parquet format with validity rules
 
 ### CSV Import Format

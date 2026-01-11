@@ -1,13 +1,13 @@
 """Portfolio class implementation with aggregation logic."""
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from wpm.cache_utils import LRUCache, trades_to_cache_key_with_filters
 from wpm.cost_basis import calculate_fifo_cost_basis, calculate_lots_from_trades
-from wpm.models import Asset, Lot, Portfolio, Position, PortfolioError, Trade
+from wpm.models import Asset, Lot, Portfolio, PortfolioHistoryPoint, Position, PortfolioError, Trade
 from wpm.utils import validate_asset_type
 
 if TYPE_CHECKING:
@@ -356,79 +356,74 @@ class SimplePortfolio(Portfolio):
         # Create new portfolio with same name and is_historical flag
         cloned_portfolio = SimplePortfolio(name=self.name, is_historical=self.is_historical)
 
+        # Helper function to clone a trade
+        def _clone_trade(trade: Trade) -> None:
+            cloned_trade = Trade(
+                date=trade.date,
+                asset=trade.asset,  # Asset is frozen/immutable, can reuse
+                action=trade.action,
+                broker=trade.broker,
+                order_instruction=trade.order_instruction,
+                trade_type=trade.trade_type,
+                currency=trade.currency,
+                price=trade.price,
+                price_native=trade.price_native,
+                quantity=trade.quantity,
+            )
+            cloned_portfolio.add_trade(cloned_trade)
+
         # If no date filtering, clone all trades
         if start_date is None and end_date is None:
             for trade in self._trades:
-                # Deep clone trade by creating new Trade object
-                cloned_trade = Trade(
-                    date=trade.date,
-                    asset=trade.asset,  # Asset is frozen/immutable, can reuse
-                    action=trade.action,
-                    broker=trade.broker,
-                    order_instruction=trade.order_instruction,
-                    trade_type=trade.trade_type,
-                    currency=trade.currency,
-                    price=trade.price,
-                    price_native=trade.price_native,
-                    quantity=trade.quantity,
+                _clone_trade(trade)
+            logger.info(
+                f"Cloned portfolio '{self.name}' "
+                f"(start_date={start_date}, end_date={end_date}, "
+                f"trades={len(cloned_portfolio._trades)})"
+            )
+            return cloned_portfolio
+
+        # Validate date range - use guard clauses
+        if start_date is not None and end_date is not None and start_date > end_date:
+            raise PortfolioError(
+                f"start_date {start_date} is after end_date {end_date}"
+            )
+
+        # Validate date range is within portfolio's date range (if portfolio has trades)
+        if self._trades:
+            portfolio_start = self.start_date
+            portfolio_end = self.end_date
+
+            # Validate start_date
+            if start_date is not None and portfolio_start is not None and start_date < portfolio_start:
+                raise PortfolioError(
+                    f"start_date {start_date} is before portfolio's start_date {portfolio_start}"
                 )
-                cloned_portfolio.add_trade(cloned_trade)
-        else:
-            # Validate date range
-            if start_date is not None and end_date is not None:
-                if start_date > end_date:
-                    raise PortfolioError(
-                        f"start_date {start_date} is after end_date {end_date}"
-                    )
 
-            # Validate date range is within portfolio's date range (if portfolio has trades)
-            if self._trades:
-                portfolio_start = self.start_date
-                portfolio_end = self.end_date
-
-                if start_date is not None:
-                    if portfolio_start is not None and start_date < portfolio_start:
-                        raise PortfolioError(
-                            f"start_date {start_date} is before portfolio's start_date {portfolio_start}"
-                        )
-
-                # For end_date validation: we validate strictly for direct cloning.
-                # When cloning sub-portfolios in composite portfolios, we skip this validation
-                # to allow composite date ranges that extend beyond individual sub-portfolio ranges.
-                if (
-                    end_date is not None
-                    and portfolio_end is not None
-                    and not _skip_end_date_validation
-                ):
-                    if end_date > portfolio_end:
-                        raise PortfolioError(
-                            f"end_date {end_date} is after portfolio's end_date {portfolio_end}"
-                        )
-
-            # Filter and clone trades within date range
-            for trade in self._trades:
-                # Filter by start_date if provided
-                if start_date is not None and trade.date < start_date:
-                    continue
-
-                # Filter by end_date if provided
-                if end_date is not None and trade.date > end_date:
-                    continue
-
-                # Deep clone trade by creating new Trade object
-                cloned_trade = Trade(
-                    date=trade.date,
-                    asset=trade.asset,  # Asset is frozen/immutable, can reuse
-                    action=trade.action,
-                    broker=trade.broker,
-                    order_instruction=trade.order_instruction,
-                    trade_type=trade.trade_type,
-                    currency=trade.currency,
-                    price=trade.price,
-                    price_native=trade.price_native,
-                    quantity=trade.quantity,
+            # For end_date validation: we validate strictly for direct cloning.
+            # When cloning sub-portfolios in composite portfolios, we skip this validation
+            # to allow composite date ranges that extend beyond individual sub-portfolio ranges.
+            if (
+                end_date is not None
+                and portfolio_end is not None
+                and not _skip_end_date_validation
+                and end_date > portfolio_end
+            ):
+                raise PortfolioError(
+                    f"end_date {end_date} is after portfolio's end_date {portfolio_end}"
                 )
-                cloned_portfolio.add_trade(cloned_trade)
+
+        # Filter and clone trades within date range
+        for trade in self._trades:
+            # Filter by start_date if provided
+            if start_date is not None and trade.date < start_date:
+                continue
+
+            # Filter by end_date if provided
+            if end_date is not None and trade.date > end_date:
+                continue
+
+            _clone_trade(trade)
 
         logger.info(
             f"Cloned portfolio '{self.name}' "
@@ -764,28 +759,33 @@ class CompositePortfolio(Portfolio):
         # Create new portfolio with same name and is_historical flag
         cloned_portfolio = CompositePortfolio(name=self.name, is_historical=self.is_historical)
 
-        # Validate date range if portfolio has sub-portfolios
+        # Validate date range if portfolio has sub-portfolios - use guard clauses
         if self._sub_portfolios:
             portfolio_start = self.start_date
             portfolio_end = self.end_date
 
-            if start_date is not None:
-                if portfolio_start is None or start_date < portfolio_start:
-                    raise PortfolioError(
-                        f"start_date {start_date} is before portfolio's start_date {portfolio_start}"
-                    )
+            # Validate start_date
+            if start_date is not None and (portfolio_start is None or start_date < portfolio_start):
+                raise PortfolioError(
+                    f"start_date {start_date} is before portfolio's start_date {portfolio_start}"
+                )
 
-            if end_date is not None:
-                if portfolio_end is None or end_date > portfolio_end:
-                    raise PortfolioError(
-                        f"end_date {end_date} is after portfolio's end_date {portfolio_end}"
-                    )
+            # Skip end_date validation if _skip_end_date_validation is True
+            # (e.g., when cloning for historical performance calculation)
+            if (
+                end_date is not None
+                and not _skip_end_date_validation
+                and (portfolio_end is None or end_date > portfolio_end)
+            ):
+                raise PortfolioError(
+                    f"end_date {end_date} is after portfolio's end_date {portfolio_end}"
+                )
 
-            if start_date is not None and end_date is not None:
-                if start_date > end_date:
-                    raise PortfolioError(
-                        f"start_date {start_date} is after end_date {end_date}"
-                    )
+            # Validate date range consistency
+            if start_date is not None and end_date is not None and start_date > end_date:
+                raise PortfolioError(
+                    f"start_date {start_date} is after end_date {end_date}"
+                )
 
         # Recursively clone all sub-portfolios
         # Skip end_date validation for sub-portfolios to allow composite date ranges
@@ -944,9 +944,6 @@ def generate_historical_snapshots(
     snapshots: List[Portfolio] = []
     current_date = start_date
 
-    # Import timedelta for date iteration
-    from datetime import timedelta
-
     while current_date <= end_date:
         # Clone portfolio with end_date set to current_date
         snapshot = portfolio.clone(start_date=None, end_date=current_date)
@@ -959,4 +956,186 @@ def generate_historical_snapshots(
     )
 
     return snapshots
+
+
+def get_historical_performance(
+    portfolio: Portfolio,
+    price_service: "PriceService",
+    start_date: date,
+    end_date: date,
+) -> List[PortfolioHistoryPoint]:
+    """Get historical performance of a portfolio over a date range.
+
+    Returns a list of history points, one for each day from start_date to end_date
+    (inclusive). Each history point contains the total market value of the portfolio
+    and asset positions (quantity * historical price) for each asset on that date.
+
+    For assets that exist in the final portfolio but were purchased after the start date,
+    history points before the asset purchase will show a position of 0.0. For composite
+    portfolios, asset positions from sub-portfolios with the same ticker are merged.
+
+    Args:
+        portfolio: Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+        price_service: Price service for retrieving historical prices
+        start_date: Start date for performance tracking (inclusive)
+        end_date: End date for performance tracking (inclusive)
+
+    Returns:
+        List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
+
+    Raises:
+        PortfolioError: If date range is invalid or outside portfolio's date range
+        ValueError: If historical prices cannot be retrieved for any required assets
+    """
+    logger.info(
+        f"Calculating historical performance for portfolio '{portfolio.name}' "
+        f"from {start_date} to {end_date}"
+    )
+
+    # Validate date range
+    if start_date > end_date:
+        raise PortfolioError(
+            f"start_date {start_date} is after end_date {end_date}"
+        )
+
+    # Get all assets that exist in the final portfolio state
+    # This ensures we track all assets even if they weren't purchased by start_date
+    final_positions = portfolio.get_positions()
+    all_assets = list(final_positions.keys())
+
+    # Note: We allow flexible date ranges:
+    # - start_date can be before portfolio_start (assets will show 0.0 positions before purchase)
+    # - end_date can be after portfolio_end (we can calculate performance for dates after trades,
+    #   showing current positions as of those dates)
+    # This allows users to analyze performance across any date range, even extending beyond
+    # the portfolio's actual trade date range
+
+    # Create a mapping of asset to ticker for quick lookup
+    asset_to_ticker = {asset: asset.ticker for asset in all_assets}
+
+    # Group assets by asset type for efficient batch price fetching
+    assets_by_type: Dict[str, List[Asset]] = {}
+    for asset in all_assets:
+        asset_type = asset.asset_type
+        if asset_type not in assets_by_type:
+            assets_by_type[asset_type] = []
+        assets_by_type[asset_type].append(asset)
+
+    # Generate history points for each date in range
+    history_points: List[PortfolioHistoryPoint] = []
+    current_date = start_date
+
+    while current_date <= end_date:
+        # Clone portfolio with end_date set to current_date to get snapshot state
+        # Use _skip_end_date_validation=True to allow dates beyond portfolio's date range
+        # (e.g., for calculating performance after trades have occurred)
+        snapshot = portfolio.clone(
+            start_date=None, end_date=current_date, _skip_end_date_validation=True
+        )
+
+        # Get positions from the snapshot
+        snapshot_positions = snapshot.get_positions()
+
+        # Initialize asset positions dictionary with all assets from final portfolio
+        # This ensures all assets are present even if not purchased by current_date
+        asset_positions: Dict[str, float] = {
+            asset_to_ticker[asset]: 0.0 for asset in all_assets
+        }
+
+        # Fetch historical prices only for assets with positions on current date
+        # Group by asset type for batch processing
+        prices_by_ticker: Dict[str, float] = {}
+
+        for asset_type, asset_list in assets_by_type.items():
+            # Only fetch prices for assets that have positions on this date
+            assets_with_positions = [
+                asset for asset in asset_list
+                if asset in snapshot_positions and snapshot_positions[asset].quantity > 0
+            ]
+            tickers = [asset.ticker for asset in assets_with_positions]
+            
+            # Skip if no assets of this type have positions on this date
+            if not tickers:
+                continue
+                
+            try:
+                # Fetch historical prices for this date (use current_date for both start and end)
+                prices = price_service.get_historical_prices(
+                    tickers, asset_type, current_date, current_date
+                )
+                # get_historical_prices may return a partial dict if some tickers fail
+                # but will log warnings. We need all prices, so check for missing ones.
+                prices_by_ticker.update(prices)
+            except ValueError as e:
+                # get_historical_prices raises ValueError if all tickers fail
+                logger.error(
+                    f"Failed to retrieve historical prices for {asset_type} assets "
+                    f"on {current_date}: {e}"
+                )
+                raise ValueError(
+                    f"Historical prices unavailable for {asset_type} assets on {current_date}: {e}"
+                ) from e
+
+        # Check if all required prices were retrieved (only for assets with positions)
+        # get_historical_prices may return partial results if some tickers fail,
+        # but according to requirements, we need all prices or should raise error
+        missing_prices = []
+        for asset in all_assets:
+            # Only require prices for assets that have positions on this date
+            if asset in snapshot_positions and snapshot_positions[asset].quantity > 0:
+                ticker = asset_to_ticker[asset]
+                if ticker not in prices_by_ticker:
+                    missing_prices.append(ticker)
+
+        if missing_prices:
+            raise ValueError(
+                f"Historical prices unavailable for tickers on {current_date}: {', '.join(missing_prices)}"
+            )
+
+        # Calculate asset positions: quantity * price for each asset
+        total_market_value = 0.0
+
+        for asset in all_assets:
+            ticker = asset_to_ticker[asset]
+            position = snapshot_positions.get(asset)
+
+            if position is not None and position.quantity > 0:
+                # Asset has a position in the snapshot
+                price = prices_by_ticker[ticker]
+                position_value = float(position.quantity) * price
+                asset_positions[ticker] = position_value
+                total_market_value += position_value
+            else:
+                # Asset not yet purchased or fully sold - position already set to 0.0
+                asset_positions[ticker] = 0.0
+
+        # For composite portfolios, we need to merge positions from sub-portfolios
+        # However, since we're using get_positions() on the cloned snapshot, it already
+        # handles aggregation for composite portfolios. But we need to ensure we're
+        # correctly calculating positions for assets that appear in multiple sub-portfolios.
+        # The get_positions() method on CompositePortfolio already merges positions by asset,
+        # so we should be good. However, let's double-check that we're using the right approach.
+
+        # Actually, wait - for composite portfolios, get_positions() returns aggregated positions
+        # already merged by Asset (which includes both ticker and asset_type). So if we have
+        # BTC-USD in P1 and P2, get_positions() will return one Position with merged quantity.
+        # This is correct and what we want.
+
+        # Create history point
+        history_point = PortfolioHistoryPoint(
+            date=current_date,
+            total_market_value=total_market_value,
+            asset_positions=asset_positions.copy(),
+        )
+        history_points.append(history_point)
+
+        # Move to next day
+        current_date += timedelta(days=1)
+
+    logger.info(
+        f"Generated {len(history_points)} history points for portfolio '{portfolio.name}' "
+        f"from {start_date} to {end_date}"
+    )
+
+    return history_points
 

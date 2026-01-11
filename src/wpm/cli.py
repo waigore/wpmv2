@@ -9,7 +9,7 @@ import argparse
 import logging
 import sys
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -21,8 +21,20 @@ from wpm.metrics import (
     breakdown_by_purchase_period,
     breakdown_by_ticker,
 )
-from wpm.models import Asset, Lot, Portfolio, Position, ValidationError
-from wpm.portfolio import CompositePortfolio, fetch_price_map, SimplePortfolio
+from wpm.models import (
+    Asset,
+    Lot,
+    Portfolio,
+    PortfolioHistoryPoint,
+    Position,
+    ValidationError,
+)
+from wpm.portfolio import (
+    CompositePortfolio,
+    fetch_price_map,
+    get_historical_performance,
+    SimplePortfolio,
+)
 from wpm.pricing import PriceService
 from wpm.utils import normalize_date, setup_logging
 
@@ -177,6 +189,83 @@ def format_quantity(value) -> str:
     return formatted
 
 
+def parse_up_to_date(args: List[str]) -> tuple[Optional[date], List[str]]:
+    """Parse --up-to date argument from command args.
+
+    Args:
+        args: Command arguments list
+
+    Returns:
+        Tuple of (up_to_date or None, remaining args without --up-to flag and date)
+    """
+    up_to_date = None
+    remaining_args = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--up-to" and i + 1 < len(args):
+            try:
+                up_to_date = normalize_date(args[i + 1])
+                i += 2  # Skip both --up-to and the date
+            except ValueError:
+                # Invalid date format, keep the --up-to flag in remaining args
+                remaining_args.append(args[i])
+                i += 1
+        else:
+            remaining_args.append(args[i])
+            i += 1
+    return up_to_date, remaining_args
+
+
+def _display_weekly_summary(history_points: List[PortfolioHistoryPoint]) -> None:
+    """Display weekly performance summary from history points.
+
+    Groups history points by calendar week (Monday-Sunday) and displays
+    weekly totals (date range and total_market_value).
+
+    Args:
+        history_points: List of PortfolioHistoryPoint objects to summarize
+    """
+    if not history_points:
+        print("No history points to display.")
+        return
+
+    # Group history points by calendar week
+    # Week starts on Monday (weekday 0) and ends on Sunday (weekday 6)
+    weekly_groups: Dict[date, List[PortfolioHistoryPoint]] = defaultdict(list)
+
+    for point in history_points:
+        # Calculate the Monday of the week for this date
+        # weekday() returns 0 for Monday, 6 for Sunday
+        days_since_monday = point.date.weekday()
+        week_start = point.date - timedelta(days=days_since_monday)
+        weekly_groups[week_start].append(point)
+
+    # Sort weeks by start date
+    sorted_weeks = sorted(weekly_groups.items())
+
+    print("Weekly Performance Summary:")
+    print()  # Blank line
+
+    for week_start, week_points in sorted_weeks:
+        # Get week end (Sunday)
+        week_end = week_start + timedelta(days=6)
+
+        # Sort points within week by date
+        week_points.sort(key=lambda p: p.date)
+
+        # Display week range and total market value
+        # Use the last day's value for the week (or average if preferred)
+        # For simplicity, use the last day's value in the week
+        last_point = week_points[-1]
+        week_start_str = week_start.strftime("%Y-%m-%d")
+        week_end_str = week_end.strftime("%Y-%m-%d")
+
+        print(
+            f"Week of {week_start_str} to {week_end_str}: "
+            f"{format_currency(last_point.total_market_value)}"
+        )
+
+
 def format_position_line(
     position: Position,
     price: Optional[float],
@@ -241,7 +330,10 @@ def cmd_list_portfolios(composite: CompositePortfolio) -> None:
 
 
 def cmd_show_portfolio(
-    composite: CompositePortfolio, name: str, price_service: PriceService
+    composite: CompositePortfolio,
+    name: str,
+    price_service: PriceService,
+    up_to_date: Optional[date] = None,
 ) -> None:
     """Handle 'show portfolio <name>' command.
 
@@ -249,6 +341,7 @@ def cmd_show_portfolio(
         composite: Composite portfolio containing sub-portfolios
         name: Name of sub-portfolio to show
         price_service: Price service for retrieving current prices
+        up_to_date: Optional date for historical portfolios to show state up to this date with weekly summary
     """
     sub_portfolios = composite._sub_portfolios
 
@@ -257,6 +350,29 @@ def cmd_show_portfolio(
         return
 
     portfolio = sub_portfolios[name]
+
+    # Handle --up-to argument for historical portfolios
+    if up_to_date is not None:
+        if not portfolio.is_historical:
+            print("Error: --up-to can only be used with historical portfolios.")
+            return
+
+        if portfolio.start_date is None:
+            print("Error: Portfolio has no start date, cannot calculate historical performance.")
+            return
+
+        # Show weekly performance summary
+        try:
+            history_points = get_historical_performance(
+                portfolio, price_service, portfolio.start_date, up_to_date
+            )
+            _display_weekly_summary(history_points)
+            return
+        except Exception as e:
+            print(f"Error calculating historical performance: {e}")
+            logger.error(f"Error calculating historical performance: {e}", exc_info=True)
+            return
+
     positions = portfolio.get_positions()
 
     if not positions:
@@ -290,14 +406,39 @@ def cmd_show_portfolio(
 
 
 def cmd_show_all(
-    composite: CompositePortfolio, price_service: PriceService
+    composite: CompositePortfolio,
+    price_service: PriceService,
+    up_to_date: Optional[date] = None,
 ) -> None:
     """Handle 'show all' command.
 
     Args:
         composite: Composite portfolio
         price_service: Price service for retrieving current prices
+        up_to_date: Optional date for historical portfolios to show state up to this date with weekly summary
     """
+    # Handle --up-to argument for historical portfolios
+    if up_to_date is not None:
+        if not composite.is_historical:
+            print("Error: --up-to can only be used with historical portfolios.")
+            return
+
+        if composite.start_date is None:
+            print("Error: Portfolio has no start date, cannot calculate historical performance.")
+            return
+
+        # Show weekly performance summary
+        try:
+            history_points = get_historical_performance(
+                composite, price_service, composite.start_date, up_to_date
+            )
+            _display_weekly_summary(history_points)
+            return
+        except Exception as e:
+            print(f"Error calculating historical performance: {e}")
+            logger.error(f"Error calculating historical performance: {e}", exc_info=True)
+            return
+
     positions = composite.get_positions()
 
     if not positions:
@@ -601,12 +742,23 @@ def run_interactive_mode(
             if command == "list" and len(args) == 1 and args[0] == "portfolios":
                 cmd_list_portfolios(composite)
             elif command == "show":
-                if len(args) == 1 and args[0] == "all":
-                    cmd_show_all(composite, price_service)
-                elif len(args) == 2 and args[0] == "portfolio":
-                    cmd_show_portfolio(composite, args[1], price_service)
+                if len(args) >= 1 and args[0] == "all":
+                    # Parse --up-to argument if present
+                    up_to_date, remaining_args = parse_up_to_date(args[1:])
+                    if remaining_args:
+                        print("Unknown arguments: 'show all' only accepts --up-to YYYY-MM-DD")
+                    else:
+                        cmd_show_all(composite, price_service, up_to_date)
+                elif len(args) >= 2 and args[0] == "portfolio":
+                    # Parse --up-to argument if present
+                    portfolio_name = args[1]
+                    up_to_date, remaining_args = parse_up_to_date(args[2:])
+                    if remaining_args:
+                        print("Unknown arguments: 'show portfolio <name>' only accepts --up-to YYYY-MM-DD")
+                    else:
+                        cmd_show_portfolio(composite, portfolio_name, price_service, up_to_date)
                 else:
-                    print("Unknown command: 'show'. Usage: 'show portfolio <name>' or 'show all'")
+                    print("Unknown command: 'show'. Usage: 'show portfolio <name> [--up-to YYYY-MM-DD]' or 'show all [--up-to YYYY-MM-DD]'")
             elif command == "breakdown":
                 cmd_breakdown(composite, args)
             elif command == "lots":

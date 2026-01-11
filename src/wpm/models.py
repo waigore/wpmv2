@@ -425,3 +425,31 @@ class Portfolio(ABC):
         positions = self.get_positions()
         return positions.get(asset)
 
+
+@dataclass
+class PortfolioHistoryPoint:
+    """Represents a portfolio state at a specific point in time."""
+
+    date: date
+    total_market_value: float
+    asset_positions: Dict[str, float]  # Maps ticker to position value (quantity * price)
+
+    def __post_init__(self):
+        """Validate history point fields after initialization."""
+        if not isinstance(self.date, date):
+            raise ValidationError("Date must be a date object")
+
+        if not isinstance(self.total_market_value, (int, float)) or self.total_market_value < 0:
+            raise ValidationError("Total market value must be a non-negative number")
+
+        if not isinstance(self.asset_positions, dict):
+            raise ValidationError("Asset positions must be a dictionary")
+
+        for ticker, position_value in self.asset_positions.items():
+            if not isinstance(ticker, str):
+                raise ValidationError("Asset positions keys must be strings (tickers)")
+            if not isinstance(position_value, (int, float)) or position_value < 0:
+                raise ValidationError(
+                    f"Asset position value for {ticker} must be a non-negative number"
+                )
+
