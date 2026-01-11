@@ -136,13 +136,15 @@ class TestPriceServiceHistorical:
             dates = pd.date_range(start=date(2024, 1, 15), end=date(2024, 1, 15), freq="D")
             prices_df = pd.DataFrame({"price": [150.0]}, index=dates)
             prices_df.index.name = "date"
-            mock_stock_retriever.get_historical_prices.return_value = prices_df
+            # Service calls retriever with a list, so retriever returns Dict[str, pd.DataFrame]
+            mock_stock_retriever.get_historical_prices.return_value = {"GOOG": prices_df}
             mock_stock_retriever._detect_currency.return_value = "USD"
             service._stock_retriever = mock_stock_retriever
             
-            # Get historical price
+            # Get historical price (calls get_historical_prices with [ticker])
             price = service.get_historical_price("GOOG", "Stock", date(2024, 1, 15))
             assert price == 150.0
+            # get_historical_price calls get_historical_prices with a list
             mock_stock_retriever.get_historical_prices.assert_called_once()
 
     @patch("wpm.pricing.service.CurrencyService")
@@ -165,9 +167,15 @@ class TestPriceServiceHistorical:
             # Mock the retriever's get_historical_prices method
             mock_stock_retriever = Mock()
             dates = pd.date_range(start=date(2024, 1, 15), end=date(2024, 1, 20), freq="D")
-            prices_df = pd.DataFrame({"price": [150.0] * 6}, index=dates)
-            prices_df.index.name = "date"
-            mock_stock_retriever.get_historical_prices.return_value = prices_df
+            prices_df_goog = pd.DataFrame({"price": [150.0] * 6}, index=dates)
+            prices_df_goog.index.name = "date"
+            prices_df_aapl = pd.DataFrame({"price": [175.0] * 6}, index=dates)
+            prices_df_aapl.index.name = "date"
+            # For multiple tickers, retriever returns Dict[str, pd.DataFrame]
+            mock_stock_retriever.get_historical_prices.return_value = {
+                "GOOG": prices_df_goog,
+                "AAPL": prices_df_aapl
+            }
             mock_stock_retriever._detect_currency.return_value = "USD"
             service._stock_retriever = mock_stock_retriever
             
@@ -176,8 +184,11 @@ class TestPriceServiceHistorical:
                 ["GOOG", "AAPL"], "Stock", date(2024, 1, 15), date(2024, 1, 20)
             )
             
-            # Should have called retriever for each ticker
-            assert mock_stock_retriever.get_historical_prices.call_count == 2
+            # Should have called retriever once with both tickers (batch)
+            assert mock_stock_retriever.get_historical_prices.call_count == 1
             assert "GOOG" in prices
             assert "AAPL" in prices
+            # Prices should be Dict[date, float] for each ticker
+            assert isinstance(prices["GOOG"], dict)
+            assert isinstance(prices["AAPL"], dict)
 

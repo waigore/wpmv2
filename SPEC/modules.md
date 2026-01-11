@@ -109,8 +109,8 @@
     - `date`: The date this point represents
     - `total_market_value`: Total market value of the portfolio on that date
     - `asset_positions`: Dictionary mapping ticker symbols to position values (quantity * historical price)
-  - Uses `portfolio.clone(end_date=current_date)` to generate historical snapshots for each date
-  - Uses `price_service.get_historical_prices()` to fetch historical prices for each date
+  - Fetches all prices upfront in batch using `price_service.get_historical_prices()` once per asset type for the entire date range
+  - Filters trades directly instead of cloning portfolio snapshots for better performance
   - For assets that exist in the final portfolio but weren't purchased by a given date, position value is 0.0
   - For composite portfolios, asset positions from sub-portfolios with the same ticker are automatically merged (summed)
   - Raises PortfolioError if date range is invalid or outside portfolio's date range
@@ -227,7 +227,9 @@
 - `get_price(ticker, asset_type)`: Abstract method to get current price for an asset
 - `get_prices(tickers, asset_type)`: Abstract method to get current prices for multiple assets in a batch request
 - `get_historical_prices(ticker, asset_type, start_date, end_date)`: Abstract method to get historical prices over a date range
-  - Returns DataFrame with date index and price column (native currency)
+  - `ticker`: Asset ticker symbol (str) or list of ticker symbols (List[str]) for batch retrieval
+  - Returns DataFrame with date index and price column (native currency) if ticker is str
+  - Returns Dict[str, pd.DataFrame] mapping ticker to DataFrame if ticker is List[str] (batch mode)
 
 ### wpm/pricing/yahoo.py
 
@@ -261,11 +263,13 @@
   - Outside trading hours: uses `Close` from batch download
   - Returns prices in native currency (not USD)
 - `get_historical_prices(ticker, asset_type, start_date, end_date)`: Get historical prices over a date range
+  - `ticker`: Asset ticker symbol (str) or list of ticker symbols (List[str]) for batch retrieval
   - Uses `yf.download()` with start and end date parameters
-  - Returns DataFrame with date index and Close prices (native currency, USD for crypto)
-  - Handles single ticker and multiple tickers (batch retrieval)
+  - When ticker is str: Returns DataFrame with date index and Close prices (native currency, USD for crypto)
+  - When ticker is List[str]: Uses `yf.download()` with `group_by='ticker'` for batch retrieval, returns Dict[str, pd.DataFrame] mapping ticker to DataFrame
   - Supports crypto tickers (e.g., "BTC-USD", "ETH-USD") via yfinance
   - Uses `_map_crypto_ticker()` to map crypto tickers to yfinance format when needed (e.g., "SUI-USD" → "SUI20947-USD")
+  - Batch mode fetches multiple tickers in a single API call for better performance
 
 ### wpm/pricing/coingecko.py
 
@@ -394,10 +398,13 @@
   - Returns USD price by default, native currency price if `in_native_currency=True`
   - Uses historical cache and retrievers as needed
 - `get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False)`: Get historical prices for multiple assets over a date range
-  - Returns prices for end_date (most recent available up to end_date) for each ticker
-  - Checks historical cache first, fetches missing data from retrievers
+  - Returns prices for all dates in the range (start_date to end_date, inclusive) for each ticker
+  - Return type: `Dict[str, Dict[date, float]]` mapping ticker to dictionary mapping date to price
+  - Fetches all prices for the entire date range upfront using batch retrieval
+  - Checks historical cache first, fetches missing data from retrievers in batch
   - **For crypto**: Uses `YahooFinanceRetriever` (yfinance) instead of `CoinGeckoRetriever` to support longer historical ranges
   - **For stocks/ETFs**: Uses `YahooFinanceRetriever` as before
+  - Uses batch ticker fetching when multiple tickers are provided (single API call per asset type)
   - Stores fetched prices in historical cache
   - Handles currency conversion for stocks/ETFs
   - Returns USD prices by default, native currency prices if `in_native_currency=True`

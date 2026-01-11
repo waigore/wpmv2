@@ -248,7 +248,21 @@ class PriceService:
                 f"No historical price data available for {ticker} ({asset_type}) on {target_date}"
             )
 
-        return prices[ticker]
+        ticker_prices = prices[ticker]
+        
+        # Get price for target_date (or most recent available up to target_date)
+        if target_date in ticker_prices:
+            return ticker_prices[target_date]
+        
+        # Find most recent date <= target_date
+        available_dates = [d for d in ticker_prices.keys() if d <= target_date]
+        if not available_dates:
+            raise ValueError(
+                f"No historical price data available for {ticker} ({asset_type}) on or before {target_date}"
+            )
+        
+        most_recent_date = max(available_dates)
+        return ticker_prices[most_recent_date]
 
     def get_historical_prices(
         self,
@@ -257,23 +271,23 @@ class PriceService:
         start_date: date,
         end_date: date,
         in_native_currency: bool = False,
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Dict[date, float]]:
         """Get historical prices for multiple assets over a date range.
 
-        Returns prices for the end_date (most recent available up to end_date).
+        Returns prices for all dates in the range (start_date to end_date, inclusive).
 
         Args:
             tickers: List of asset ticker symbols
             asset_type: Asset type for all tickers
             start_date: Start date (inclusive)
-            end_date: End date (inclusive). Prices returned are for this date (most recent available)
+            end_date: End date (inclusive)
             in_native_currency: If True, return prices in native currency; if False, return USD (default)
 
         Returns:
-            Dictionary mapping ticker to price on end_date (in USD or native currency)
+            Dictionary mapping ticker to dictionary mapping date to price (in USD or native currency)
 
         Raises:
-            ValueError: If no price data can be obtained for a ticker
+            ValueError: If no price data can be obtained for any ticker
         """
         logger.info(
             f"Historical price request for {len(tickers)} {asset_type} assets "
@@ -283,28 +297,41 @@ class PriceService:
         if not tickers:
             return {}
 
-        prices: Dict[str, float] = {}
+        # Result structure: Dict[ticker, Dict[date, price]]
+        prices: Dict[str, Dict[date, float]] = {}
         uncached_tickers: List[str] = []
 
         # Check historical cache for all tickers first
         for ticker in tickers:
-            cached_price = self.historical_cache.get_cached_price(
-                ticker, asset_type, end_date
+            cached_prices_df = self.historical_cache.get_cached_prices(
+                ticker, asset_type, start_date, end_date
             )
-            if cached_price is not None:
-                # Check if we need native currency price
-                if in_native_currency:
-                    # For historical prices, we need to get native price from cache
-                    # For now, if in_native_currency and asset is not USD, we'll need to fetch
-                    # For simplicity, we'll fetch if in_native_currency is True
-                    # This could be optimized later
-                    uncached_tickers.append(ticker)
+            if cached_prices_df is not None and not cached_prices_df.empty:
+                # Convert DataFrame to Dict[date, float]
+                ticker_prices: Dict[date, float] = {}
+                for idx, row in cached_prices_df.iterrows():
+                    # Handle both DatetimeIndex and date index
+                    if isinstance(idx, pd.Timestamp):
+                        price_date = idx.date()
+                    else:
+                        price_date = idx
+                    if not pd.isna(row["price"]):
+                        ticker_prices[price_date] = float(row["price"])
+                
+                if ticker_prices:
+                    # Check if we need native currency price
+                    if in_native_currency:
+                        # For historical prices with native currency, we'll need to fetch
+                        # This could be optimized later to extract from cache
+                        uncached_tickers.append(ticker)
+                    else:
+                        prices[ticker] = ticker_prices
                 else:
-                    prices[ticker] = cached_price
+                    uncached_tickers.append(ticker)
             else:
                 uncached_tickers.append(ticker)
 
-        # Fetch missing prices
+        # Fetch missing prices in batch
         if uncached_tickers:
             self.rate_limiter.wait_if_needed()
 
@@ -318,13 +345,23 @@ class PriceService:
             # Track failed tickers
             failed_tickers: List[str] = []
 
-            # Fetch historical prices for each ticker
-            for ticker in uncached_tickers:
-                try:
-                    # Get historical prices DataFrame
-                    native_prices_df = retriever.get_historical_prices(
-                        ticker, asset_type, start_date, end_date
-                    )
+            try:
+                # Fetch historical prices for all uncached tickers in a single batch call
+                native_prices_dfs = retriever.get_historical_prices(
+                    uncached_tickers, asset_type, start_date, end_date
+                )
+
+                # Process each ticker's DataFrame
+                for ticker in uncached_tickers:
+                    if ticker not in native_prices_dfs:
+                        logger.warning(
+                            f"No historical price data for {ticker} ({asset_type}) "
+                            f"from {start_date} to {end_date}"
+                        )
+                        failed_tickers.append(ticker)
+                        continue
+
+                    native_prices_df = native_prices_dfs[ticker]
 
                     if native_prices_df.empty:
                         logger.warning(
@@ -334,66 +371,24 @@ class PriceService:
                         failed_tickers.append(ticker)
                         continue
 
-                    # Get price on end_date (most recent available)
-                    # Find the most recent non-NaN price up to end_date
-                    price_series = native_prices_df["price"].dropna()
-                    if price_series.empty:
-                        logger.warning(
-                            f"No valid prices for {ticker} ({asset_type}) in date range"
-                        )
-                        failed_tickers.append(ticker)
-                        continue
-
-                    # Filter to prices on or before end_date
-                    # Handle both DatetimeIndex and date index
-                    if isinstance(price_series.index, pd.DatetimeIndex):
-                        # Convert DatetimeIndex to date for comparison
-                        price_series = price_series[price_series.index.date <= end_date]
-                    else:
-                        # Assume index is already date objects
-                        price_series = price_series[price_series.index <= end_date]
-                    
-                    if price_series.empty:
-                        logger.warning(
-                            f"No valid prices for {ticker} ({asset_type}) on or before {end_date}"
-                        )
-                        failed_tickers.append(ticker)
-                        continue
-
-                    # Get the most recent price (last non-NaN value on or before end_date)
-                    native_price = float(price_series.iloc[-1])
-
-                    # Convert to USD for stocks/ETFs
-                    if asset_type in ("Stock", "ETF"):
-                        currency = self._stock_retriever._detect_currency(ticker)
-                        if currency == "USD":
-                            price_usd = native_price
-                        else:
-                            # For historical prices, we need historical forex rates
-                            # For now, use current exchange rate (could be improved)
-                            price_usd = self.currency_service.convert_to_usd(
-                                native_price, currency
-                            )
-                    else:  # Crypto
-                        currency = "USD"
-                        price_usd = native_price
-
-                    # Store in historical cache
-                    # Convert native prices to USD prices DataFrame
-                    usd_prices_df = native_prices_df.copy()
+                    # Convert to USD prices DataFrame
                     if asset_type in ("Stock", "ETF"):
                         currency = self._stock_retriever._detect_currency(ticker)
                         if currency != "USD":
                             # Convert each price to USD (using current rate for now)
                             # This could be improved with historical forex rates
+                            usd_prices_df = native_prices_df.copy()
                             usd_prices_df["price"] = native_prices_df["price"].apply(
-                                lambda p: self.currency_service.convert_to_usd(p, currency)
+                                lambda p: self.currency_service.convert_to_usd(p, currency) if not pd.isna(p) else p
                             )
-                    else:
+                        else:
+                            currency = "USD"
+                            usd_prices_df = native_prices_df.copy()
+                    else:  # Crypto
                         currency = "USD"
-                        # Crypto prices are already in USD
                         usd_prices_df = native_prices_df.copy()
 
+                    # Store in historical cache
                     self.historical_cache.set_cached_prices(
                         ticker,
                         asset_type,
@@ -402,23 +397,51 @@ class PriceService:
                         native_currency=currency,
                     )
 
-                    # Return requested currency
-                    result_price = native_price if in_native_currency else price_usd
-                    prices[ticker] = result_price
+                    # Convert DataFrame to Dict[date, float] for return value
+                    ticker_prices: Dict[date, float] = {}
+                    prices_df = native_prices_df if in_native_currency else usd_prices_df
+                    
+                    for idx, row in prices_df.iterrows():
+                        # Handle both DatetimeIndex and date index
+                        if isinstance(idx, pd.Timestamp):
+                            price_date = idx.date()
+                        else:
+                            price_date = idx
+                        if not pd.isna(row["price"]):
+                            ticker_prices[price_date] = float(row["price"])
 
-                except Exception as e:
-                    logger.warning(
-                        f"Error fetching historical prices for {ticker} ({asset_type}): {e}"
-                    )
-                    # Try to get stale cached price
-                    stale_price = self.historical_cache.get_cached_price(
-                        ticker, asset_type, end_date
-                    )
-                    if stale_price is not None:
+                    if ticker_prices:
+                        prices[ticker] = ticker_prices
+                    else:
                         logger.warning(
-                            f"Using stale cached historical price for {ticker} ({asset_type}): {stale_price:.2f}"
+                            f"No valid prices for {ticker} ({asset_type}) in date range"
                         )
-                        prices[ticker] = stale_price
+                        failed_tickers.append(ticker)
+
+            except Exception as e:
+                logger.warning(
+                    f"Error fetching historical prices for tickers {uncached_tickers} ({asset_type}): {e}"
+                )
+                # Try to get stale cached prices for each ticker
+                for ticker in uncached_tickers:
+                    stale_prices_df = self.historical_cache.get_cached_prices(
+                        ticker, asset_type, start_date, end_date
+                    )
+                    if stale_prices_df is not None and not stale_prices_df.empty:
+                        logger.warning(
+                            f"Using stale cached historical prices for {ticker} ({asset_type})"
+                        )
+                        # Convert DataFrame to Dict[date, float]
+                        ticker_prices: Dict[date, float] = {}
+                        for idx, row in stale_prices_df.iterrows():
+                            if isinstance(idx, pd.Timestamp):
+                                price_date = idx.date()
+                            else:
+                                price_date = idx
+                            if not pd.isna(row["price"]):
+                                ticker_prices[price_date] = float(row["price"])
+                        if ticker_prices:
+                            prices[ticker] = ticker_prices
                     else:
                         failed_tickers.append(ticker)
 

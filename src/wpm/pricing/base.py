@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import Dict, List
+from typing import Dict, List, Union
 
 import pandas as pd
 
@@ -42,18 +42,19 @@ class PriceRetriever(ABC):
 
     @abstractmethod
     def get_historical_prices(
-        self, ticker: str, asset_type: str, start_date: date, end_date: date
-    ) -> pd.DataFrame:
-        """Get historical prices for an asset over a date range.
+        self, ticker: Union[str, List[str]], asset_type: str, start_date: date, end_date: date
+    ) -> Union[pd.DataFrame, Dict[str, pd.DataFrame]]:
+        """Get historical prices for an asset or multiple assets over a date range.
 
         Args:
-            ticker: Asset ticker symbol
+            ticker: Asset ticker symbol (str) or list of ticker symbols (List[str])
             asset_type: Asset type ("Stock", "ETF", or "Crypto")
             start_date: Start date (inclusive)
             end_date: End date (inclusive)
 
         Returns:
-            DataFrame with date index and price column (native currency)
+            If ticker is str: DataFrame with date index and price column (native currency)
+            If ticker is List[str]: Dictionary mapping ticker to DataFrame with date index and price column (native currency)
 
         Raises:
             ValueError: If prices cannot be retrieved

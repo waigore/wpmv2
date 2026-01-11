@@ -154,7 +154,20 @@ class TestShowCommandsWithUpTo:
         composite.add_sub_portfolio(portfolio)
 
         mock_price_service = Mock(spec=PriceService)
-        mock_price_service.get_historical_prices.return_value = {"GOOG": 155.0}
+        
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    prices[ticker][current] = 155.0
+                current += timedelta(days=1)
+            return prices
+        
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_show_portfolio(
@@ -211,7 +224,20 @@ class TestShowCommandsWithUpTo:
         composite.add_sub_portfolio(portfolio)
 
         mock_price_service = Mock(spec=PriceService)
-        mock_price_service.get_historical_prices.return_value = {"GOOG": 155.0}
+        
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    prices[ticker][current] = 155.0
+                current += timedelta(days=1)
+            return prices
+        
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_show_all(composite, mock_price_service, date(2024, 1, 17))

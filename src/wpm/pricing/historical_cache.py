@@ -113,7 +113,7 @@ class HistoricalPriceCache:
         # Filter by ticker and asset_type
         matches = cache[
             (cache["ticker"] == ticker) & (cache["asset_type"] == asset_type)
-        ]
+        ].copy()
 
         if matches.empty:
             logger.debug(f"No cache entry found for {ticker} ({asset_type})")

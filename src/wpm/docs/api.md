@@ -137,7 +137,6 @@
   * [fetch\_price\_map](#wpm.portfolio.fetch_price_map)
   * [generate\_historical\_snapshots](#wpm.portfolio.generate_historical_snapshots)
   * [get\_historical\_performance](#wpm.portfolio.get_historical_performance)
-  * [get\_historical\_performance\_v2](#wpm.portfolio.get_historical_performance_v2)
 * [wpm.pricing.service](#wpm.pricing.service)
   * [PriceService](#wpm.pricing.service.PriceService)
     * [\_\_init\_\_](#wpm.pricing.service.PriceService.__init__)
@@ -2431,46 +2430,9 @@ For assets that exist in the final portfolio but were purchased after the start 
 history points before the asset purchase will show a position of 0.0. For composite
 portfolios, asset positions from sub-portfolios with the same ticker are merged.
 
-**Arguments**:
-
-- `portfolio` - Portfolio to analyze (SimplePortfolio or CompositePortfolio)
-- `price_service` - Price service for retrieving historical prices
-- `start_date` - Start date for performance tracking (inclusive)
-- `end_date` - End date for performance tracking (inclusive)
-  
-
-**Returns**:
-
-  List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
-  
-
-**Raises**:
-
-- `PortfolioError` - If date range is invalid or outside portfolio's date range
-- `ValueError` - If historical prices cannot be retrieved for any required assets
-
-<a id="wpm.portfolio.get_historical_performance_v2"></a>
-
-#### get\_historical\_performance\_v2
-
-```python
-def get_historical_performance_v2(
-        portfolio: Portfolio, price_service: "PriceService", start_date: date,
-        end_date: date) -> List[PortfolioHistoryPoint]
-```
-
-Get historical performance of a portfolio over a date range (v2 - optimized).
-
-Returns a list of history points, one for each day from start_date to end_date
-(inclusive). Each history point contains the total market value of the portfolio
-and asset positions (quantity * historical price) for each asset on that date.
-
-For assets that exist in the final portfolio but were purchased after the start date,
-history points before the asset purchase will show a position of 0.0. For composite
-portfolios, asset positions from sub-portfolios with the same ticker are merged.
-
-This v2 version calculates historical performance without creating portfolio snapshots,
-resulting in better performance by filtering trades directly and using calculate_fifo_cost_basis.
+This implementation calculates historical performance by filtering trades directly
+instead of creating portfolio snapshots, and fetches all prices upfront in batch
+for better performance.
 
 **Arguments**:
 
@@ -2617,30 +2579,30 @@ def get_historical_prices(
         asset_type: str,
         start_date: date,
         end_date: date,
-        in_native_currency: bool = False) -> Dict[str, float]
+        in_native_currency: bool = False) -> Dict[str, Dict[date, float]]
 ```
 
 Get historical prices for multiple assets over a date range.
 
-Returns prices for the end_date (most recent available up to end_date).
+Returns prices for all dates in the range (start_date to end_date, inclusive).
 
 **Arguments**:
 
 - `tickers` - List of asset ticker symbols
 - `asset_type` - Asset type for all tickers
 - `start_date` - Start date (inclusive)
-- `end_date` - End date (inclusive). Prices returned are for this date (most recent available)
+- `end_date` - End date (inclusive)
 - `in_native_currency` - If True, return prices in native currency; if False, return USD (default)
   
 
 **Returns**:
 
-  Dictionary mapping ticker to price on end_date (in USD or native currency)
+  Dictionary mapping ticker to dictionary mapping date to price (in USD or native currency)
   
 
 **Raises**:
 
-- `ValueError` - If no price data can be obtained for a ticker
+- `ValueError` - If no price data can be obtained for any ticker
 
 <a id="wpm.pricing.coingecko"></a>
 
@@ -2725,18 +2687,19 @@ Get current prices from CoinGecko for multiple tickers in a single batch request
 #### get\_historical\_prices
 
 ```python
-def get_historical_prices(ticker: str, asset_type: str, start_date: date,
-                          end_date: date) -> pd.DataFrame
+def get_historical_prices(
+        ticker: Union[str, List[str]], asset_type: str, start_date: date,
+        end_date: date) -> Union[pd.DataFrame, Dict[str, pd.DataFrame]]
 ```
 
 Get historical prices from CoinGecko over a date range.
 
 Note: CoinGecko doesn't support multiple tickers in the same API call with date ranges,
-so this method handles a single ticker.
+so this method only handles a single ticker. When a list is provided, raises ValueError.
 
 **Arguments**:
 
-- `ticker` - Crypto ticker symbol
+- `ticker` - Crypto ticker symbol (str) or list of ticker symbols (List[str])
 - `asset_type` - Asset type (should be "Crypto")
 - `start_date` - Start date (inclusive)
 - `end_date` - End date (inclusive)
@@ -2744,12 +2707,13 @@ so this method handles a single ticker.
 
 **Returns**:
 
-  DataFrame with date index and price column (USD)
+  If ticker is str: DataFrame with date index and price column (USD)
+  If ticker is List[str]: Not supported, raises ValueError
   
 
 **Raises**:
 
-- `ValueError` - If prices cannot be retrieved
+- `ValueError` - If prices cannot be retrieved, or if multiple tickers are provided
 
 <a id="wpm.pricing.yahoo"></a>
 
@@ -2841,15 +2805,18 @@ Outside trading hours: uses Close from batch download.
 #### get\_historical\_prices
 
 ```python
-def get_historical_prices(ticker: str, asset_type: str, start_date: date,
-                          end_date: date) -> pd.DataFrame
+def get_historical_prices(
+        ticker: Union[str, List[str]], asset_type: str, start_date: date,
+        end_date: date) -> Union[pd.DataFrame, Dict[str, pd.DataFrame]]
 ```
 
 Get historical prices from Yahoo Finance over a date range.
 
+Supports both single ticker and batch ticker fetching.
+
 **Arguments**:
 
-- `ticker` - Stock/ETF/Crypto ticker symbol
+- `ticker` - Stock/ETF/Crypto ticker symbol (str) or list of ticker symbols (List[str])
 - `asset_type` - Asset type (should be "Stock", "ETF", or "Crypto")
 - `start_date` - Start date (inclusive)
 - `end_date` - End date (inclusive)
@@ -2857,7 +2824,8 @@ Get historical prices from Yahoo Finance over a date range.
 
 **Returns**:
 
-  DataFrame with date index and price column (native currency, USD for crypto)
+  If ticker is str: DataFrame with date index and price column (native currency, USD for crypto)
+  If ticker is List[str]: Dictionary mapping ticker to DataFrame with date index and price column
   
 
 **Raises**:
@@ -3292,15 +3260,16 @@ Get current prices for multiple assets in a single batch request.
 
 ```python
 @abstractmethod
-def get_historical_prices(ticker: str, asset_type: str, start_date: date,
-                          end_date: date) -> pd.DataFrame
+def get_historical_prices(
+        ticker: Union[str, List[str]], asset_type: str, start_date: date,
+        end_date: date) -> Union[pd.DataFrame, Dict[str, pd.DataFrame]]
 ```
 
-Get historical prices for an asset over a date range.
+Get historical prices for an asset or multiple assets over a date range.
 
 **Arguments**:
 
-- `ticker` - Asset ticker symbol
+- `ticker` - Asset ticker symbol (str) or list of ticker symbols (List[str])
 - `asset_type` - Asset type ("Stock", "ETF", or "Crypto")
 - `start_date` - Start date (inclusive)
 - `end_date` - End date (inclusive)
@@ -3308,7 +3277,8 @@ Get historical prices for an asset over a date range.
 
 **Returns**:
 
-  DataFrame with date index and price column (native currency)
+  If ticker is str: DataFrame with date index and price column (native currency)
+  If ticker is List[str]: Dictionary mapping ticker to DataFrame with date index and price column (native currency)
   
 
 **Raises**:

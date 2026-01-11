@@ -2,7 +2,7 @@
 
 import logging
 from datetime import date, datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import pandas as pd
 from pycoingecko import CoinGeckoAPI
@@ -168,12 +168,45 @@ class CoinGeckoRetriever(PriceRetriever):
             return {}
 
     def get_historical_prices(
-        self, ticker: str, asset_type: str, start_date: date, end_date: date
-    ) -> pd.DataFrame:
+        self, ticker: Union[str, List[str]], asset_type: str, start_date: date, end_date: date
+    ) -> Union[pd.DataFrame, Dict[str, pd.DataFrame]]:
         """Get historical prices from CoinGecko over a date range.
 
         Note: CoinGecko doesn't support multiple tickers in the same API call with date ranges,
-        so this method handles a single ticker.
+        so this method only handles a single ticker. When a list is provided, raises ValueError.
+
+        Args:
+            ticker: Crypto ticker symbol (str) or list of ticker symbols (List[str])
+            asset_type: Asset type (should be "Crypto")
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+
+        Returns:
+            If ticker is str: DataFrame with date index and price column (USD)
+            If ticker is List[str]: Not supported, raises ValueError
+
+        Raises:
+            ValueError: If prices cannot be retrieved, or if multiple tickers are provided
+        """
+        # CoinGecko doesn't support batch historical fetching
+        if isinstance(ticker, list):
+            if len(ticker) == 0:
+                return {}
+            if len(ticker) > 1:
+                raise ValueError(
+                    f"CoinGecko doesn't support batch historical price fetching for multiple tickers. "
+                    f"Provided {len(ticker)} tickers: {ticker}"
+                )
+            # Single ticker in list - extract it
+            ticker = ticker[0]
+
+        # Handle single ticker (backward compatibility)
+        return self._get_historical_prices_single(ticker, asset_type, start_date, end_date)
+
+    def _get_historical_prices_single(
+        self, ticker: str, asset_type: str, start_date: date, end_date: date
+    ) -> pd.DataFrame:
+        """Get historical prices for a single ticker (internal helper).
 
         Args:
             ticker: Crypto ticker symbol

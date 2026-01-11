@@ -2,7 +2,7 @@
 
 import logging
 from datetime import date, datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import pandas as pd
 import pytz
@@ -203,6 +203,61 @@ class YahooFinanceRetriever(PriceRetriever):
 
         return prices
 
+    def _process_historical_multiindex_data(
+        self, data: pd.DataFrame, tickers: List[str], start_date: date, end_date: date
+    ) -> Dict[str, pd.DataFrame]:
+        """Process MultiIndex DataFrame from yfinance batch historical download.
+
+        Args:
+            data: DataFrame with MultiIndex columns (group_by='ticker')
+            tickers: List of ticker symbols
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+
+        Returns:
+            Dictionary mapping ticker to DataFrame with date index and price column
+        """
+        result: Dict[str, pd.DataFrame] = {}
+
+        for ticker in tickers:
+            try:
+                if ticker not in data.columns.levels[0]:
+                    logger.warning(f"No historical price data available for {ticker}")
+                    continue
+
+                ticker_data = data[ticker]
+                if ticker_data.empty:
+                    logger.warning(f"No historical price data for {ticker}")
+                    continue
+
+                # Extract Close prices (or Adj Close if available)
+                if "Close" in ticker_data.columns:
+                    prices = ticker_data["Close"]
+                elif "Adj Close" in ticker_data.columns:
+                    prices = ticker_data["Adj Close"]
+                else:
+                    logger.warning(f"No Close price data available for {ticker}")
+                    continue
+
+                # Convert to DataFrame with date index
+                result_df = pd.DataFrame({"price": prices})
+                result_df.index.name = "date"
+
+                # Forward fill to handle missing trading days
+                date_range = pd.date_range(start=start_date, end=end_date, freq="D")
+                result_df = result_df.reindex(date_range, method="ffill")
+
+                result[ticker] = result_df
+
+                logger.debug(
+                    f"Retrieved {len(result_df)} historical prices for {ticker} "
+                    f"from {start_date} to {end_date}"
+                )
+            except Exception as e:
+                logger.warning(f"Error processing historical prices for {ticker}: {str(e)}")
+
+        return result
+
     def get_prices(self, tickers: List[str], asset_type: str) -> Dict[str, float]:
         """Get current prices from Yahoo Finance for multiple tickers in a single batch request.
 
@@ -258,9 +313,96 @@ class YahooFinanceRetriever(PriceRetriever):
         return prices
 
     def get_historical_prices(
+        self, ticker: Union[str, List[str]], asset_type: str, start_date: date, end_date: date
+    ) -> Union[pd.DataFrame, Dict[str, pd.DataFrame]]:
+        """Get historical prices from Yahoo Finance over a date range.
+
+        Supports both single ticker and batch ticker fetching.
+
+        Args:
+            ticker: Stock/ETF/Crypto ticker symbol (str) or list of ticker symbols (List[str])
+            asset_type: Asset type (should be "Stock", "ETF", or "Crypto")
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+
+        Returns:
+            If ticker is str: DataFrame with date index and price column (native currency, USD for crypto)
+            If ticker is List[str]: Dictionary mapping ticker to DataFrame with date index and price column
+
+        Raises:
+            ValueError: If prices cannot be retrieved
+        """
+        # Handle single ticker (backward compatibility)
+        if isinstance(ticker, str):
+            return self._get_historical_prices_single(ticker, asset_type, start_date, end_date)
+
+        # Handle batch tickers
+        if not ticker:
+            return {}
+
+        logger.debug(
+            f"Batch fetching historical prices from Yahoo Finance for {len(ticker)} {asset_type} assets "
+            f"from {start_date} to {end_date}"
+        )
+
+        try:
+            # Map crypto tickers to yfinance format if needed
+            yfinance_tickers = []
+            ticker_mapping: Dict[str, str] = {}  # Maps yfinance ticker to original ticker
+            for orig_ticker in ticker:
+                if asset_type == "Crypto":
+                    yfinance_ticker = self._map_crypto_ticker(orig_ticker)
+                    if yfinance_ticker != orig_ticker:
+                        logger.debug(f"Mapped crypto ticker {orig_ticker} to {yfinance_ticker} for yfinance")
+                    # Store mapping: yfinance_ticker -> orig_ticker
+                    ticker_mapping[yfinance_ticker] = orig_ticker
+                    yfinance_tickers.append(yfinance_ticker)
+                else:
+                    yfinance_tickers.append(orig_ticker)
+                    ticker_mapping[orig_ticker] = orig_ticker
+
+            # Use yf.download with start and end dates, group_by='ticker' for batch
+            data = yf.download(
+                yfinance_tickers,
+                start=start_date,
+                end=end_date,
+                progress=False,
+                auto_adjust=True,
+                actions=False,
+                group_by="ticker",
+            )
+
+            # Handle case where yf.download returns None
+            if data is None:
+                raise ValueError(f"No historical price data available for tickers: {ticker}")
+
+            if data.empty:
+                raise ValueError(f"No historical price data available for tickers: {ticker}")
+
+            # Process MultiIndex DataFrame with group_by='ticker'
+            result = self._process_historical_multiindex_data(data, yfinance_tickers, start_date, end_date)
+
+            # Map back to original tickers if crypto mapping was used
+            # ticker_mapping maps yfinance_ticker -> orig_ticker
+            if asset_type == "Crypto" and ticker_mapping:
+                mapped_result: Dict[str, pd.DataFrame] = {}
+                for yf_ticker, df in result.items():
+                    # Look up original ticker for this yfinance ticker
+                    orig_ticker = ticker_mapping.get(yf_ticker, yf_ticker)
+                    mapped_result[orig_ticker] = df
+                result = mapped_result
+
+            return result
+
+        except Exception as e:
+            raise ValueError(
+                f"Error fetching historical prices for tickers {ticker} from Yahoo Finance: {str(e)}"
+            ) from e
+
+    def _get_historical_prices_single(
         self, ticker: str, asset_type: str, start_date: date, end_date: date
     ) -> pd.DataFrame:
-        """Get historical prices from Yahoo Finance over a date range.
+        """Get historical prices for a single ticker (internal helper).
 
         Args:
             ticker: Stock/ETF/Crypto ticker symbol

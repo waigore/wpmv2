@@ -884,10 +884,31 @@ def fetch_price_map(
             else:
                 # Use current prices
                 prices = price_service.get_prices(tickers, asset_type)
+                # Current prices return Dict[str, float]
+                for asset in asset_list:
+                    ticker = asset.ticker
+                    price_map[asset] = prices.get(ticker)
+                continue
 
-            # Map tickers back to assets
+            # Map tickers back to assets (historical prices)
+            # prices is Dict[str, Dict[date, float]], extract price for end_date
             for asset in asset_list:
-                price_map[asset] = prices.get(asset.ticker)
+                ticker = asset.ticker
+                if ticker in prices:
+                    ticker_prices = prices[ticker]
+                    # Find price for end_date (or most recent available up to end_date)
+                    if end_date in ticker_prices:
+                        price_map[asset] = ticker_prices[end_date]
+                    else:
+                        # Find most recent date <= end_date
+                        available_dates = [d for d in ticker_prices.keys() if d <= end_date]
+                        if available_dates:
+                            most_recent_date = max(available_dates)
+                            price_map[asset] = ticker_prices[most_recent_date]
+                        else:
+                            price_map[asset] = None
+                else:
+                    price_map[asset] = None
         except Exception as e:
             logger.warning(
                 f"Price retrieval failed for {asset_type} assets: {e}"
@@ -956,8 +977,6 @@ def generate_historical_snapshots(
     )
 
     return snapshots
-
-
 def get_historical_performance(
     portfolio: Portfolio,
     price_service: "PriceService",
@@ -973,6 +992,10 @@ def get_historical_performance(
     For assets that exist in the final portfolio but were purchased after the start date,
     history points before the asset purchase will show a position of 0.0. For composite
     portfolios, asset positions from sub-portfolios with the same ticker are merged.
+
+    This implementation calculates historical performance by filtering trades directly
+    instead of creating portfolio snapshots, and fetches all prices upfront in batch
+    for better performance.
 
     Args:
         portfolio: Portfolio to analyze (SimplePortfolio or CompositePortfolio)
@@ -1021,193 +1044,32 @@ def get_historical_performance(
             assets_by_type[asset_type] = []
         assets_by_type[asset_type].append(asset)
 
-    # Generate history points for each date in range
-    history_points: List[PortfolioHistoryPoint] = []
-    current_date = start_date
-
-    while current_date <= end_date:
-        # Clone portfolio with end_date set to current_date to get snapshot state
-        # Use _skip_end_date_validation=True to allow dates beyond portfolio's date range
-        # (e.g., for calculating performance after trades have occurred)
-        snapshot = portfolio.clone(
-            start_date=None, end_date=current_date, _skip_end_date_validation=True
-        )
-
-        # Get positions from the snapshot
-        snapshot_positions = snapshot.get_positions()
-
-        # Initialize asset positions dictionary with all assets from final portfolio
-        # This ensures all assets are present even if not purchased by current_date
-        asset_positions: Dict[str, float] = {
-            asset_to_ticker[asset]: 0.0 for asset in all_assets
-        }
-
-        # Fetch historical prices only for assets with positions on current date
-        # Group by asset type for batch processing
-        prices_by_ticker: Dict[str, float] = {}
-
-        for asset_type, asset_list in assets_by_type.items():
-            # Only fetch prices for assets that have positions on this date
-            assets_with_positions = [
-                asset for asset in asset_list
-                if asset in snapshot_positions and snapshot_positions[asset].quantity > 0
-            ]
-            tickers = [asset.ticker for asset in assets_with_positions]
-            
-            # Skip if no assets of this type have positions on this date
-            if not tickers:
-                continue
-                
-            try:
-                # Fetch historical prices for this date (use current_date for both start and end)
-                prices = price_service.get_historical_prices(
-                    tickers, asset_type, current_date, current_date
-                )
-                # get_historical_prices may return a partial dict if some tickers fail
-                # but will log warnings. We need all prices, so check for missing ones.
-                prices_by_ticker.update(prices)
-            except ValueError as e:
-                # get_historical_prices raises ValueError if all tickers fail
-                logger.error(
-                    f"Failed to retrieve historical prices for {asset_type} assets "
-                    f"on {current_date}: {e}"
-                )
-                raise ValueError(
-                    f"Historical prices unavailable for {asset_type} assets on {current_date}: {e}"
-                ) from e
-
-        # Check if all required prices were retrieved (only for assets with positions)
-        # get_historical_prices may return partial results if some tickers fail,
-        # but according to requirements, we need all prices or should raise error
-        missing_prices = []
-        for asset in all_assets:
-            # Only require prices for assets that have positions on this date
-            if asset in snapshot_positions and snapshot_positions[asset].quantity > 0:
-                ticker = asset_to_ticker[asset]
-                if ticker not in prices_by_ticker:
-                    missing_prices.append(ticker)
-
-        if missing_prices:
-            raise ValueError(
-                f"Historical prices unavailable for tickers on {current_date}: {', '.join(missing_prices)}"
-            )
-
-        # Calculate asset positions: quantity * price for each asset
-        total_market_value = 0.0
-
-        for asset in all_assets:
-            ticker = asset_to_ticker[asset]
-            position = snapshot_positions.get(asset)
-
-            if position is not None and position.quantity > 0:
-                # Asset has a position in the snapshot
-                price = prices_by_ticker[ticker]
-                position_value = float(position.quantity) * price
-                asset_positions[ticker] = position_value
-                total_market_value += position_value
-            else:
-                # Asset not yet purchased or fully sold - position already set to 0.0
-                asset_positions[ticker] = 0.0
-
-        # For composite portfolios, we need to merge positions from sub-portfolios
-        # However, since we're using get_positions() on the cloned snapshot, it already
-        # handles aggregation for composite portfolios. But we need to ensure we're
-        # correctly calculating positions for assets that appear in multiple sub-portfolios.
-        # The get_positions() method on CompositePortfolio already merges positions by asset,
-        # so we should be good. However, let's double-check that we're using the right approach.
-
-        # Actually, wait - for composite portfolios, get_positions() returns aggregated positions
-        # already merged by Asset (which includes both ticker and asset_type). So if we have
-        # BTC-USD in P1 and P2, get_positions() will return one Position with merged quantity.
-        # This is correct and what we want.
-
-        # Create history point
-        history_point = PortfolioHistoryPoint(
-            date=current_date,
-            total_market_value=total_market_value,
-            asset_positions=asset_positions.copy(),
-        )
-        history_points.append(history_point)
-
-        # Move to next day
-        current_date += timedelta(days=1)
-
-    logger.info(
-        f"Generated {len(history_points)} history points for portfolio '{portfolio.name}' "
-        f"from {start_date} to {end_date}"
-    )
-
-    return history_points
-
-
-def get_historical_performance_v2(
-    portfolio: Portfolio,
-    price_service: "PriceService",
-    start_date: date,
-    end_date: date,
-) -> List[PortfolioHistoryPoint]:
-    """Get historical performance of a portfolio over a date range (v2 - optimized).
-
-    Returns a list of history points, one for each day from start_date to end_date
-    (inclusive). Each history point contains the total market value of the portfolio
-    and asset positions (quantity * historical price) for each asset on that date.
-
-    For assets that exist in the final portfolio but were purchased after the start date,
-    history points before the asset purchase will show a position of 0.0. For composite
-    portfolios, asset positions from sub-portfolios with the same ticker are merged.
-
-    This v2 version calculates historical performance without creating portfolio snapshots,
-    resulting in better performance by filtering trades directly and using calculate_fifo_cost_basis.
-
-    Args:
-        portfolio: Portfolio to analyze (SimplePortfolio or CompositePortfolio)
-        price_service: Price service for retrieving historical prices
-        start_date: Start date for performance tracking (inclusive)
-        end_date: End date for performance tracking (inclusive)
-
-    Returns:
-        List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
-
-    Raises:
-        PortfolioError: If date range is invalid or outside portfolio's date range
-        ValueError: If historical prices cannot be retrieved for any required assets
-    """
-    logger.info(
-        f"Calculating historical performance (v2) for portfolio '{portfolio.name}' "
-        f"from {start_date} to {end_date}"
-    )
-
-    # Validate date range
-    if start_date > end_date:
-        raise PortfolioError(
-            f"start_date {start_date} is after end_date {end_date}"
-        )
-
-    # Get all assets that exist in the final portfolio state
-    # This ensures we track all assets even if they weren't purchased by start_date
-    final_positions = portfolio.get_positions()
-    all_assets = list(final_positions.keys())
-
-    # Note: We allow flexible date ranges:
-    # - start_date can be before portfolio_start (assets will show 0.0 positions before purchase)
-    # - end_date can be after portfolio_end (we can calculate performance for dates after trades,
-    #   showing current positions as of those dates)
-    # This allows users to analyze performance across any date range, even extending beyond
-    # the portfolio's actual trade date range
-
-    # Create a mapping of asset to ticker for quick lookup
-    asset_to_ticker = {asset: asset.ticker for asset in all_assets}
-
-    # Group assets by asset type for efficient batch price fetching
-    assets_by_type: Dict[str, List[Asset]] = {}
-    for asset in all_assets:
-        asset_type = asset.asset_type
-        if asset_type not in assets_by_type:
-            assets_by_type[asset_type] = []
-        assets_by_type[asset_type].append(asset)
-
     # Get all trades once (works for both SimplePortfolio and CompositePortfolio)
     all_trades = portfolio.get_all_trades()
+
+    # Fetch all prices upfront for the entire date range (batch fetch by asset type)
+    # Structure: Dict[asset_type, Dict[ticker, Dict[date, price]]]
+    all_prices_by_type: Dict[str, Dict[str, Dict[date, float]]] = {}
+    
+    for asset_type, asset_list in assets_by_type.items():
+        tickers = [asset.ticker for asset in asset_list]
+        if not tickers:
+            continue
+        
+        try:
+            # Fetch prices for entire date range in a single batch call
+            prices = price_service.get_historical_prices(
+                tickers, asset_type, start_date, end_date
+            )
+            all_prices_by_type[asset_type] = prices
+        except ValueError as e:
+            logger.error(
+                f"Failed to retrieve historical prices for {asset_type} assets "
+                f"from {start_date} to {end_date}: {e}"
+            )
+            raise ValueError(
+                f"Historical prices unavailable for {asset_type} assets from {start_date} to {end_date}: {e}"
+            ) from e
 
     # Generate history points for each date in range
     history_points: List[PortfolioHistoryPoint] = []
@@ -1228,12 +1090,11 @@ def get_historical_performance_v2(
             asset_to_ticker[asset]: 0.0 for asset in all_assets
         }
 
-        # Fetch historical prices only for assets with positions on current date
-        # Group by asset type for batch processing
+        # Look up prices from pre-fetched data
         prices_by_ticker: Dict[str, float] = {}
 
         for asset_type, asset_list in assets_by_type.items():
-            # Only fetch prices for assets that have positions on this date
+            # Only get prices for assets that have positions on this date
             assets_with_positions = [
                 asset for asset in asset_list
                 if asset in snapshot_positions and snapshot_positions[asset].quantity > 0
@@ -1243,28 +1104,28 @@ def get_historical_performance_v2(
             # Skip if no assets of this type have positions on this date
             if not tickers:
                 continue
-                
-            try:
-                # Fetch historical prices for this date (use current_date for both start and end)
-                prices = price_service.get_historical_prices(
-                    tickers, asset_type, current_date, current_date
-                )
-                # get_historical_prices may return a partial dict if some tickers fail
-                # but will log warnings. We need all prices, so check for missing ones.
-                prices_by_ticker.update(prices)
-            except ValueError as e:
-                # get_historical_prices raises ValueError if all tickers fail
-                logger.error(
-                    f"Failed to retrieve historical prices for {asset_type} assets "
-                    f"on {current_date}: {e}"
-                )
-                raise ValueError(
-                    f"Historical prices unavailable for {asset_type} assets on {current_date}: {e}"
-                ) from e
+
+            # Get prices for this asset type from pre-fetched data
+            if asset_type not in all_prices_by_type:
+                continue
+
+            type_prices = all_prices_by_type[asset_type]
+
+            # Extract prices for current_date
+            for ticker in tickers:
+                if ticker in type_prices:
+                    ticker_prices = type_prices[ticker]
+                    # Find price for current_date (or most recent available up to current_date)
+                    if current_date in ticker_prices:
+                        prices_by_ticker[ticker] = ticker_prices[current_date]
+                    else:
+                        # Find most recent date <= current_date
+                        available_dates = [d for d in ticker_prices.keys() if d <= current_date]
+                        if available_dates:
+                            most_recent_date = max(available_dates)
+                            prices_by_ticker[ticker] = ticker_prices[most_recent_date]
 
         # Check if all required prices were retrieved (only for assets with positions)
-        # get_historical_prices may return partial results if some tickers fail,
-        # but according to requirements, we need all prices or should raise error
         missing_prices = []
         for asset in all_assets:
             # Only require prices for assets that have positions on this date
@@ -1312,7 +1173,7 @@ def get_historical_performance_v2(
         current_date += timedelta(days=1)
 
     logger.info(
-        f"Generated {len(history_points)} history points (v2) for portfolio '{portfolio.name}' "
+        f"Generated {len(history_points)} history points for portfolio '{portfolio.name}' "
         f"from {start_date} to {end_date}"
     )
 
