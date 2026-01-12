@@ -32,6 +32,7 @@ from wpm.models import (
 from wpm.portfolio import (
     CompositePortfolio,
     fetch_price_map,
+    get_historical_allocations,
     get_historical_performance,
     SimplePortfolio,
 )
@@ -298,6 +299,7 @@ def format_position_line(
     price: Optional[float],
     is_historical: bool = False,
     end_date: Optional[date] = None,
+    allocation: Optional[Decimal] = None,
 ) -> str:
     """Format a position line for display.
 
@@ -306,6 +308,7 @@ def format_position_line(
         price: Current or historical price (None if unavailable)
         is_historical: Whether this is a historical portfolio
         end_date: End date for historical portfolios (used in label)
+        allocation: Optional allocation percentage (Decimal, None if unavailable)
 
     Returns:
         Formatted position line
@@ -323,6 +326,11 @@ def format_position_line(
     else:
         value_label = "Current Value"
 
+    # Format allocation if available
+    allocation_str = ""
+    if allocation is not None and price is not None:
+        allocation_str = f" | Allocation: {allocation:.2f}%"
+
     if price is not None:
         # Convert Decimal quantity to float for market value calculation
         market_value = float(position.quantity) * price
@@ -330,7 +338,7 @@ def format_position_line(
         price_str = format_currency(price)
         return (
             f"{ticker} ({asset_type}): {quantity} @ {avg_cost} = {cost_basis} | "
-            f"{value_label} = {market_value_str} @ {price_str}"
+            f"{value_label} = {market_value_str} @ {price_str}{allocation_str}"
         )
 
     return (
@@ -340,7 +348,10 @@ def format_position_line(
 
 
 def format_historical_asset_line(
-    history_point: PortfolioHistoryPoint, ticker: str, asset_type: str
+    history_point: PortfolioHistoryPoint,
+    ticker: str,
+    asset_type: str,
+    allocation: Optional[Decimal] = None,
 ) -> str:
     """Format a simplified line for historical asset positions.
 
@@ -348,20 +359,26 @@ def format_historical_asset_line(
         history_point: History point containing position and price data
         ticker: Asset ticker symbol
         asset_type: Asset type (e.g., "Stock", "ETF", "Crypto")
+        allocation: Optional allocation percentage (Decimal, None if unavailable)
 
     Returns:
-        Formatted string: YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price
+        Formatted string: YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price | Allocation: XX.XX%
     """
     date_str = history_point.date.strftime("%Y-%m-%d")
     position_value = history_point.asset_positions.get(ticker, 0.0)
     position_value_str = format_currency(position_value)
     price = history_point.prices.get(ticker)
 
+    # Format allocation if available
+    allocation_str = ""
+    if allocation is not None:
+        allocation_str = f" | Allocation: {allocation:.2f}%"
+
     if price is not None:
         price_str = format_currency(price)
-        return f"{date_str}: {ticker} ({asset_type}) = {position_value_str} @ {price_str}"
+        return f"{date_str}: {ticker} ({asset_type}) = {position_value_str} @ {price_str}{allocation_str}"
 
-    return f"{date_str}: {ticker} ({asset_type}) = {position_value_str} @ N/A"
+    return f"{date_str}: {ticker} ({asset_type}) = {position_value_str} @ N/A{allocation_str}"
 
 
 def cmd_list_portfolios(composite: CompositePortfolio) -> None:
@@ -434,11 +451,22 @@ def cmd_show_portfolio(
     # Fetch prices using helper function
     price_map = fetch_price_map(portfolio, price_service)
 
+    # Calculate allocations if prices are available
+    allocations = {}
+    has_prices = any(price is not None for price in price_map.values())
+    if has_prices:
+        try:
+            allocations = portfolio.get_all_allocations(price_map)
+        except Exception as e:
+            logger.debug(f"Failed to calculate allocations: {e}")
+            # Continue without allocations (backward compatible)
+
     # Sort positions by ticker and display
     sorted_positions = sorted(positions.items(), key=lambda x: x[0].ticker)
     for asset, position in sorted_positions:
         price = price_map.get(asset)
-        print(format_position_line(position, price, portfolio.is_historical, portfolio.end_date))
+        allocation = allocations.get(asset) if allocations else None
+        print(format_position_line(position, price, portfolio.is_historical, portfolio.end_date, allocation))
 
     # Display summary
     print()  # Blank line before summary
@@ -500,11 +528,22 @@ def cmd_show_all(
     # Fetch prices using helper function
     price_map = fetch_price_map(composite, price_service)
 
+    # Calculate allocations if prices are available
+    allocations = {}
+    has_prices = any(price is not None for price in price_map.values())
+    if has_prices:
+        try:
+            allocations = composite.get_all_allocations(price_map)
+        except Exception as e:
+            logger.debug(f"Failed to calculate allocations: {e}")
+            # Continue without allocations (backward compatible)
+
     # Sort positions by ticker and display
     sorted_positions = sorted(positions.items(), key=lambda x: x[0].ticker)
     for asset, position in sorted_positions:
         price = price_map.get(asset)
-        print(format_position_line(position, price, composite.is_historical, composite.end_date))
+        allocation = allocations.get(asset) if allocations else None
+        print(format_position_line(position, price, composite.is_historical, composite.end_date, allocation))
 
     # Display summary
     print()  # Blank line before summary
@@ -585,17 +624,30 @@ def cmd_show_asset(
             history_points = get_historical_performance(
                 composite, price_service, start_date, end_date
             )
+            allocations_list = get_historical_allocations(
+                composite, price_service, start_date, end_date
+            )
         except Exception as e:
             print(f"Error calculating historical performance: {e}")
             logger.error(f"Error calculating historical performance: {e}", exc_info=True)
             return
 
+        # Get final portfolio positions to establish ticker-to-Asset mapping
+        final_positions = composite.get_positions()
+        ticker_to_asset: Dict[str, Asset] = {asset.ticker: asset for asset in final_positions.keys()}
+
         # Filter and display history points for this ticker
-        for history_point in history_points:
+        for i, history_point in enumerate(history_points):
             position_value = history_point.asset_positions.get(ticker, 0.0)
             # Skip days where asset has no position
             if position_value > 0:
-                print(format_historical_asset_line(history_point, ticker, asset_type))
+                # Get allocation for this date if available
+                allocation = None
+                if i < len(allocations_list) and ticker in ticker_to_asset:
+                    asset_obj = ticker_to_asset[ticker]
+                    allocations = allocations_list[i]
+                    allocation = allocations.get(asset_obj)
+                print(format_historical_asset_line(history_point, ticker, asset_type, allocation))
         return
 
     # Handle current portfolios
@@ -605,8 +657,17 @@ def cmd_show_asset(
     price_map = fetch_price_map(composite, price_service)
     price = price_map.get(asset)
 
+    # Calculate allocation if price is available
+    allocation = None
+    if price is not None:
+        try:
+            allocation = composite.get_asset_allocation(asset, price_map)
+        except Exception as e:
+            logger.debug(f"Failed to calculate allocation: {e}")
+            # Continue without allocation (backward compatible)
+
     # Display position line
-    print(format_position_line(position, price, composite.is_historical, composite.end_date))
+    print(format_position_line(position, price, composite.is_historical, composite.end_date, allocation))
 
     # Display summary
     print()  # Blank line before summary

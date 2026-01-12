@@ -14,6 +14,7 @@ from wpm.cli import (
     cmd_show_portfolio,
     cmd_show_asset,
     format_historical_asset_line,
+    format_position_line,
     _display_weekly_summary,
 )
 from wpm.models import Asset, PortfolioHistoryPoint, Trade
@@ -217,30 +218,38 @@ class TestCmdShowAsset:
         }
 
         with patch("wpm.cli.get_historical_performance") as mock_get_perf:
-            # Mock history points for past 30 days
-            history_points = [
-                PortfolioHistoryPoint(
-                    date=date(2024, 1, 30),
-                    total_market_value=1600.0,
-                    asset_positions={"GOOG": 1600.0},
-                    prices={"GOOG": 160.0},
-                ),
-                PortfolioHistoryPoint(
-                    date=date(2024, 1, 31),
-                    total_market_value=1610.0,
-                    asset_positions={"GOOG": 1610.0},
-                    prices={"GOOG": 161.0},
-                ),
-            ]
-            mock_get_perf.return_value = history_points
+            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+                # Mock history points for past 30 days
+                history_points = [
+                    PortfolioHistoryPoint(
+                        date=date(2024, 1, 30),
+                        total_market_value=1600.0,
+                        asset_positions={"GOOG": 1600.0},
+                        prices={"GOOG": 160.0},
+                    ),
+                    PortfolioHistoryPoint(
+                        date=date(2024, 1, 31),
+                        total_market_value=1610.0,
+                        asset_positions={"GOOG": 1610.0},
+                        prices={"GOOG": 161.0},
+                    ),
+                ]
+                mock_get_perf.return_value = history_points
 
-            with patch("sys.stdout", new=StringIO()) as fake_out:
-                cmd_show_asset(composite, "GOOG", mock_price_service)
-                output = fake_out.getvalue()
-                assert "2024-01-30" in output
-                assert "2024-01-31" in output
-                assert "GOOG" in output
-                assert "Stock" in output
+                # Mock allocations
+                allocations_list = [
+                    {asset: Decimal('100.00')},
+                    {asset: Decimal('100.00')},
+                ]
+                mock_get_alloc.return_value = allocations_list
+
+                with patch("sys.stdout", new=StringIO()) as fake_out:
+                    cmd_show_asset(composite, "GOOG", mock_price_service)
+                    output = fake_out.getvalue()
+                    assert "2024-01-30" in output
+                    assert "2024-01-31" in output
+                    assert "GOOG" in output
+                    assert "Stock" in output
 
     def test_cmd_show_asset_historical_portfolio_with_from(self):
         """Test show asset for historical portfolio with --from argument."""
@@ -277,21 +286,28 @@ class TestCmdShowAsset:
         mock_price_service = Mock(spec=PriceService)
 
         with patch("wpm.cli.get_historical_performance") as mock_get_perf:
-            from_date = date(2024, 1, 15)
-            history_points = [
-                PortfolioHistoryPoint(
-                    date=date(2024, 1, 15),
-                    total_market_value=1550.0,
-                    asset_positions={"GOOG": 1550.0},
-                    prices={"GOOG": 155.0},
-                ),
-            ]
-            mock_get_perf.return_value = history_points
+            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+                from_date = date(2024, 1, 15)
+                history_points = [
+                    PortfolioHistoryPoint(
+                        date=date(2024, 1, 15),
+                        total_market_value=1550.0,
+                        asset_positions={"GOOG": 1550.0},
+                        prices={"GOOG": 155.0},
+                    ),
+                ]
+                mock_get_perf.return_value = history_points
 
-            with patch("sys.stdout", new=StringIO()) as fake_out:
-                cmd_show_asset(composite, "GOOG", mock_price_service, from_date=from_date)
-                output = fake_out.getvalue()
-                assert "2024-01-15" in output
+                # Mock allocations
+                allocations_list = [
+                    {asset: Decimal('100.00')},
+                ]
+                mock_get_alloc.return_value = allocations_list
+
+                with patch("sys.stdout", new=StringIO()) as fake_out:
+                    cmd_show_asset(composite, "GOOG", mock_price_service, from_date=from_date)
+                    output = fake_out.getvalue()
+                    assert "2024-01-15" in output
                 assert "GOOG" in output
 
     def test_cmd_show_asset_historical_missing_price(self):
@@ -316,21 +332,28 @@ class TestCmdShowAsset:
         mock_price_service = Mock(spec=PriceService)
 
         with patch("wpm.cli.get_historical_performance") as mock_get_perf:
-            history_points = [
-                PortfolioHistoryPoint(
-                    date=date(2024, 1, 15),
-                    total_market_value=1500.0,
-                    asset_positions={"GOOG": 1500.0},
-                    prices={},  # Missing price
-                ),
-            ]
-            mock_get_perf.return_value = history_points
+            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+                history_points = [
+                    PortfolioHistoryPoint(
+                        date=date(2024, 1, 15),
+                        total_market_value=1500.0,
+                        asset_positions={"GOOG": 1500.0},
+                        prices={},  # Missing price
+                    ),
+                ]
+                mock_get_perf.return_value = history_points
 
-            with patch("sys.stdout", new=StringIO()) as fake_out:
-                cmd_show_asset(composite, "GOOG", mock_price_service)
-                output = fake_out.getvalue()
-                assert "2024-01-15" in output
-                assert "N/A" in output
+                # Mock allocations (even with missing price, allocation calculation may still work)
+                allocations_list = [
+                    {asset: Decimal('100.00')},
+                ]
+                mock_get_alloc.return_value = allocations_list
+
+                with patch("sys.stdout", new=StringIO()) as fake_out:
+                    cmd_show_asset(composite, "GOOG", mock_price_service)
+                    output = fake_out.getvalue()
+                    assert "2024-01-15" in output
+                    assert "N/A" in output
 
 
 class TestWeeklySummary:
@@ -575,4 +598,320 @@ class TestShowCommandsWithUpTo:
                 "Error: Portfolio has no start date, cannot calculate historical performance"
                 in output
             )
+
+
+class TestFormatPositionLine:
+    """Tests for format_position_line function with allocations."""
+
+    def test_format_position_line_with_allocation(self):
+        """Test formatting position line with allocation."""
+        from wpm.models import Position
+
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        position = Position(
+            asset=asset,
+            quantity=Decimal('10.0'),
+            cost_basis=1500.0,
+            cost_basis_method="fifo",
+        )
+        price = 160.0
+        allocation = Decimal('25.50')
+
+        result = format_position_line(position, price, False, None, allocation)
+        assert "GOOG" in result
+        assert "Stock" in result
+        assert "Allocation: 25.50%" in result
+        assert "Current Value" in result
+
+    def test_format_position_line_without_allocation(self):
+        """Test formatting position line without allocation (backward compatible)."""
+        from wpm.models import Position
+
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        position = Position(
+            asset=asset,
+            quantity=Decimal('10.0'),
+            cost_basis=1500.0,
+            cost_basis_method="fifo",
+        )
+        price = 160.0
+
+        result = format_position_line(position, price, False, None, None)
+        assert "GOOG" in result
+        assert "Allocation" not in result
+
+    def test_format_position_line_historical_with_allocation(self):
+        """Test formatting historical position line with allocation."""
+        from wpm.models import Position
+
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        position = Position(
+            asset=asset,
+            quantity=Decimal('10.0'),
+            cost_basis=1500.0,
+            cost_basis_method="fifo",
+        )
+        price = 160.0
+        allocation = Decimal('30.00')
+        end_date = date(2024, 1, 15)
+
+        result = format_position_line(position, price, True, end_date, allocation)
+        assert "GOOG" in result
+        assert "Historical Value (2024-01-15)" in result
+        assert "Allocation: 30.00%" in result
+
+
+class TestFormatHistoricalAssetLineWithAllocation:
+    """Tests for format_historical_asset_line function with allocations."""
+
+    def test_format_with_allocation(self):
+        """Test formatting with allocation."""
+        history_point = PortfolioHistoryPoint(
+            date=date(2024, 1, 15),
+            total_market_value=1000.0,
+            asset_positions={"GOOG": 1000.0},
+            prices={"GOOG": 100.0},
+        )
+        allocation = Decimal('100.00')
+        result = format_historical_asset_line(history_point, "GOOG", "Stock", allocation)
+        assert "2024-01-15" in result
+        assert "GOOG" in result
+        assert "Allocation: 100.00%" in result
+
+    def test_format_without_allocation(self):
+        """Test formatting without allocation (backward compatible)."""
+        history_point = PortfolioHistoryPoint(
+            date=date(2024, 1, 15),
+            total_market_value=1000.0,
+            asset_positions={"GOOG": 1000.0},
+            prices={"GOOG": 100.0},
+        )
+        result = format_historical_asset_line(history_point, "GOOG", "Stock", None)
+        assert "2024-01-15" in result
+        assert "GOOG" in result
+        assert "Allocation" not in result
+
+
+class TestCmdShowPortfolioWithAllocations:
+    """Tests for cmd_show_portfolio with allocation display."""
+
+    def test_cmd_show_portfolio_displays_allocations(self):
+        """Test that show portfolio displays allocations for all assets."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+            mock_fetch_price_map.return_value = {asset1: 160.0, asset2: 220.0}
+
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_show_portfolio(composite, "Test Portfolio", mock_price_service)
+                output = fake_out.getvalue()
+                assert "GOOG" in output
+                assert "AAPL" in output
+                assert "Allocation:" in output
+                # Verify allocations are displayed
+                assert output.count("Allocation:") == 2
+
+    def test_cmd_show_portfolio_no_prices_no_allocation(self):
+        """Test that show portfolio doesn't show allocation when prices unavailable."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+            mock_fetch_price_map.return_value = {asset: None}
+
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_show_portfolio(composite, "Test Portfolio", mock_price_service)
+                output = fake_out.getvalue()
+                assert "GOOG" in output
+                assert "Allocation" not in output
+
+
+class TestCmdShowAllWithAllocations:
+    """Tests for cmd_show_all with allocation display."""
+
+    def test_cmd_show_all_displays_allocations(self):
+        """Test that show all displays allocations for all assets."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+            mock_fetch_price_map.return_value = {asset1: 160.0, asset2: 220.0}
+
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_show_all(composite, mock_price_service)
+                output = fake_out.getvalue()
+                assert "GOOG" in output
+                assert "AAPL" in output
+                assert "Allocation:" in output
+                # Verify allocations are displayed
+                assert output.count("Allocation:") == 2
+
+
+class TestCmdShowAssetWithAllocations:
+    """Tests for cmd_show_asset with allocation display."""
+
+    def test_cmd_show_asset_current_displays_allocation(self):
+        """Test that show asset displays allocation for current portfolio."""
+        portfolio = SimplePortfolio(name="Test")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+            mock_fetch_price_map.return_value = {asset: 160.0}
+
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_show_asset(composite, "GOOG", mock_price_service)
+                output = fake_out.getvalue()
+                assert "GOOG" in output
+                assert "Allocation:" in output
+
+    def test_cmd_show_asset_historical_displays_allocations(self):
+        """Test that show asset displays allocations for historical portfolio."""
+        portfolio = SimplePortfolio(name="Test", is_historical=True)
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite", is_historical=True)
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        with patch("wpm.cli.get_historical_performance") as mock_get_perf:
+            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+                history_points = [
+                    PortfolioHistoryPoint(
+                        date=date(2024, 1, 30),
+                        total_market_value=1600.0,
+                        asset_positions={"GOOG": 1600.0},
+                        prices={"GOOG": 160.0},
+                    ),
+                    PortfolioHistoryPoint(
+                        date=date(2024, 1, 31),
+                        total_market_value=1610.0,
+                        asset_positions={"GOOG": 1610.0},
+                        prices={"GOOG": 161.0},
+                    ),
+                ]
+                mock_get_perf.return_value = history_points
+
+                allocations_list = [
+                    {asset: Decimal('100.00')},
+                    {asset: Decimal('100.00')},
+                ]
+                mock_get_alloc.return_value = allocations_list
+
+                with patch("sys.stdout", new=StringIO()) as fake_out:
+                    cmd_show_asset(composite, "GOOG", mock_price_service)
+                    output = fake_out.getvalue()
+                    assert "2024-01-30" in output
+                    assert "2024-01-31" in output
+                    assert "Allocation:" in output
+                    # Verify allocations are displayed for each date
+                    assert output.count("Allocation:") == 2
 

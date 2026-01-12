@@ -169,6 +169,43 @@ uv add --dev pydoc-markdown
 - Run with coverage: `pytest --cov=wpm --cov-report=html`
 - Run specific test file: `pytest tests/test_portfolio.py`
 
+## Portfolio Allocation Methods
+
+The library provides methods to calculate percentage allocations of asset positions in portfolios. Allocations represent the proportion of each asset's market value relative to the total portfolio market value.
+
+### Current Allocation Methods
+
+- **`get_asset_allocation(asset, prices)`**: Returns the percentage allocation for a specific asset position. Calculated as (asset market value / total portfolio market value) * 100. Returns a Decimal rounded to 2 decimal places.
+
+- **`get_all_allocations(prices)`**: Returns percentage allocations for all asset positions in the portfolio. Returns a dictionary mapping Asset to Decimal percentage. All allocations should sum to 100.00% (within rounding tolerance).
+
+### Historical Allocation Methods
+
+- **`get_historical_allocations(portfolio, price_service, start_date, end_date)`**: Returns historical percentage allocations over a date range. Returns a list of dictionaries, one per date, mapping Asset to Decimal percentage allocation. Leverages batch price retrieval for efficiency.
+
+### Utility Functions
+
+- **`get_positions_with_allocations(portfolio, prices)`**: Combines positions and allocations in a single dictionary. Returns `Dict[Asset, Tuple[Position, Decimal]]` mapping each asset to its position and allocation percentage.
+
+- **`get_historical_positions_with_allocations(portfolio, price_service, start_date, end_date)`**: Combines historical positions and allocations. Returns a list of dictionaries, one per date, mapping Asset to tuple of (position_value, allocation_percentage).
+
+### Implementation Details
+
+- All allocation calculations use Python `Decimal` for precision to avoid floating-point errors
+- Percentages are rounded to 2 decimal places using standard rounding (half up)
+- Allocations are verified to sum to 100.00% (with small tolerance for rounding)
+- For composite portfolios, asset positions are aggregated across sub-portfolios before calculating allocations
+- Historical allocations reuse batch price retrieval from `get_historical_performance()` for efficiency
+
+### CLI Display
+
+The command-line interface displays allocation percentages alongside position information in the following commands:
+- `show portfolio <name>`: Shows allocation for each asset in the portfolio
+- `show all`: Shows allocation for each asset in the composite portfolio
+- `show asset <ticker>`: Shows allocation for the specified asset (both current and historical modes)
+
+Allocation is displayed in the format `| Allocation: XX.XX%` and is only shown when prices are available. For historical portfolios, allocation is shown for each date where the asset has a position. See [wpmrun.md](wpmrun.md) for detailed CLI command specifications.
+
 ## Logging and Observability
 
 ### Logging Configuration
@@ -206,8 +243,8 @@ uv add --dev pydoc-markdown
 - DEBUG: Row parsing details, validation checks
 
 **wpm/portfolio.py:**
-- INFO: Trade added, portfolio created, positions calculated
-- DEBUG: Position aggregation steps, sub-portfolio traversal
+- INFO: Trade added, portfolio created, positions calculated, historical performance/allocation calculations
+- DEBUG: Position aggregation steps, sub-portfolio traversal, allocation calculations, allocation sum verification
 
 **wpm/cost_basis.py:**
 - INFO: Cost basis calculation started/completed

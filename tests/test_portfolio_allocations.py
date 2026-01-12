@@ -1,0 +1,582 @@
+"""Tests for portfolio allocation calculation methods."""
+
+import pytest
+from datetime import date, timedelta
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
+
+from wpm.models import Asset, Trade
+from wpm.portfolio import (
+    CompositePortfolio,
+    SimplePortfolio,
+    get_historical_allocations,
+    get_historical_positions_with_allocations,
+    get_positions_with_allocations,
+)
+
+
+class TestSimplePortfolioAllocations:
+    """Tests for allocation methods in SimplePortfolio."""
+
+    def test_get_asset_allocation_single_asset(self):
+        """Test allocation for single asset portfolio (should be 100%)."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        prices = {asset: 160.0}
+        allocation = portfolio.get_asset_allocation(asset, prices)
+
+        assert allocation == Decimal('100.00')
+
+    def test_get_asset_allocation_multiple_assets(self):
+        """Test allocation calculation for multiple assets."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        # GOOG: 10 shares @ $150 = $1500 cost, $160 current = $1600 market value
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        # AAPL: 5 shares @ $200 = $1000 cost, $220 current = $1100 market value
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 220.0}
+        # Total market value: $1600 + $1100 = $2700
+        # GOOG allocation: $1600 / $2700 * 100 = 59.26%
+        # AAPL allocation: $1100 / $2700 * 100 = 40.74%
+
+        allocation1 = portfolio.get_asset_allocation(asset1, prices)
+        allocation2 = portfolio.get_asset_allocation(asset2, prices)
+
+        assert allocation1 == Decimal('59.26')
+        assert allocation2 == Decimal('40.74')
+
+    def test_get_asset_allocation_asset_not_in_portfolio(self):
+        """Test allocation for asset not in portfolio returns 0.00."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        other_asset = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        prices = {asset: 160.0, other_asset: 200.0}
+        allocation = portfolio.get_asset_allocation(other_asset, prices)
+
+        assert allocation == Decimal('0.00')
+
+    def test_get_asset_allocation_missing_price(self):
+        """Test allocation for asset with missing price returns 0.00."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        prices = {}
+        allocation = portfolio.get_asset_allocation(asset, prices)
+
+        assert allocation == Decimal('0.00')
+
+    def test_get_asset_allocation_zero_total_market_value(self):
+        """Test allocation when total market value is zero."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        # All prices are None or 0, so total market value is 0
+        prices = {asset: None}
+        allocation = portfolio.get_asset_allocation(asset, prices)
+
+        assert allocation == Decimal('0.00')
+
+    def test_get_all_allocations_single_asset(self):
+        """Test all allocations for single asset portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        prices = {asset: 160.0}
+        allocations = portfolio.get_all_allocations(prices)
+
+        assert len(allocations) == 1
+        assert allocations[asset] == Decimal('100.00')
+
+    def test_get_all_allocations_multiple_assets_sums_to_100(self):
+        """Test that all allocations sum to 100.00."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 220.0}
+        allocations = portfolio.get_all_allocations(prices)
+
+        total = sum(allocations.values())
+        assert total == Decimal('100.00')
+
+    def test_get_all_allocations_empty_portfolio(self):
+        """Test all allocations for empty portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        prices = {}
+        allocations = portfolio.get_all_allocations(prices)
+
+        assert allocations == {}
+
+    def test_get_all_allocations_decimal_precision(self):
+        """Test that allocations use Decimal precision correctly."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        # Create scenario where allocations don't divide evenly
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=100.0,
+                price_native=100.0,
+                quantity=1.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=100.0,
+                price_native=100.0,
+                quantity=3.0,
+            )
+        )
+
+        prices = {asset1: 100.0, asset2: 100.0}
+        # Total: $400, so each should be 25% and 75%
+        allocations = portfolio.get_all_allocations(prices)
+
+        assert allocations[asset1] == Decimal('25.00')
+        assert allocations[asset2] == Decimal('75.00')
+        assert sum(allocations.values()) == Decimal('100.00')
+
+
+class TestCompositePortfolioAllocations:
+    """Tests for allocation methods in CompositePortfolio."""
+
+    def test_get_asset_allocation_composite(self):
+        """Test allocation calculation for composite portfolio."""
+        # Create sub-portfolios
+        sub1 = SimplePortfolio(name="Sub1")
+        sub2 = SimplePortfolio(name="Sub2")
+
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        # Sub1: GOOG 10 shares
+        sub1.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        # Sub2: AAPL 5 shares
+        sub2.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+
+        prices = {asset1: 160.0, asset2: 220.0}
+        # Total: $1600 + $1100 = $2700
+        allocation1 = composite.get_asset_allocation(asset1, prices)
+        allocation2 = composite.get_asset_allocation(asset2, prices)
+
+        assert allocation1 == Decimal('59.26')
+        assert allocation2 == Decimal('40.74')
+
+    def test_get_all_allocations_composite_sums_to_100(self):
+        """Test that composite portfolio allocations sum to 100.00."""
+        sub1 = SimplePortfolio(name="Sub1")
+        sub2 = SimplePortfolio(name="Sub2")
+
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        sub1.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        sub2.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+
+        prices = {asset1: 160.0, asset2: 220.0}
+        allocations = composite.get_all_allocations(prices)
+
+        total = sum(allocations.values())
+        assert total == Decimal('100.00')
+
+
+class TestPositionsWithAllocations:
+    """Tests for get_positions_with_allocations utility function."""
+
+    def test_get_positions_with_allocations_simple(self):
+        """Test combining positions and allocations for simple portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 220.0}
+        result = get_positions_with_allocations(portfolio, prices)
+
+        assert len(result) == 2
+        assert asset1 in result
+        assert asset2 in result
+
+        position1, allocation1 = result[asset1]
+        assert position1.quantity == Decimal('10.0')
+        assert allocation1 == Decimal('59.26')
+
+        position2, allocation2 = result[asset2]
+        assert position2.quantity == Decimal('5.0')
+        assert allocation2 == Decimal('40.74')
+
+    def test_get_positions_with_allocations_empty(self):
+        """Test positions with allocations for empty portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        prices = {}
+        result = get_positions_with_allocations(portfolio, prices)
+
+        assert result == {}
+
+
+class TestHistoricalAllocations:
+    """Tests for historical allocation functions."""
+
+    def _create_price_dict(
+        self, tickers: list, price_value: float, start_date: date, end_date: date
+    ) -> dict:
+        """Helper to create price dictionary."""
+        result = {}
+        current = start_date
+        while current <= end_date:
+            for ticker in tickers:
+                if ticker not in result:
+                    result[ticker] = {}
+                result[ticker][current] = price_value
+            current += timedelta(days=1)
+        return result
+
+    @patch('wpm.portfolio.get_historical_performance')
+    def test_get_historical_allocations(self, mock_get_perf):
+        """Test historical allocations calculation."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        from wpm.models import PortfolioHistoryPoint
+
+        # Mock historical performance
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 17)
+        history_points = [
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 15),
+                total_market_value=1500.0,  # Only GOOG
+                asset_positions={"GOOG": 1500.0, "AAPL": 0.0},
+                prices={"GOOG": 150.0},
+            ),
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 16),
+                total_market_value=2500.0,  # GOOG + AAPL
+                asset_positions={"GOOG": 1500.0, "AAPL": 1000.0},
+                prices={"GOOG": 150.0, "AAPL": 200.0},
+            ),
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 17),
+                total_market_value=2700.0,  # GOOG + AAPL with new prices
+                asset_positions={"GOOG": 1600.0, "AAPL": 1100.0},
+                prices={"GOOG": 160.0, "AAPL": 220.0},
+            ),
+        ]
+        mock_get_perf.return_value = history_points
+
+        price_service = MagicMock()
+        allocations_list = get_historical_allocations(
+            portfolio, price_service, start_date, end_date
+        )
+
+        assert len(allocations_list) == 3
+
+        # Day 1: Only GOOG, should be 100%
+        assert allocations_list[0][asset1] == Decimal('100.00')
+        assert allocations_list[0][asset2] == Decimal('0.00')
+
+        # Day 2: GOOG 60%, AAPL 40%
+        assert allocations_list[1][asset1] == Decimal('60.00')
+        assert allocations_list[1][asset2] == Decimal('40.00')
+
+        # Day 3: GOOG 59.26%, AAPL 40.74%
+        assert allocations_list[2][asset1] == Decimal('59.26')
+        assert allocations_list[2][asset2] == Decimal('40.74')
+
+        # Verify allocations sum to 100% for each day
+        for allocations in allocations_list:
+            total = sum(allocations.values())
+            assert total == Decimal('100.00')
+
+    @patch('wpm.portfolio.get_historical_performance')
+    @patch('wpm.portfolio.get_historical_allocations')
+    def test_get_historical_positions_with_allocations(self, mock_get_alloc, mock_get_perf):
+        """Test combining historical positions and allocations."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        from wpm.models import PortfolioHistoryPoint
+
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 16)
+
+        history_points = [
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 15),
+                total_market_value=1500.0,
+                asset_positions={"GOOG": 1500.0, "AAPL": 0.0},
+                prices={"GOOG": 150.0},
+            ),
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 16),
+                total_market_value=1500.0,
+                asset_positions={"GOOG": 1600.0, "AAPL": 0.0},
+                prices={"GOOG": 160.0},
+            ),
+        ]
+        mock_get_perf.return_value = history_points
+
+        allocations_list = [
+            {asset1: Decimal('100.00'), asset2: Decimal('0.00')},
+            {asset1: Decimal('100.00'), asset2: Decimal('0.00')},
+        ]
+        mock_get_alloc.return_value = allocations_list
+
+        price_service = MagicMock()
+        result = get_historical_positions_with_allocations(
+            portfolio, price_service, start_date, end_date
+        )
+
+        assert len(result) == 2
+        assert asset1 in result[0]
+        # asset2 has 0.0 position value, so it's not included in result
+        # (only assets with non-zero position values are included)
+
+        position_value, allocation = result[0][asset1]
+        assert position_value == 1500.0
+        assert allocation == Decimal('100.00')

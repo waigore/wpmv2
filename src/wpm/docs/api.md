@@ -119,6 +119,8 @@
     * [get\_total\_unrealized\_pnl](#wpm.portfolio.SimplePortfolio.get_total_unrealized_pnl)
     * [get\_asset\_lots](#wpm.portfolio.SimplePortfolio.get_asset_lots)
     * [get\_total\_realized\_pnl](#wpm.portfolio.SimplePortfolio.get_total_realized_pnl)
+    * [get\_asset\_allocation](#wpm.portfolio.SimplePortfolio.get_asset_allocation)
+    * [get\_all\_allocations](#wpm.portfolio.SimplePortfolio.get_all_allocations)
     * [get\_all\_trades](#wpm.portfolio.SimplePortfolio.get_all_trades)
     * [get\_asset\_trades](#wpm.portfolio.SimplePortfolio.get_asset_trades)
     * [clone](#wpm.portfolio.SimplePortfolio.clone)
@@ -133,6 +135,8 @@
     * [get\_total\_unrealized\_pnl](#wpm.portfolio.CompositePortfolio.get_total_unrealized_pnl)
     * [get\_asset\_lots](#wpm.portfolio.CompositePortfolio.get_asset_lots)
     * [get\_total\_realized\_pnl](#wpm.portfolio.CompositePortfolio.get_total_realized_pnl)
+    * [get\_asset\_allocation](#wpm.portfolio.CompositePortfolio.get_asset_allocation)
+    * [get\_all\_allocations](#wpm.portfolio.CompositePortfolio.get_all_allocations)
     * [get\_all\_trades](#wpm.portfolio.CompositePortfolio.get_all_trades)
     * [get\_asset\_trades](#wpm.portfolio.CompositePortfolio.get_asset_trades)
     * [start\_date](#wpm.portfolio.CompositePortfolio.start_date)
@@ -141,6 +145,9 @@
   * [fetch\_price\_map](#wpm.portfolio.fetch_price_map)
   * [generate\_historical\_snapshots](#wpm.portfolio.generate_historical_snapshots)
   * [get\_historical\_performance](#wpm.portfolio.get_historical_performance)
+  * [get\_historical\_allocations](#wpm.portfolio.get_historical_allocations)
+  * [get\_positions\_with\_allocations](#wpm.portfolio.get_positions_with_allocations)
+  * [get\_historical\_positions\_with\_allocations](#wpm.portfolio.get_historical_positions_with_allocations)
 * [wpm.pricing.service](#wpm.pricing.service)
   * [PriceService](#wpm.pricing.service.PriceService)
     * [\_\_init\_\_](#wpm.pricing.service.PriceService.__init__)
@@ -2045,6 +2052,54 @@ Derives from lots' realized P/L.
 
   Total realized profit/loss in USD
 
+<a id="wpm.portfolio.SimplePortfolio.get_asset_allocation"></a>
+
+#### get\_asset\_allocation
+
+```python
+def get_asset_allocation(asset: Asset,
+                         prices: Dict[Asset, Optional[float]]) -> Decimal
+```
+
+Get percentage allocation of a specific asset position.
+
+The percentage is calculated as (asset market value / total portfolio market value) * 100.
+Uses Decimal for precision and rounds to 2 decimal places.
+
+**Arguments**:
+
+- `asset` - Asset to get allocation for
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Percentage allocation as Decimal rounded to 2 decimal places (0.00 if asset not in portfolio,
+  missing price, or zero total market value)
+
+<a id="wpm.portfolio.SimplePortfolio.get_all_allocations"></a>
+
+#### get\_all\_allocations
+
+```python
+def get_all_allocations(
+        prices: Dict[Asset, Optional[float]]) -> Dict[Asset, Decimal]
+```
+
+Get percentage allocations for all asset positions in the portfolio.
+
+The percentage for each asset is calculated as (asset market value / total portfolio market value) * 100.
+Uses Decimal for precision and rounds to 2 decimal places. All allocations should sum to 100.00.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Dictionary mapping Asset to Decimal percentage allocation (2 decimal places)
+
 <a id="wpm.portfolio.SimplePortfolio.get_all_trades"></a>
 
 #### get\_all\_trades
@@ -2318,6 +2373,56 @@ Derives from lots' realized P/L.
 
   Total realized profit/loss in USD
 
+<a id="wpm.portfolio.CompositePortfolio.get_asset_allocation"></a>
+
+#### get\_asset\_allocation
+
+```python
+def get_asset_allocation(asset: Asset,
+                         prices: Dict[Asset, Optional[float]]) -> Decimal
+```
+
+Get percentage allocation of a specific asset position.
+
+The percentage is calculated as (asset market value / total portfolio market value) * 100.
+Uses Decimal for precision and rounds to 2 decimal places.
+For composite portfolios, aggregates positions across all sub-portfolios.
+
+**Arguments**:
+
+- `asset` - Asset to get allocation for
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Percentage allocation as Decimal rounded to 2 decimal places (0.00 if asset not in portfolio,
+  missing price, or zero total market value)
+
+<a id="wpm.portfolio.CompositePortfolio.get_all_allocations"></a>
+
+#### get\_all\_allocations
+
+```python
+def get_all_allocations(
+        prices: Dict[Asset, Optional[float]]) -> Dict[Asset, Decimal]
+```
+
+Get percentage allocations for all asset positions in the portfolio.
+
+The percentage for each asset is calculated as (asset market value / total portfolio market value) * 100.
+Uses Decimal for precision and rounds to 2 decimal places. All allocations should sum to 100.00.
+For composite portfolios, aggregates positions across all sub-portfolios.
+
+**Arguments**:
+
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Dictionary mapping Asset to Decimal percentage allocation (2 decimal places)
+
 <a id="wpm.portfolio.CompositePortfolio.get_all_trades"></a>
 
 #### get\_all\_trades
@@ -2516,6 +2621,106 @@ for better performance.
 **Returns**:
 
   List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
+  
+
+**Raises**:
+
+- `PortfolioError` - If date range is invalid or outside portfolio's date range
+- `ValueError` - If historical prices cannot be retrieved for any required assets
+
+<a id="wpm.portfolio.get_historical_allocations"></a>
+
+#### get\_historical\_allocations
+
+```python
+def get_historical_allocations(portfolio: Portfolio,
+                               price_service: "PriceService", start_date: date,
+                               end_date: date) -> List[Dict[Asset, Decimal]]
+```
+
+Get historical percentage allocations of asset positions over a date range.
+
+Returns a list of allocation dictionaries, one for each day from start_date to end_date
+(inclusive). Each dictionary maps Asset to Decimal percentage allocation (2 decimal places).
+Allocations are calculated as (asset position value / total portfolio market value) * 100.
+
+This function leverages `get_historical_performance()` to reuse batch price retrieval
+for efficiency.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+- `price_service` - Price service for retrieving historical prices
+- `start_date` - Start date for allocation tracking (inclusive)
+- `end_date` - End date for allocation tracking (inclusive)
+  
+
+**Returns**:
+
+  List of dictionaries, one per date, mapping Asset to Decimal percentage allocation
+  
+
+**Raises**:
+
+- `PortfolioError` - If date range is invalid or outside portfolio's date range
+- `ValueError` - If historical prices cannot be retrieved for any required assets
+
+<a id="wpm.portfolio.get_positions_with_allocations"></a>
+
+#### get\_positions\_with\_allocations
+
+```python
+def get_positions_with_allocations(
+    portfolio: Portfolio,
+    prices: Dict[Asset,
+                 Optional[float]]) -> Dict[Asset, Tuple[Position, Decimal]]
+```
+
+Get positions and their percentage allocations combined in a single dictionary.
+
+This utility function combines results from `get_positions()` and `get_all_allocations()`
+for convenience.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+- `prices` - Dictionary mapping Asset to current price (None if unavailable)
+  
+
+**Returns**:
+
+  Dictionary mapping Asset to tuple of (Position, allocation_percentage)
+  Only includes assets that have both a position and an allocation
+
+<a id="wpm.portfolio.get_historical_positions_with_allocations"></a>
+
+#### get\_historical\_positions\_with\_allocations
+
+```python
+def get_historical_positions_with_allocations(
+        portfolio: Portfolio, price_service: "PriceService", start_date: date,
+        end_date: date) -> List[Dict[Asset, Tuple[float, Decimal]]]
+```
+
+Get historical positions and their percentage allocations combined.
+
+This utility function combines results from `get_historical_performance()` and
+`get_historical_allocations()` for convenience. Returns position values (floats)
+and allocation percentages (Decimals) for each date in the range.
+
+**Arguments**:
+
+- `portfolio` - Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+- `price_service` - Price service for retrieving historical prices
+- `start_date` - Start date for tracking (inclusive)
+- `end_date` - End date for tracking (inclusive)
+  
+
+**Returns**:
+
+  List of dictionaries, one per date, mapping Asset to tuple of
+  (position_value, allocation_percentage)
+  Only includes assets that appear in both position values and allocations
   
 
 **Raises**:

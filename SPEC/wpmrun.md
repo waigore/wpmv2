@@ -100,7 +100,7 @@ wpm>
 - `<name>`: Name of the sub-portfolio (required)
 
 **Output Format:**
-- For each asset, display: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | {Value Label} = Market Value @ Price`
+- For each asset, display: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | {Value Label} = Market Value @ Price | Allocation: XX.XX%`
 - One asset per line
 - Sorted by ticker
 - Market Value is calculated as: `Quantity × Current/Historical Price`
@@ -109,16 +109,19 @@ wpm>
 - Value Label:
   - For historical portfolios: `Historical Value (yyyy-MM-dd)` where the date is the portfolio's `end_date`
   - For current portfolios: `Current Value`
-- If price retrieval fails for an asset type, display "N/A" for the value (price is not shown when value is N/A)
+- Allocation percentage is calculated as: `(Asset Market Value / Total Portfolio Market Value) × 100`
+- Allocation is rounded to 2 decimal places and displayed only when prices are available
+- All allocations should sum to 100.00% (within rounding tolerance)
+- If price retrieval fails for an asset type, display "N/A" for the value (price and allocation are not shown when value is N/A)
 - After all position lines, display a summary section with:
   - Total Market Value: `<formatted_value>` (or "N/A" if no prices available)
   - Total Cost Basis: `<formatted_value>` (always displayed, doesn't depend on prices)
   - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no prices available)
 - Example (current portfolio):
   ```
-  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00
-  ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00 @ $2,600.00
-  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00
+  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00 | Allocation: 35.94%
+  ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Current Value = $26,000.00 @ $2,600.00 | Allocation: 40.63%
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00 | Allocation: 25.00%
 
   Total Market Value: $64,000.00
   Total Cost Basis: $62,500.00
@@ -126,9 +129,9 @@ wpm>
   ```
 - Example (historical portfolio):
   ```
-  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Historical Value (2024-01-15) = $23,000.00 @ $46,000.00
-  ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Historical Value (2024-01-15) = $26,000.00 @ $2,600.00
-  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Historical Value (2024-01-15) = $16,000.00 @ $160.00
+  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Historical Value (2024-01-15) = $23,000.00 @ $46,000.00 | Allocation: 35.94%
+  ETH-USD (Crypto): 10.0 @ $2,500.00 = $25,000.00 | Historical Value (2024-01-15) = $26,000.00 @ $2,600.00 | Allocation: 40.63%
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Historical Value (2024-01-15) = $16,000.00 @ $160.00 | Allocation: 25.00%
 
   Total Market Value: $64,000.00
   Total Cost Basis: $62,500.00
@@ -153,16 +156,19 @@ wpm>
 - Value Label:
   - For historical portfolios: `Historical Value (yyyy-MM-dd)` where the date is the composite portfolio's `end_date`
   - For current portfolios: `Current Value`
-- If price retrieval fails for an asset type, logs a warning and displays "N/A" for the value (price is not shown when value is N/A) for all assets of that type, but continues processing other asset types
+- Allocation percentage is calculated as: `(Asset Market Value / Total Portfolio Market Value) × 100`
+- Allocation is rounded to 2 decimal places and displayed only when prices are available
+- All allocations should sum to 100.00% (within rounding tolerance)
+- If price retrieval fails for an asset type, logs a warning and displays "N/A" for the value (price and allocation are not shown when value is N/A) for all assets of that type, but continues processing other asset types
 - After all position lines, display a summary section with:
   - Total Market Value: `<formatted_value>` (or "N/A" if no prices available)
   - Total Cost Basis: `<formatted_value>` (always displayed, doesn't depend on prices)
   - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no prices available)
 - Example (current portfolio):
   ```
-  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00
-  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00
-  GOOG (Stock): 50.0 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00 @ $2,100.00
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00 | Allocation: 11.11%
+  BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00 | Allocation: 15.97%
+  GOOG (Stock): 50.0 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00 @ $2,100.00 | Allocation: 72.92%
 
   Total Market Value: $144,000.00
   Total Cost Basis: $137,500.00
@@ -185,14 +191,16 @@ wpm>
 
 **For current portfolios:**
 - Same format as `show all`, but filtered to include only the specified asset
-- Format: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | Current Value = Market Value @ Price`
+- Format: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | Current Value = Market Value @ Price | Allocation: XX.XX%`
+- Allocation percentage is calculated as: `(Asset Market Value / Total Portfolio Market Value) × 100`
+- Allocation is rounded to 2 decimal places and displayed only when price is available
 - After the position line, display a summary section with:
   - Total Market Value: `<formatted_value>` (or "N/A" if no price available)
   - Total Cost Basis: `<formatted_value>` (always displayed)
   - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no price available)
 - Example:
   ```
-  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00
+  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00 | Allocation: 25.00%
 
   Total Market Value: $16,000.00
   Total Cost Basis: $15,000.00
@@ -203,13 +211,15 @@ wpm>
 - Without `--from`: Shows historical asset positions for the past 30 days (from portfolio.end_date backwards 30 days)
 - With `--from`: Shows historical asset positions from the specified date to portfolio.end_date
 - One line per day, showing the position on that date
-- Format: `YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price`
+- Format: `YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price | Allocation: XX.XX%`
+- Allocation percentage is calculated as: `(Asset Position Value / Total Portfolio Market Value) × 100` for each date
+- Allocation is rounded to 2 decimal places and displayed only when price is available
 - Only shows days where the asset has a position (position_value > 0)
 - Example:
   ```
-  2024-01-01: AAPL (Stock) = $15,000.00 @ $150.00
-  2024-01-02: AAPL (Stock) = $15,200.00 @ $152.00
-  2024-01-03: AAPL (Stock) = $15,400.00 @ $154.00
+  2024-01-01: AAPL (Stock) = $15,000.00 @ $150.00 | Allocation: 30.00%
+  2024-01-02: AAPL (Stock) = $15,200.00 @ $152.00 | Allocation: 30.40%
+  2024-01-03: AAPL (Stock) = $15,400.00 @ $154.00 | Allocation: 30.80%
   ...
   ```
 - No summary section for historical portfolios (just daily position lines)

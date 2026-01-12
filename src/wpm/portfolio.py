@@ -2,8 +2,8 @@
 
 import logging
 from datetime import date, timedelta
-from decimal import Decimal
-from typing import TYPE_CHECKING, Dict, List, Optional
+from decimal import Decimal, ROUND_HALF_UP
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from wpm.cache_utils import LRUCache, trades_to_cache_key_with_filters
 from wpm.cost_basis import calculate_fifo_cost_basis, calculate_lots_from_trades
@@ -278,6 +278,104 @@ class SimplePortfolio(Portfolio):
                 total_realized_pnl += lot.get_realized_pnl()
 
         return total_realized_pnl
+
+    def get_asset_allocation(
+        self, asset: Asset, prices: Dict[Asset, Optional[float]]
+    ) -> Decimal:
+        """Get percentage allocation of a specific asset position.
+
+        The percentage is calculated as (asset market value / total portfolio market value) * 100.
+        Uses Decimal for precision and rounds to 2 decimal places.
+
+        Args:
+            asset: Asset to get allocation for
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Percentage allocation as Decimal rounded to 2 decimal places (0.00 if asset not in portfolio,
+            missing price, or zero total market value)
+        """
+        positions = self.get_positions()
+        
+        # Guard clause: asset not in portfolio
+        if asset not in positions:
+            return Decimal('0.00')
+        
+        position = positions[asset]
+        
+        # Guard clause: no quantity
+        if position.quantity == 0:
+            return Decimal('0.00')
+        
+        # Guard clause: missing price
+        if asset not in prices or prices[asset] is None:
+            logger.debug(f"No price available for {asset.ticker}, returning 0.00 allocation")
+            return Decimal('0.00')
+        
+        # Calculate asset market value
+        price = Decimal(str(prices[asset]))
+        asset_market_value = position.quantity * price
+        
+        # Calculate total portfolio market value
+        total_market_value = Decimal(str(self.get_total_market_value(prices)))
+        
+        # Guard clause: zero total market value
+        if total_market_value == 0:
+            return Decimal('0.00')
+        
+        # Calculate percentage: (asset_market_value / total_market_value) * 100
+        allocation = (asset_market_value / total_market_value) * Decimal('100')
+        
+        # Round to 2 decimal places
+        allocation = allocation.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
+        logger.debug(
+            f"Allocation for {asset.ticker}: {asset_market_value} / {total_market_value} * 100 = {allocation}%"
+        )
+        
+        return allocation
+
+    def get_all_allocations(
+        self, prices: Dict[Asset, Optional[float]]
+    ) -> Dict[Asset, Decimal]:
+        """Get percentage allocations for all asset positions in the portfolio.
+
+        The percentage for each asset is calculated as (asset market value / total portfolio market value) * 100.
+        Uses Decimal for precision and rounds to 2 decimal places. All allocations should sum to 100.00.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Dictionary mapping Asset to Decimal percentage allocation (2 decimal places)
+        """
+        positions = self.get_positions()
+        
+        # Guard clause: empty portfolio
+        if not positions:
+            return {}
+        
+        allocations: Dict[Asset, Decimal] = {}
+        
+        # Calculate allocation for each asset with a position
+        for asset in positions.keys():
+            allocation = self.get_asset_allocation(asset, prices)
+            allocations[asset] = allocation
+        
+        # Verify allocations sum to 100.00 (within rounding tolerance)
+        total_allocation = sum(allocations.values())
+        expected_total = Decimal('100.00')
+        tolerance = Decimal('0.01')
+        
+        if abs(total_allocation - expected_total) > tolerance:
+            logger.warning(
+                f"Portfolio allocations sum to {total_allocation}%, expected 100.00% "
+                f"(difference: {abs(total_allocation - expected_total)}%)"
+            )
+        else:
+            logger.debug(f"Portfolio allocations sum to {total_allocation}%")
+        
+        return allocations
 
     def get_all_trades(self) -> List[Trade]:
         """Get all trades in the portfolio.
@@ -645,6 +743,106 @@ class CompositePortfolio(Portfolio):
             for sub_portfolio in self._sub_portfolios.values()
         )
         return total
+
+    def get_asset_allocation(
+        self, asset: Asset, prices: Dict[Asset, Optional[float]]
+    ) -> Decimal:
+        """Get percentage allocation of a specific asset position.
+
+        The percentage is calculated as (asset market value / total portfolio market value) * 100.
+        Uses Decimal for precision and rounds to 2 decimal places.
+        For composite portfolios, aggregates positions across all sub-portfolios.
+
+        Args:
+            asset: Asset to get allocation for
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Percentage allocation as Decimal rounded to 2 decimal places (0.00 if asset not in portfolio,
+            missing price, or zero total market value)
+        """
+        positions = self.get_positions()
+        
+        # Guard clause: asset not in portfolio
+        if asset not in positions:
+            return Decimal('0.00')
+        
+        position = positions[asset]
+        
+        # Guard clause: no quantity
+        if position.quantity == 0:
+            return Decimal('0.00')
+        
+        # Guard clause: missing price
+        if asset not in prices or prices[asset] is None:
+            logger.debug(f"No price available for {asset.ticker}, returning 0.00 allocation")
+            return Decimal('0.00')
+        
+        # Calculate asset market value
+        price = Decimal(str(prices[asset]))
+        asset_market_value = position.quantity * price
+        
+        # Calculate total portfolio market value
+        total_market_value = Decimal(str(self.get_total_market_value(prices)))
+        
+        # Guard clause: zero total market value
+        if total_market_value == 0:
+            return Decimal('0.00')
+        
+        # Calculate percentage: (asset_market_value / total_market_value) * 100
+        allocation = (asset_market_value / total_market_value) * Decimal('100')
+        
+        # Round to 2 decimal places
+        allocation = allocation.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
+        logger.debug(
+            f"Allocation for {asset.ticker}: {asset_market_value} / {total_market_value} * 100 = {allocation}%"
+        )
+        
+        return allocation
+
+    def get_all_allocations(
+        self, prices: Dict[Asset, Optional[float]]
+    ) -> Dict[Asset, Decimal]:
+        """Get percentage allocations for all asset positions in the portfolio.
+
+        The percentage for each asset is calculated as (asset market value / total portfolio market value) * 100.
+        Uses Decimal for precision and rounds to 2 decimal places. All allocations should sum to 100.00.
+        For composite portfolios, aggregates positions across all sub-portfolios.
+
+        Args:
+            prices: Dictionary mapping Asset to current price (None if unavailable)
+
+        Returns:
+            Dictionary mapping Asset to Decimal percentage allocation (2 decimal places)
+        """
+        positions = self.get_positions()
+        
+        # Guard clause: empty portfolio
+        if not positions:
+            return {}
+        
+        allocations: Dict[Asset, Decimal] = {}
+        
+        # Calculate allocation for each asset with a position
+        for asset in positions.keys():
+            allocation = self.get_asset_allocation(asset, prices)
+            allocations[asset] = allocation
+        
+        # Verify allocations sum to 100.00 (within rounding tolerance)
+        total_allocation = sum(allocations.values())
+        expected_total = Decimal('100.00')
+        tolerance = Decimal('0.01')
+        
+        if abs(total_allocation - expected_total) > tolerance:
+            logger.warning(
+                f"Portfolio allocations sum to {total_allocation}%, expected 100.00% "
+                f"(difference: {abs(total_allocation - expected_total)}%)"
+            )
+        else:
+            logger.debug(f"Portfolio allocations sum to {total_allocation}%")
+        
+        return allocations
 
     def get_all_trades(self) -> List[Trade]:
         """Get all trades from all sub-portfolios.
@@ -1184,4 +1382,190 @@ def get_historical_performance(
     )
 
     return history_points
+
+
+def get_historical_allocations(
+    portfolio: Portfolio,
+    price_service: "PriceService",
+    start_date: date,
+    end_date: date,
+) -> List[Dict[Asset, Decimal]]:
+    """Get historical percentage allocations of asset positions over a date range.
+
+    Returns a list of allocation dictionaries, one for each day from start_date to end_date
+    (inclusive). Each dictionary maps Asset to Decimal percentage allocation (2 decimal places).
+    Allocations are calculated as (asset position value / total portfolio market value) * 100.
+
+    This function leverages `get_historical_performance()` to reuse batch price retrieval
+    for efficiency.
+
+    Args:
+        portfolio: Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+        price_service: Price service for retrieving historical prices
+        start_date: Start date for allocation tracking (inclusive)
+        end_date: End date for allocation tracking (inclusive)
+
+    Returns:
+        List of dictionaries, one per date, mapping Asset to Decimal percentage allocation
+
+    Raises:
+        PortfolioError: If date range is invalid or outside portfolio's date range
+        ValueError: If historical prices cannot be retrieved for any required assets
+    """
+    logger.info(
+        f"Calculating historical allocations for portfolio '{portfolio.name}' "
+        f"from {start_date} to {end_date}"
+    )
+
+    # Get historical performance data (reuses batch price retrieval)
+    history_points = get_historical_performance(portfolio, price_service, start_date, end_date)
+
+    # Get final portfolio positions to establish ticker-to-Asset mapping
+    final_positions = portfolio.get_positions()
+    ticker_to_asset: Dict[str, Asset] = {asset.ticker: asset for asset in final_positions.keys()}
+
+    # Calculate allocations for each history point
+    allocations_list: List[Dict[Asset, Decimal]] = []
+    
+    for history_point in history_points:
+        allocations: Dict[Asset, Decimal] = {}
+        total_market_value = Decimal(str(history_point.total_market_value))
+        
+        # Guard clause: zero total market value
+        if total_market_value == 0:
+            # Return empty allocations for all assets
+            for asset in final_positions.keys():
+                allocations[asset] = Decimal('0.00')
+            allocations_list.append(allocations)
+            continue
+        
+        # Calculate allocation for each asset
+        for ticker, position_value in history_point.asset_positions.items():
+            # Map ticker to Asset object
+            if ticker not in ticker_to_asset:
+                logger.debug(f"Ticker {ticker} not found in final positions, skipping")
+                continue
+            
+            asset = ticker_to_asset[ticker]
+            position_value_decimal = Decimal(str(position_value))
+            
+            # Calculate percentage: (position_value / total_market_value) * 100
+            allocation = (position_value_decimal / total_market_value) * Decimal('100')
+            
+            # Round to 2 decimal places
+            allocation = allocation.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            allocations[asset] = allocation
+        
+        # Ensure all assets from final portfolio are included (set to 0.00 if not present)
+        for asset in final_positions.keys():
+            if asset not in allocations:
+                allocations[asset] = Decimal('0.00')
+        
+        allocations_list.append(allocations)
+    
+    logger.info(
+        f"Generated {len(allocations_list)} allocation dictionaries for portfolio '{portfolio.name}' "
+        f"from {start_date} to {end_date}"
+    )
+    
+    return allocations_list
+
+
+def get_positions_with_allocations(
+    portfolio: Portfolio,
+    prices: Dict[Asset, Optional[float]],
+) -> Dict[Asset, Tuple[Position, Decimal]]:
+    """Get positions and their percentage allocations combined in a single dictionary.
+
+    This utility function combines results from `get_positions()` and `get_all_allocations()`
+    for convenience.
+
+    Args:
+        portfolio: Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+        prices: Dictionary mapping Asset to current price (None if unavailable)
+
+    Returns:
+        Dictionary mapping Asset to tuple of (Position, allocation_percentage)
+        Only includes assets that have both a position and an allocation
+    """
+    positions = portfolio.get_positions()
+    allocations = portfolio.get_all_allocations(prices)
+    
+    # Combine positions and allocations
+    result: Dict[Asset, Tuple[Position, Decimal]] = {}
+    
+    for asset in positions.keys():
+        if asset in allocations:
+            result[asset] = (positions[asset], allocations[asset])
+    
+    logger.debug(
+        f"Combined {len(result)} positions with allocations for portfolio '{portfolio.name}'"
+    )
+    
+    return result
+
+
+def get_historical_positions_with_allocations(
+    portfolio: Portfolio,
+    price_service: "PriceService",
+    start_date: date,
+    end_date: date,
+) -> List[Dict[Asset, Tuple[float, Decimal]]]:
+    """Get historical positions and their percentage allocations combined.
+
+    This utility function combines results from `get_historical_performance()` and
+    `get_historical_allocations()` for convenience. Returns position values (floats)
+    and allocation percentages (Decimals) for each date in the range.
+
+    Args:
+        portfolio: Portfolio to analyze (SimplePortfolio or CompositePortfolio)
+        price_service: Price service for retrieving historical prices
+        start_date: Start date for tracking (inclusive)
+        end_date: End date for tracking (inclusive)
+
+    Returns:
+        List of dictionaries, one per date, mapping Asset to tuple of
+        (position_value, allocation_percentage)
+        Only includes assets that appear in both position values and allocations
+
+    Raises:
+        PortfolioError: If date range is invalid or outside portfolio's date range
+        ValueError: If historical prices cannot be retrieved for any required assets
+    """
+    # Get historical performance and allocations (reuses batch price retrieval)
+    history_points = get_historical_performance(portfolio, price_service, start_date, end_date)
+    allocations_list = get_historical_allocations(portfolio, price_service, start_date, end_date)
+    
+    # Get final portfolio positions to establish ticker-to-Asset mapping
+    final_positions = portfolio.get_positions()
+    ticker_to_asset: Dict[str, Asset] = {asset.ticker: asset for asset in final_positions.keys()}
+    
+    # Combine position values and allocations for each date
+    result: List[Dict[Asset, Tuple[float, Decimal]]] = []
+    
+    for i, history_point in enumerate(history_points):
+        allocations = allocations_list[i]
+        combined: Dict[Asset, Tuple[float, Decimal]] = {}
+        
+        # Combine position values (from history_point.asset_positions) with allocations
+        for ticker, position_value in history_point.asset_positions.items():
+            # Map ticker to Asset object
+            if ticker not in ticker_to_asset:
+                logger.debug(f"Ticker {ticker} not found in final positions, skipping")
+                continue
+            
+            asset = ticker_to_asset[ticker]
+            
+            # Only include if asset has an allocation
+            if asset in allocations:
+                combined[asset] = (position_value, allocations[asset])
+        
+        result.append(combined)
+    
+    logger.debug(
+        f"Combined {len(result)} historical position/allocation dictionaries for portfolio '{portfolio.name}' "
+        f"from {start_date} to {end_date}"
+    )
+    
+    return result
 
