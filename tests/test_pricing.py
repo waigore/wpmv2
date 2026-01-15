@@ -416,6 +416,80 @@ class TestYahooFinanceRetriever:
         currency = retriever._detect_currency("SPY")
         assert currency == "USD"
 
+    def test_metadata_supported(self):
+        """Test that YahooFinanceRetriever supports metadata."""
+        retriever = YahooFinanceRetriever()
+        assert retriever.metadata_supported is True
+
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_metadata_success(self, mock_yf):
+        """Test successful metadata retrieval."""
+        mock_ticker = Mock()
+        mock_ticker.info = {
+            "longName": "Alphabet Inc.",
+            "sector": "Technology",
+            "industry": "Internet Content & Information",
+            "country": "United States",
+            "marketCap": 1500000000000,
+            "category": "Technology"
+        }
+        mock_yf.Ticker.return_value = mock_ticker
+
+        retriever = YahooFinanceRetriever()
+        metadata = retriever.get_metadata("GOOG", "Stock")
+
+        assert metadata is not None
+        assert metadata["name"] == "Alphabet Inc."
+        assert metadata["sector"] == "Technology"
+        assert metadata["industry"] == "Internet Content & Information"
+        assert metadata["country"] == "United States"
+        assert metadata["market_cap"] == 1500000000000
+        assert metadata["category"] == "Technology"
+
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_metadata_empty_info(self, mock_yf):
+        """Test metadata retrieval with empty info."""
+        mock_ticker = Mock()
+        mock_ticker.info = {}
+        mock_yf.Ticker.return_value = mock_ticker
+
+        retriever = YahooFinanceRetriever()
+        metadata = retriever.get_metadata("GOOG", "Stock")
+
+        assert metadata is None
+
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_metadata_exception(self, mock_yf):
+        """Test metadata retrieval with exception."""
+        mock_yf.Ticker.side_effect = Exception("Network error")
+
+        retriever = YahooFinanceRetriever()
+        metadata = retriever.get_metadata("GOOG", "Stock")
+
+        assert metadata is None
+
+    @patch("wpm.pricing.yahoo.yf")
+    def test_get_metadata_crypto(self, mock_yf):
+        """Test metadata retrieval for crypto."""
+        mock_ticker = Mock()
+        mock_ticker.info = {
+            "longName": "Bitcoin USD",
+            "marketCap": 1000000000000,
+            "category": "Cryptocurrency"
+        }
+        mock_yf.Ticker.return_value = mock_ticker
+
+        retriever = YahooFinanceRetriever()
+        metadata = retriever.get_metadata("BTC-USD", "Crypto")
+
+        assert metadata is not None
+        assert metadata["name"] == "Bitcoin USD"
+        assert metadata["sector"] == "N/A"
+        assert metadata["industry"] == "N/A"
+        assert metadata["country"] == "N/A"
+        assert metadata["market_cap"] == 1000000000000
+        assert metadata["category"] == "Cryptocurrency"
+
 
 
 class TestCoinGeckoRetriever:
@@ -591,6 +665,17 @@ class TestCoinGeckoRetriever:
         retriever = CoinGeckoRetriever()
         prices = retriever.get_prices(["BTC-USD"], "Crypto")
         assert prices == {}
+
+    def test_metadata_supported(self):
+        """Test that CoinGeckoRetriever does not support metadata."""
+        retriever = CoinGeckoRetriever()
+        assert retriever.metadata_supported is False
+
+    def test_get_metadata_not_implemented(self):
+        """Test that get_metadata raises NotImplementedError."""
+        retriever = CoinGeckoRetriever()
+        with pytest.raises(NotImplementedError, match="Metadata retrieval is not supported"):
+            retriever.get_metadata("BTC-USD", "Crypto")
 
 
 class TestRateLimiter:
@@ -1372,24 +1457,42 @@ class TestPriceService:
     def test_get_retriever_stock(self):
         """Test getting stock retriever."""
         service = PriceService()
-        retriever = service._get_retriever("Stock")
+        retriever = service.get_retriever("Stock")
         assert isinstance(retriever, YahooFinanceRetriever)
 
     def test_get_retriever_etf(self):
         """Test getting ETF retriever."""
         service = PriceService()
-        retriever = service._get_retriever("ETF")
+        retriever = service.get_retriever("ETF")
         assert isinstance(retriever, YahooFinanceRetriever)
 
     def test_get_retriever_crypto(self):
         """Test getting crypto retriever."""
         service = PriceService()
-        retriever = service._get_retriever("Crypto")
+        retriever = service.get_retriever("Crypto")
         assert isinstance(retriever, CoinGeckoRetriever)
 
     def test_get_retriever_invalid(self):
         """Test getting retriever for invalid asset type."""
         service = PriceService()
         with pytest.raises(ValueError, match="Unsupported asset type"):
-            service._get_retriever("Invalid")
+            service.get_retriever("Invalid")
 
+
+    def test_get_stock_retriever(self):
+        """Test getting stock retriever via public method."""
+        service = PriceService()
+        retriever = service.get_stock_retriever()
+        assert isinstance(retriever, YahooFinanceRetriever)
+        # Verify it's the same instance used internally
+        assert retriever is service.get_retriever("Stock")
+
+    def test_detect_currency(self):
+        """Test currency detection via public method."""
+        service = PriceService()
+        # Test USD ticker
+        currency = service.detect_currency("GOOG")
+        assert currency == "USD"
+        # Test HKD ticker
+        currency = service.detect_currency("2800.HK")
+        assert currency == "HKD"

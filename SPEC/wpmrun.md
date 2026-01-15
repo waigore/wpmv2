@@ -76,6 +76,10 @@ wpm>
 
 ### Supported Commands
 
+#### `metadata <ticker>`
+
+See detailed description below in the Commands section.
+
 #### `list portfolios`
 
 **Description:** Lists all sub-portfolios within the composite portfolio by name.
@@ -230,6 +234,48 @@ wpm>
 - If `--from` is used with non-historical portfolio: "Error: --from can only be used with historical portfolios."
 - If `--from` date is invalid or outside portfolio date range: Display appropriate error message
 - If price is unavailable for a date (historical): Display "N/A" instead of price (e.g., `2024-01-01: AAPL (Stock) = $15,000.00 @ N/A`)
+
+#### `metadata <ticker>`
+
+**Description:** Displays metadata for the specified asset ticker.
+
+**Arguments:**
+- `<ticker>`: Asset ticker symbol (required)
+
+**Behavior:**
+- The command attempts to determine the asset type from the portfolio if the ticker exists in the portfolio (using `get_assets()` which is a lightweight cache lookup and does not trigger FIFO calculations)
+- If the ticker is not found in the portfolio, or if `get_assets()` fails, the command infers the asset type from the ticker format:
+  - Tickers ending with "-USD" are assumed to be "Crypto"
+  - All other tickers default to "Stock"
+- This allows the metadata command to work for any ticker, even if it's not in the portfolio
+
+**Output Format:**
+- Displays all available metadata fields:
+  - Ticker: The asset ticker symbol
+  - Name: Asset name (longName, shortName, name, or ticker as fallback)
+  - Type: Asset type (Stock, ETF, or Crypto)
+  - Market Cap: Market capitalization (formatted as $X.XXB, $X.XXM, etc., or "N/A")
+  - Sector: Sector (equities only, "N/A" for crypto)
+  - Industry: Industry (equities only, "N/A" for crypto)
+  - Country: Country (equities only, "N/A" for crypto)
+  - Category: Category (or "unknown" if not available)
+- Example:
+  ```
+  Ticker: GOOG
+  Name: Alphabet Inc.
+  Type: Stock
+  Market Cap: $1.23T
+  Sector: Technology
+  Industry: Internet Content & Information
+  Country: United States
+  Category: unknown
+  ```
+
+**Error Handling:**
+- If ticker argument is missing: "Error: Ticker required. Usage: metadata <ticker>"
+- If metadata unavailable: "No metadata available for '<ticker>'."
+
+**Note:** Available in both current and historical modes. Metadata is cached for 24 hours to minimize API calls. The command does not trigger expensive FIFO cost basis calculations.
 
 #### `lots <ticker>`
 

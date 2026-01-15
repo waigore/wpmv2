@@ -2,7 +2,7 @@
 
 import logging
 from datetime import date, datetime
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 import pytz
@@ -24,6 +24,15 @@ class YahooFinanceRetriever(PriceRetriever):
         "SUI-USD": "SUI20947-USD",
         # Add more mappings as needed
     }
+
+    @property
+    def metadata_supported(self) -> bool:
+        """Whether this retriever supports metadata retrieval.
+
+        Returns:
+            True - Yahoo Finance retriever supports metadata retrieval
+        """
+        return True
 
     def __init__(self, currency_service: CurrencyService = None):
         """Initialize Yahoo Finance retriever.
@@ -92,7 +101,7 @@ class YahooFinanceRetriever(PriceRetriever):
 
             # If within trading hours, try real-time prices first
             if in_trading_hours:
-                native_price = self._extract_realtime_price(ticker_obj, ticker)
+                native_price = self._extract_realtime_price(ticker_obj, ticker, asset_type)
                 if native_price is not None:
                     logger.debug(f"Retrieved real-time price for {ticker}: {native_price:.2f} {currency}")
                 else:
@@ -124,12 +133,13 @@ class YahooFinanceRetriever(PriceRetriever):
         except Exception as e:
             raise ValueError(f"Error fetching price for {ticker} from Yahoo Finance: {str(e)}") from e
 
-    def _extract_realtime_price(self, ticker_obj: yf.Ticker, ticker: str) -> Optional[float]:
+    def _extract_realtime_price(self, ticker_obj: yf.Ticker, ticker: str, asset_type: str = "Stock") -> Optional[float]:
         """Extract real-time price from ticker.info dict.
 
         Args:
             ticker_obj: yfinance Ticker object
             ticker: Ticker symbol for logging
+            asset_type: Asset type (unused, kept for compatibility)
 
         Returns:
             Price if valid, None otherwise
@@ -175,6 +185,51 @@ class YahooFinanceRetriever(PriceRetriever):
         price = float(latest_price)
         logger.debug(f"Retrieved price for {ticker}: ${price:.2f}")
         return price
+
+    def _extract_prices_from_dataframe(
+        self, data: pd.DataFrame, yfinance_ticker: str, ticker: str
+    ) -> pd.Series:
+        """Extract price series from DataFrame using guard clauses to avoid nested conditionals.
+
+        Args:
+            data: DataFrame from yf.download (may have MultiIndex or single-level columns)
+            yfinance_ticker: Ticker symbol as used in yfinance
+            ticker: Original ticker symbol for error messages
+
+        Returns:
+            Price series (pd.Series)
+
+        Raises:
+            ValueError: If no Close price data is available
+        """
+        # Handle MultiIndex columns (crypto data often has structure like [('Close', 'BTC-USD'), ...])
+        if not isinstance(data.columns, pd.MultiIndex):
+            # Single column case - use guard clauses
+            if "Close" in data.columns:
+                return data["Close"]
+            if "Adj Close" in data.columns:
+                return data["Adj Close"]
+            raise ValueError(f"No Close price data available for {ticker}")
+
+        # MultiIndex case - check if ticker is in level 1 (Ticker level)
+        if yfinance_ticker in data.columns.levels[1]:
+            if ('Adj Close', yfinance_ticker) in data.columns:
+                return data[('Adj Close', yfinance_ticker)]
+            if ('Close', yfinance_ticker) in data.columns:
+                return data[('Close', yfinance_ticker)]
+            raise ValueError(f"No Close price data available for {ticker}. Available columns: {data.columns}")
+
+        # Check if ticker is in level 0 (Price level) - less common but possible
+        if yfinance_ticker in data.columns.levels[0]:
+            ticker_data = data[yfinance_ticker]
+            if "Close" in ticker_data.columns:
+                return ticker_data["Close"]
+            if "Adj Close" in ticker_data.columns:
+                return ticker_data["Adj Close"]
+            raise ValueError(f"No Close price data available for {ticker}. Available columns: {data.columns}")
+
+        # Ticker not found in either level
+        raise ValueError(f"No Close price data available for {ticker}. Available columns: {data.columns}")
 
     def _process_multiindex_data(self, data: pd.DataFrame, tickers: List[str]) -> Dict[str, float]:
         """Process MultiIndex DataFrame from yfinance batch download.
@@ -288,7 +343,7 @@ class YahooFinanceRetriever(PriceRetriever):
             for ticker in tickers:
                 try:
                     ticker_obj = yf.Ticker(ticker)
-                    price = self._extract_realtime_price(ticker_obj, ticker)
+                    price = self._extract_realtime_price(ticker_obj, ticker, asset_type)
                     if price is not None:
                         prices[ticker] = price
                 except Exception as e:
@@ -448,39 +503,7 @@ class YahooFinanceRetriever(PriceRetriever):
 
             # Extract Close prices (adjusted close when auto_adjust=True)
             # yf.download can return different structures depending on the data
-            prices = None
-            
-            if isinstance(data.columns, pd.MultiIndex):
-                # MultiIndex case - crypto data often has structure like [('Close', 'BTC-USD'), ...]
-                # Check if ticker is in level 1 (Ticker level)
-                if yfinance_ticker in data.columns.levels[1]:
-                    # Try Adj Close first, then Close
-                    if ('Adj Close', yfinance_ticker) in data.columns:
-                        prices = data[('Adj Close', yfinance_ticker)]
-                    elif ('Close', yfinance_ticker) in data.columns:
-                        prices = data[('Close', yfinance_ticker)]
-                    else:
-                        raise ValueError(f"No Close price data available for {ticker}. Available columns: {data.columns}")
-                # Check if ticker is in level 0 (Price level) - less common but possible
-                elif yfinance_ticker in data.columns.levels[0]:
-                    ticker_data = data[yfinance_ticker]
-                    if "Close" in ticker_data.columns:
-                        prices = ticker_data["Close"]
-                    elif "Adj Close" in ticker_data.columns:
-                        prices = ticker_data["Adj Close"]
-                else:
-                    raise ValueError(f"No Close price data available for {ticker}. Available columns: {data.columns}")
-            else:
-                # Single column case
-                if "Close" in data.columns:
-                    prices = data["Close"]
-                elif "Adj Close" in data.columns:
-                    prices = data["Adj Close"]
-                else:
-                    raise ValueError(f"No Close price data available for {ticker}")
-            
-            if prices is None:
-                raise ValueError(f"No Close price data available for {ticker}")
+            prices = self._extract_prices_from_dataframe(data, yfinance_ticker, ticker)
 
             # Convert to DataFrame with date index
             result_df = pd.DataFrame({"price": prices})
@@ -502,3 +525,72 @@ class YahooFinanceRetriever(PriceRetriever):
                 f"Error fetching historical prices for {ticker} from Yahoo Finance: {str(e)}"
             ) from e
 
+    def _extract_metadata_from_info(
+        self, info: Dict[str, Any], ticker: str, asset_type: str
+    ) -> Dict[str, Any]:
+        """Extract and normalize metadata from yfinance .info dict.
+
+        Args:
+            info: yfinance .info dictionary
+            ticker: Asset ticker (for fallback)
+            asset_type: Asset type
+
+        Returns:
+            Normalized metadata dictionary
+        """
+        metadata: Dict[str, Any] = {}
+
+        # Name: longName or shortName or name or ticker (fallback)
+        metadata["name"] = (
+            info.get("longName")
+            or info.get("shortName")
+            or info.get("name")
+            or ticker
+        )
+
+        # Sector, industry, country (equities only, fallback to "N/A")
+        if asset_type in ("Stock", "ETF"):
+            metadata["sector"] = info.get("sector", "N/A")
+            metadata["industry"] = info.get("industry", "N/A")
+            metadata["country"] = info.get("country", "N/A")
+        else:
+            metadata["sector"] = "N/A"
+            metadata["industry"] = "N/A"
+            metadata["country"] = "N/A"
+
+        # Market cap: marketCap or totalAssets or None (fallback)
+        metadata["market_cap"] = info.get("marketCap") or info.get("totalAssets")
+
+        # Category: category or "unknown" (fallback)
+        metadata["category"] = info.get("category", "unknown")
+
+        return metadata
+
+    def get_metadata(self, ticker: str, asset_type: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for an asset.
+
+        Args:
+            ticker: Asset ticker symbol
+            asset_type: Asset type ("Stock", "ETF", or "Crypto")
+
+        Returns:
+            Metadata dictionary with keys: name, sector, industry, country, market_cap, category.
+            Returns None if retrieval fails.
+        """
+        logger.debug(f"Retrieving metadata for {ticker} ({asset_type})")
+
+        try:
+            ticker_obj = yf.Ticker(ticker)
+            info = ticker_obj.info
+
+            if not info or len(info) == 0:
+                logger.warning(f"No metadata available for {ticker} ({asset_type})")
+                return None
+
+            metadata = self._extract_metadata_from_info(info, ticker, asset_type)
+            logger.debug(f"Retrieved metadata for {ticker} ({asset_type})")
+            return metadata
+
+        except Exception as e:
+            logger.warning(f"Error fetching metadata for {ticker} ({asset_type}): {e}")
+            return None

@@ -50,7 +50,7 @@ class PriceService:
         self._stock_retriever = YahooFinanceRetriever(self.currency_service)
         self._crypto_retriever = CoinGeckoRetriever()
 
-    def _get_retriever(self, asset_type: str) -> PriceRetriever:
+    def get_retriever(self, asset_type: str) -> PriceRetriever:
         """Get appropriate price retriever for asset type.
 
         Args:
@@ -67,6 +67,25 @@ class PriceService:
             raise ValueError(f"Unsupported asset type: {asset_type}")
 
         return getattr(self, retriever_attr)
+
+    def get_stock_retriever(self) -> PriceRetriever:
+        """Get the stock/ETF retriever instance.
+
+        Returns:
+            YahooFinanceRetriever instance for stocks and ETFs
+        """
+        return self._stock_retriever
+
+    def detect_currency(self, ticker: str) -> str:
+        """Detect currency from ticker symbol.
+
+        Args:
+            ticker: Ticker symbol (e.g., "2800.HK", "GOOG")
+
+        Returns:
+            Currency code (e.g., "HKD", "USD")
+        """
+        return self._stock_retriever._detect_currency(ticker)
 
     def get_price(
         self, ticker: str, asset_type: str, in_native_currency: bool = False
@@ -94,13 +113,13 @@ class PriceService:
 
         self.rate_limiter.wait_if_needed()
 
-        retriever = self._get_retriever(asset_type)
+        retriever = self.get_retriever(asset_type)
         native_price = retriever.get_price(ticker, asset_type)
 
         # For stocks/ETFs, detect currency and convert to USD
         # For crypto, native_price is already in USD
         if asset_type in ("Stock", "ETF"):
-            currency = self._stock_retriever._detect_currency(ticker)
+            currency = self.detect_currency(ticker)
             if currency == "USD":
                 price_usd = native_price
             else:
@@ -157,7 +176,7 @@ class PriceService:
         if uncached_tickers:
             self.rate_limiter.wait_if_needed()
 
-            retriever = self._get_retriever(asset_type)
+            retriever = self.get_retriever(asset_type)
             api_native_prices = retriever.get_prices(uncached_tickers, asset_type)
 
             # Convert to USD and store in cache
@@ -165,7 +184,7 @@ class PriceService:
                 # For stocks/ETFs, detect currency and convert to USD
                 # For crypto, native_price is already in USD
                 if asset_type in ("Stock", "ETF"):
-                    currency = self._stock_retriever._detect_currency(ticker)
+                    currency = self.detect_currency(ticker)
                     if currency == "USD":
                         price_usd = native_price
                     else:
@@ -338,9 +357,9 @@ class PriceService:
             # For historical crypto prices, use YahooFinanceRetriever (yfinance supports longer ranges)
             # For current prices, CoinGeckoRetriever is still used
             if asset_type == "Crypto":
-                retriever = self._stock_retriever  # YahooFinanceRetriever
+                retriever = self.get_stock_retriever()  # YahooFinanceRetriever
             else:
-                retriever = self._get_retriever(asset_type)
+                retriever = self.get_retriever(asset_type)
 
             # Track failed tickers
             failed_tickers: List[str] = []
@@ -373,7 +392,7 @@ class PriceService:
 
                     # Convert to USD prices DataFrame
                     if asset_type in ("Stock", "ETF"):
-                        currency = self._stock_retriever._detect_currency(ticker)
+                        currency = self.detect_currency(ticker)
                         if currency != "USD":
                             # Convert each price to USD (using current rate for now)
                             # This could be improved with historical forex rates

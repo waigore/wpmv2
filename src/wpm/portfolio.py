@@ -33,6 +33,7 @@ class SimplePortfolio(Portfolio):
         super().__init__(name, is_historical=is_historical)
 
         self._trades: List[Trade] = []
+        self._assets: Dict[str, Asset] = {}  # Lightweight asset cache
 
         logger.info(f"Created SimplePortfolio '{name}' (is_historical={is_historical})")
 
@@ -46,6 +47,8 @@ class SimplePortfolio(Portfolio):
             raise PortfolioError("Trade must be a Trade object")
 
         self._trades.append(trade)
+        # Update asset cache
+        self._assets[trade.asset.ticker] = trade.asset
         logger.info(f"Added trade to portfolio '{self.name}': {trade.asset.ticker} {trade.action}")
 
     def get_positions(
@@ -385,6 +388,17 @@ class SimplePortfolio(Portfolio):
         """
         return self._trades.copy()
 
+    def get_assets(self) -> Dict[str, Asset]:
+        """Get all unique assets in the portfolio.
+
+        Returns a lightweight mapping without triggering any calculations.
+        This is updated automatically when trades are added.
+
+        Returns:
+            Dictionary mapping ticker to Asset object
+        """
+        return self._assets.copy()  # Return copy to prevent external modification
+
     def get_asset_trades(
         self, ticker: str, start_date: Optional[date] = None, end_date: Optional[date] = None
     ) -> List[Trade]:
@@ -599,6 +613,14 @@ class CompositePortfolio(Portfolio):
         logger.info(
             f"Added sub-portfolio '{portfolio.name}' to composite portfolio '{self.name}'"
         )
+
+    def get_sub_portfolios(self) -> Dict[str, "Portfolio"]:
+        """Get a copy of all sub-portfolios.
+
+        Returns:
+            Dictionary mapping sub-portfolio name to Portfolio instance
+        """
+        return self._sub_portfolios.copy()
 
     def get_positions(
         self, asset_type: Optional[str] = None, tickers: Optional[List[str]] = None
@@ -854,6 +876,24 @@ class CompositePortfolio(Portfolio):
         for sub_portfolio in self._sub_portfolios.values():
             all_trades.extend(sub_portfolio.get_all_trades())
         return all_trades
+
+    def get_assets(self) -> Dict[str, Asset]:
+        """Get all unique assets across all sub-portfolios.
+
+        Returns a lightweight mapping without triggering any calculations.
+        Aggregates assets from all sub-portfolios.
+
+        Returns:
+            Dictionary mapping ticker to Asset object
+        """
+        assets: Dict[str, Asset] = {}
+        for sub_portfolio in self._sub_portfolios.values():
+            sub_assets = sub_portfolio.get_assets()
+            # Merge: if same ticker exists, keep first one (assets are same for same ticker)
+            for ticker, asset in sub_assets.items():
+                if ticker not in assets:
+                    assets[ticker] = asset
+        return assets
 
     def get_asset_trades(
         self, ticker: str, start_date: Optional[date] = None, end_date: Optional[date] = None

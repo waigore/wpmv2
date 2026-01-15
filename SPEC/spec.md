@@ -23,6 +23,7 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `wpm/metrics.py` - Portfolio metrics and breakdown generation
 - `wpm/utils.py` - Utility functions for validation, logging setup, and helpers
 - `wpm/currency.py` - Currency conversion module using yfinance for forex rates
+- `wpm/asset.py` - Asset metadata retrieval and caching module
 - `wpm/docs/` - Generated markdown documentation (included in version control and package distribution)
 
 ## Module Requirements
@@ -47,6 +48,7 @@ The library consists of the following modules:
 - **wpm/metrics.py**: Portfolio metrics and breakdown generation
 - **wpm/currency.py**: Currency conversion using yfinance
 - **wpm/utils.py**: Utility functions for validation, logging, and trading hours
+- **wpm/asset.py**: Asset metadata retrieval and caching using price retrievers
 
 ## Data Models
 
@@ -265,3 +267,6 @@ Allocation is displayed in the format `| Allocation: XX.XX%` and is only shown w
 - INFO: Currency cache load/save operations, cache hits with rate
 - DEBUG: Forex rate retrieval details, currency conversion calculations
 
+**wpm/asset.py:**
+- INFO: Cache hits (when metadata is successfully retrieved from cache), batch retrieval summaries
+- DEBUG: Cache misses, invalid entries, cache operations (load, save, validity checks), detailed retrieval steps

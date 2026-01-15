@@ -2,13 +2,23 @@
 
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 
 
 class PriceRetriever(ABC):
     """Abstract base class for price retrievers."""
+
+    @property
+    @abstractmethod
+    def metadata_supported(self) -> bool:
+        """Whether this retriever supports metadata retrieval.
+
+        Returns:
+            True if metadata retrieval is supported, False otherwise
+        """
+        pass
 
     @abstractmethod
     def get_price(self, ticker: str, asset_type: str) -> float:
@@ -61,3 +71,24 @@ class PriceRetriever(ABC):
         """
         pass
 
+    def get_metadata(self, ticker: str, asset_type: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for an asset.
+
+        Args:
+            ticker: Asset ticker symbol
+            asset_type: Asset type ("Stock", "ETF", or "Crypto")
+
+        Returns:
+            Metadata dictionary with keys: name, sector, industry, country, market_cap, category.
+            Returns None if retrieval fails.
+
+        Raises:
+            NotImplementedError: If metadata_supported is False
+        """
+        if not self.metadata_supported:
+            raise NotImplementedError(
+                f"Metadata retrieval is not supported by {self.__class__.__name__}"
+            )
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement get_metadata() when metadata_supported is True"
+        )

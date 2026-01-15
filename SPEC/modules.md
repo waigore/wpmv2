@@ -44,6 +44,12 @@
 
 **Key Functions:**
 - `add_trade(trade)`: Add a trade to the portfolio
+- `get_assets()`: Get all unique assets in the portfolio (ticker -> Asset mapping)
+  - Returns a lightweight dictionary mapping ticker to Asset object
+  - Does not trigger any calculations (no FIFO, no position calculations)
+  - For SimplePortfolio: Returns cached `_assets` dict (updated automatically when trades are added)
+  - For CompositePortfolio: Aggregates assets from all sub-portfolios
+  - Updated automatically when trades are added via `add_trade()`
 - `get_positions(asset_type=None, tickers=None)`: Get all asset positions in the portfolio
   - Optional `asset_type` parameter (single string): Filter by asset type (e.g., "Stock", "ETF", "Crypto")
   - Optional `tickers` parameter (list of strings): Filter by one or more ticker symbols
@@ -226,12 +232,17 @@
 - `PriceRetriever`: Abstract base class for price retrieval (supports both single and batch retrieval)
 
 **Key Methods:**
+- `metadata_supported` (property): Abstract property indicating whether the retriever supports metadata retrieval
 - `get_price(ticker, asset_type)`: Abstract method to get current price for an asset
 - `get_prices(tickers, asset_type)`: Abstract method to get current prices for multiple assets in a batch request
 - `get_historical_prices(ticker, asset_type, start_date, end_date)`: Abstract method to get historical prices over a date range
   - `ticker`: Asset ticker symbol (str) or list of ticker symbols (List[str]) for batch retrieval
   - Returns DataFrame with date index and price column (native currency) if ticker is str
   - Returns Dict[str, pd.DataFrame] mapping ticker to DataFrame if ticker is List[str] (batch mode)
+- `get_metadata(ticker, asset_type)`: Method to get metadata for an asset
+  - Returns metadata dictionary with keys: name, sector, industry, country, market_cap, category
+  - Returns None if retrieval fails
+  - Raises NotImplementedError if metadata_supported is False
 
 ### wpm/pricing/yahoo.py
 
@@ -249,6 +260,7 @@
 - `YahooFinanceRetriever`: yfinance-based retriever for stocks/ETFs and historical crypto prices (implements batch retrieval by default)
 
 **Key Methods:**
+- `metadata_supported` (property): Returns True - Yahoo Finance retriever supports metadata retrieval
 - `_detect_currency(ticker)`: Detect currency from ticker suffix
   - Returns "HKD" for Hong Kong stocks (`.HK` suffix)
   - Returns "USD" for US stocks/ETFs (default)
@@ -272,6 +284,10 @@
   - Supports crypto tickers (e.g., "BTC-USD", "ETH-USD") via yfinance
   - Uses `_map_crypto_ticker()` to map crypto tickers to yfinance format when needed (e.g., "SUI-USD" → "SUI20947-USD")
   - Batch mode fetches multiple tickers in a single API call for better performance
+- `get_metadata(ticker, asset_type)`: Get metadata for an asset
+  - Uses `yf.Ticker(ticker).info` to fetch metadata
+  - Extracts and normalizes metadata fields (name, sector, industry, country, market_cap, category)
+  - Returns metadata dictionary or None if retrieval fails
 
 ### wpm/pricing/coingecko.py
 
@@ -285,12 +301,15 @@
 - `CoinGeckoRetriever`: CoinGecko API retriever for cryptocurrencies (implements batch retrieval by default)
 
 **Key Methods:**
+- `metadata_supported` (property): Returns False - CoinGecko retriever does not support metadata retrieval
 - `get_price(ticker, asset_type)`: Get current price for a single cryptocurrency
 - `get_prices(tickers, asset_type)`: Batch price retrieval using CoinGecko's batch API endpoint to fetch multiple tickers in a single API request
 - `get_historical_prices(ticker, asset_type, start_date, end_date)`: Get historical prices over a date range
   - **Note**: This method is NOT used for historical crypto prices. Historical crypto prices use `YahooFinanceRetriever` via `PriceService.get_historical_prices()`.
   - CoinGeckoRetriever is only used for current price retrieval (`get_price()`, `get_prices()`)
   - Historical price retrieval for crypto was moved to yfinance due to CoinGecko free tier limitations (365 days)
+- `get_metadata(ticker, asset_type)`: Get metadata for an asset
+  - Raises NotImplementedError - CoinGecko does not support metadata retrieval
 
 ### wpm/pricing/cache.py
 
@@ -384,6 +403,10 @@
 - `PriceService`: Service that orchestrates price retrieval with caching and rate limiting
 
 **Key Methods:**
+- `get_retriever(asset_type)`: Get appropriate price retriever for asset type
+  - Returns PriceRetriever instance for the specified asset type
+  - Raises ValueError if asset type is not supported
+  - Public method allowing other services (e.g., AssetService) to access retrievers
 - `get_price(ticker, asset_type, in_native_currency=False)`: Get current price for an asset (checks cache first, validates per asset, uses appropriate retriever if cache miss)
   - Returns USD price by default (accounting currency)
   - Returns native currency price if `in_native_currency=True`
@@ -410,8 +433,6 @@
   - Stores fetched prices in historical cache
   - Handles currency conversion for stocks/ETFs
   - Returns USD prices by default, native currency prices if `in_native_currency=True`
-- `_get_retriever(asset_type)`: Internal method to get appropriate price retriever for current prices (YahooFinanceRetriever for Stock/ETF, CoinGeckoRetriever for Crypto)
-  - Note: For historical prices, crypto uses YahooFinanceRetriever instead of CoinGeckoRetriever
 
 **Artefacts:**
 - Current market prices for assets
@@ -463,6 +484,65 @@
 - Persistent Parquet currency cache file (default path from `wpm.config.Config.CURRENCY_CACHE_FILE`)
 - Cache file contains: base_currency, counter_currency, rate, timestamp columns
 - Cache validity: 24 hours (1440 minutes)
+
+## wpm/asset.py
+
+**Responsibilities:**
+- Retrieve asset metadata via price retrievers
+- Manage persistent Parquet-based metadata cache with 24-hour expiry
+- Extract and normalize metadata fields
+- Provide public API for metadata retrieval
+- Use PriceService to access appropriate retrievers for metadata retrieval
+
+**Key Classes:**
+- `AssetMetadataCache`: Manages persistent Parquet-based metadata cache
+- `AssetService`: Service for retrieving and caching asset metadata
+
+**Key Methods:**
+- `AssetService.__init__(cache_file, price_service)`: Initialize asset service
+  - `price_service`: Optional PriceService instance for accessing retrievers
+  - If price_service is None, metadata retrieval will fail (logs warning)
+- `AssetService.get_metadata(ticker, asset_type)`: Get metadata for a single asset
+  - Checks cache first, fetches from retriever if cache miss or expired
+  - Uses PriceService to get appropriate retriever for asset_type
+  - Checks retriever.metadata_supported before attempting retrieval
+  - Returns metadata dictionary or None if retrieval fails
+- `AssetService.get_metadata_batch(tickers, asset_type)`: Get metadata for multiple assets
+  - **Batch Optimization**: Checks cache for all tickers first, identifies stale/missing entries, then fetches all stale/missing tickers from retriever
+  - Uses PriceService to get appropriate retriever for asset_type
+  - Returns dictionary mapping ticker to metadata dict (or None if retrieval fails)
+- `AssetService.update_metadata(ticker, asset_type, info_dict)`: Update cache from metadata dict
+- `AssetService.update_metadata_batch(metadata_dict)`: Update cache for multiple tickers in batch
+- `AssetMetadataCache.get_cached_metadata(ticker, asset_type)`: Get cached metadata if valid (24-hour expiry)
+- `AssetMetadataCache.get_cached_metadata_batch(tickers, asset_type)`: Get cached metadata for multiple tickers
+- `AssetMetadataCache.set_cached_metadata(ticker, asset_type, metadata, timestamp)`: Store metadata in cache
+- `AssetMetadataCache.set_cached_metadata_batch(metadata_list)`: Store multiple metadata entries in cache efficiently
+
+**Metadata Fields:**
+- `name` (all): `longName` or `shortName` or `name` or ticker (fallback)
+- `sector` (equities): `sector` or "N/A" (fallback)
+- `industry` (equities): `industry` or "N/A" (fallback)
+- `country` (equities): `country` or "N/A" (fallback)
+- `market_cap` (all): `marketCap` or `totalAssets` or None (fallback)
+- `category` (all): `category` or "unknown" (fallback)
+
+**Cache Schema:**
+- Columns: `ticker`, `asset_type`, `name`, `sector`, `industry`, `country`, `market_cap`, `category`, `timestamp`
+- Cache file: `Config.ASSET_METADATA_CACHE_FILE` (default: `~/.wpm/asset_metadata_cache.parquet`)
+- Expiry: 24 hours (1440 minutes)
+
+**Integration with Pricing Module:**
+- Uses `PriceService.get_retriever()` to access appropriate retrievers for metadata retrieval
+- Separates metadata retrieval from price fetching - metadata is retrieved via dedicated `get_metadata()` method on retrievers
+- Only retrievers with `metadata_supported=True` can provide metadata (e.g., YahooFinanceRetriever supports metadata, CoinGeckoRetriever does not)
+
+**Logging:**
+- INFO level: Cache hits, batch retrieval summaries
+- DEBUG level: Cache misses, invalid entries, cache operations, detailed retrieval steps
+
+**Artefacts:**
+- Persistent Parquet cache file for asset metadata
+- Metadata retrieval service with batch optimization
 
 ## wpm/utils.py
 

@@ -14,6 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from wpm.asset import AssetService
 from wpm.importer import import_csv_files
 from wpm.metrics import (
     breakdown_by_asset_type,
@@ -387,7 +388,7 @@ def cmd_list_portfolios(composite: CompositePortfolio) -> None:
     Args:
         composite: Composite portfolio containing sub-portfolios
     """
-    sub_portfolios = composite._sub_portfolios
+    sub_portfolios = composite.get_sub_portfolios()
 
     if not sub_portfolios:
         print("No portfolios found.")
@@ -412,7 +413,7 @@ def cmd_show_portfolio(
         price_service: Price service for retrieving current prices
         up_to_date: Optional date for historical portfolios to show state up to this date with weekly summary
     """
-    sub_portfolios = composite._sub_portfolios
+    sub_portfolios = composite.get_sub_portfolios()
 
     if name not in sub_portfolios:
         print(f"Portfolio '{name}' not found.")
@@ -767,7 +768,7 @@ def cmd_breakdown(composite: CompositePortfolio, args: List[str]) -> None:
     # Get portfolio to use
     portfolio = composite
     if portfolio_name:
-        sub_portfolios = composite._sub_portfolios
+        sub_portfolios = composite.get_sub_portfolios()
         if portfolio_name not in sub_portfolios:
             print(f"Portfolio '{portfolio_name}' not found.")
             return
@@ -920,6 +921,113 @@ def cmd_show_lots(
         print(format_lot_line(lot, current_price))
 
 
+def format_market_cap(value: Optional[float]) -> str:
+    """Format market cap value for display.
+
+    Args:
+        value: Market cap value (can be None)
+
+    Returns:
+        Formatted string (e.g., "$1.23B", "$1,234.56M", or "N/A")
+    """
+    if value is None:
+        return "N/A"
+    
+    if value >= 1_000_000_000_000:
+        return f"${value / 1_000_000_000_000:.2f}T"
+    elif value >= 1_000_000_000:
+        return f"${value / 1_000_000_000:.2f}B"
+    elif value >= 1_000_000:
+        return f"${value / 1_000_000:.2f}M"
+    else:
+        return f"${value:,.2f}"
+
+
+def cmd_help() -> None:
+    """Handle 'help' command.
+
+    Displays a list of available commands and their usage.
+    """
+    print("Available commands:")
+    print()
+    print("  list portfolios")
+    print("    List all sub-portfolios within the composite portfolio")
+    print()
+    print("  show portfolio <name> [--up-to YYYY-MM-DD]")
+    print("    Show all assets in the specified sub-portfolio")
+    print("    --up-to: Optional date for historical portfolios (shows weekly summary)")
+    print()
+    print("  show all [--up-to YYYY-MM-DD]")
+    print("    Show all assets in the composite portfolio (aggregated)")
+    print("    --up-to: Optional date for historical portfolios (shows weekly summary)")
+    print()
+    print("  show asset <ticker> [--from YYYY-MM-DD]")
+    print("    Show asset position for the specified ticker")
+    print("    --from: Optional start date for historical portfolios")
+    print()
+    print("  metadata <ticker>")
+    print("    Display metadata for the specified asset ticker")
+    print()
+    print("  lots <ticker>")
+    print("    Display all lots (FIFO purchase records) for the specified ticker")
+    print()
+    print("  breakdown [<name>] <by>")
+    print("    Show portfolio breakdown by dimension")
+    print("    <by>: asset_type, ticker, purchase_period, or broker")
+    print("    [<name>]: Optional sub-portfolio name")
+    print()
+    print("  help")
+    print("    Display this help message")
+    print()
+    print("  quit, exit")
+    print("    Exit the interactive mode")
+
+
+def cmd_metadata(
+    composite: CompositePortfolio, ticker: str, asset_service: AssetService
+) -> None:
+    """Handle 'metadata <ticker>' command.
+
+    Args:
+        composite: Composite portfolio containing all assets
+        ticker: Asset ticker symbol to show metadata for
+        asset_service: Asset service for retrieving metadata
+    """
+    # Get asset type from lightweight asset cache (no calculations)
+    try:
+        assets = composite.get_assets()
+        asset = assets.get(ticker)
+    except Exception:
+        # If get_assets() fails, fall back to inferring asset type from ticker
+        asset = None
+
+    if asset is not None:
+        asset_type = asset.asset_type
+    else:
+        # Ticker not in portfolio, infer from format
+        if ticker.endswith("-USD"):
+            asset_type = "Crypto"
+        else:
+            asset_type = "Stock"  # Default assumption
+
+    # Retrieve metadata
+    metadata = asset_service.get_metadata(ticker, asset_type)
+
+    if metadata is None:
+        print(f"No metadata available for '{ticker}'.")
+        return
+
+    # Display metadata
+    print(f"Ticker: {ticker}")
+    print(f"Name: {metadata.get('name', 'N/A')}")
+    print(f"Type: {asset_type}")
+    print(f"Market Cap: {format_market_cap(metadata.get('market_cap'))}")
+    print(f"Sector: {metadata.get('sector', 'N/A')}")
+    print(f"Industry: {metadata.get('industry', 'N/A')}")
+    print(f"Country: {metadata.get('country', 'N/A')}")
+    print(f"Category: {metadata.get('category', 'unknown')}")
+
+
 def run_interactive_mode(
     composite: CompositePortfolio, price_service: PriceService
 ) -> None:
@@ -931,6 +1039,9 @@ def run_interactive_mode(
     """
     print("Entering interactive mode. Type 'Quit' to exit.")
     logger.info("Entering interactive mode")
+    
+    # Initialize asset service for metadata commands (with price_service for retriever access)
+    asset_service = AssetService(price_service=price_service)
 
     while True:
         try:
@@ -989,6 +1100,13 @@ def run_interactive_mode(
                     cmd_show_lots(composite, args[0], price_service)
                 else:
                     print("Error: Ticker required. Usage: lots <ticker>")
+            elif command == "metadata":
+                if len(args) == 1:
+                    cmd_metadata(composite, args[0], asset_service)
+                else:
+                    print("Error: Ticker required. Usage: metadata <ticker>")
+            elif command == "help":
+                cmd_help()
             else:
                 print(f"Unknown command: '{user_input}'. Type 'help' for available commands.")
 

@@ -19,6 +19,7 @@ except ImportError:
         except Exception:
             __version__ = "unknown"
 
+from wpm.asset import AssetService
 from wpm.cost_basis import calculate_fifo_cost_basis
 from wpm.importer import import_csv_files, import_trades_from_csv
 from wpm.metrics import (
@@ -51,6 +52,8 @@ __all__ = [
     # Pricing
     "PriceService",
     "PriceRetriever",
+    # Asset metadata
+    "AssetService",
     # Metrics
     "calculate_portfolio_metrics",
     "breakdown_by_asset_type",

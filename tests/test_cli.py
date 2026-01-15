@@ -13,8 +13,10 @@ from wpm.cli import (
     cmd_show_all,
     cmd_show_portfolio,
     cmd_show_asset,
+    cmd_metadata,
     format_historical_asset_line,
     format_position_line,
+    format_market_cap,
     _display_weekly_summary,
 )
 from wpm.models import Asset, PortfolioHistoryPoint, Trade
@@ -914,4 +916,220 @@ class TestCmdShowAssetWithAllocations:
                     assert "Allocation:" in output
                     # Verify allocations are displayed for each date
                     assert output.count("Allocation:") == 2
+
+
+class TestFormatMarketCap:
+    """Tests for format_market_cap function."""
+
+    def test_format_market_cap_trillions(self):
+        """Test formatting market cap in trillions."""
+        assert format_market_cap(1_500_000_000_000) == "$1.50T"
+
+    def test_format_market_cap_billions(self):
+        """Test formatting market cap in billions."""
+        assert format_market_cap(1_500_000_000) == "$1.50B"
+
+    def test_format_market_cap_millions(self):
+        """Test formatting market cap in millions."""
+        assert format_market_cap(1_500_000) == "$1.50M"
+
+    def test_format_market_cap_small(self):
+        """Test formatting small market cap."""
+        assert format_market_cap(1_500_000) == "$1.50M"
+        assert format_market_cap(500_000) == "$500,000.00"
+
+    def test_format_market_cap_none(self):
+        """Test formatting None market cap."""
+        assert format_market_cap(None) == "N/A"
+
+
+class TestCmdMetadata:
+    """Tests for cmd_metadata function."""
+
+    def test_cmd_metadata_ticker_in_portfolio(self):
+        """Test metadata command with ticker in portfolio."""
+        portfolio = SimplePortfolio(name="Test")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_asset_service = Mock()
+        mock_asset_service.get_metadata.return_value = {
+            "name": "Alphabet Inc.",
+            "sector": "Technology",
+            "industry": "Internet Content & Information",
+            "country": "United States",
+            "market_cap": 1_500_000_000_000,
+            "category": "Technology",
+        }
+
+        with patch.object(composite, "get_positions") as mock_get_positions:
+            with patch.object(composite, "get_asset_trades") as mock_get_asset_trades:
+                with patch("sys.stdout", new=StringIO()) as fake_out:
+                    cmd_metadata(composite, "GOOG", mock_asset_service)
+                    output = fake_out.getvalue()
+                    assert "Ticker: GOOG" in output
+                    assert "Name: Alphabet Inc." in output
+                    assert "Type: Stock" in output
+                    assert "Sector: Technology" in output
+                    # Verify get_assets was used (we can't easily mock it, but we can verify
+                    # that get_asset_trades and get_positions were NOT called)
+                    mock_get_asset_trades.assert_not_called()
+                    # Verify get_positions was NOT called (to avoid FIFO calculations)
+                    mock_get_positions.assert_not_called()
+
+    def test_cmd_metadata_ticker_not_in_portfolio_stock(self):
+        """Test metadata command with ticker not in portfolio (infers Stock)."""
+        composite = CompositePortfolio(name="Composite")
+
+        mock_asset_service = Mock()
+        mock_asset_service.get_metadata.return_value = {
+            "name": "Microsoft Corporation",
+            "sector": "Technology",
+            "industry": "Software",
+            "country": "United States",
+            "market_cap": 2_500_000_000_000,
+            "category": "Technology",
+        }
+
+        with patch.object(composite, "get_positions") as mock_get_positions:
+            with patch.object(composite, "get_asset_trades") as mock_get_asset_trades:
+                with patch("sys.stdout", new=StringIO()) as fake_out:
+                    cmd_metadata(composite, "MSFT", mock_asset_service)
+                    output = fake_out.getvalue()
+                    assert "Ticker: MSFT" in output
+                    assert "Name: Microsoft Corporation" in output
+                    assert "Type: Stock" in output  # Default inference
+                    # Verify lightweight methods were used (get_assets, not get_asset_trades or get_positions)
+                    mock_get_asset_trades.assert_not_called()
+                    mock_get_positions.assert_not_called()
+                # Verify get_metadata was called with inferred asset_type
+                mock_asset_service.get_metadata.assert_called_once_with("MSFT", "Stock")
+
+    def test_cmd_metadata_ticker_not_in_portfolio_crypto(self):
+        """Test metadata command with crypto ticker not in portfolio (infers Crypto)."""
+        composite = CompositePortfolio(name="Composite")
+
+        mock_asset_service = Mock()
+        mock_asset_service.get_metadata.return_value = {
+            "name": "Bitcoin USD",
+            "sector": "N/A",
+            "industry": "N/A",
+            "country": "N/A",
+            "market_cap": 500_000_000_000,
+            "category": "Crypto",
+        }
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_metadata(composite, "BTC-USD", mock_asset_service)
+            output = fake_out.getvalue()
+            assert "Ticker: BTC-USD" in output
+            assert "Name: Bitcoin USD" in output
+            assert "Type: Crypto" in output  # Inferred from -USD suffix
+            # Verify get_metadata was called with Crypto asset_type
+            mock_asset_service.get_metadata.assert_called_once_with("BTC-USD", "Crypto")
+
+    def test_cmd_metadata_no_metadata_available(self):
+        """Test metadata command when metadata is not available."""
+        portfolio = SimplePortfolio(name="Test")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_asset_service = Mock()
+        mock_asset_service.get_metadata.return_value = None
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_metadata(composite, "GOOG", mock_asset_service)
+            output = fake_out.getvalue()
+            assert "No metadata available for 'GOOG'." in output
+
+    def test_cmd_metadata_uses_get_assets_not_get_positions(self):
+        """Test that metadata command uses get_assets (lightweight) not get_positions (expensive)."""
+        portfolio = SimplePortfolio(name="Test")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_asset_service = Mock()
+        mock_asset_service.get_metadata.return_value = {
+            "name": "Alphabet Inc.",
+            "sector": "Technology",
+            "industry": "Internet Content & Information",
+            "country": "United States",
+            "market_cap": 1_500_000_000_000,
+            "category": "Technology",
+        }
+
+        # Mock get_positions and get_asset_trades to verify they're NOT called
+        with patch.object(composite, "get_positions") as mock_get_positions:
+            with patch.object(composite, "get_asset_trades") as mock_get_asset_trades:
+                with patch("sys.stdout", new=StringIO()):
+                    cmd_metadata(composite, "GOOG", mock_asset_service)
+                    # Verify get_assets was used (we can't easily mock it, but we can verify
+                    # that get_asset_trades and get_positions were NOT called)
+                    mock_get_asset_trades.assert_not_called()
+                    # Verify get_positions was NOT called
+                    mock_get_positions.assert_not_called()
+
+    def test_cmd_metadata_handles_get_assets_exception(self):
+        """Test that metadata command handles exceptions from get_assets gracefully."""
+        composite = CompositePortfolio(name="Composite")
+
+        mock_asset_service = Mock()
+        mock_asset_service.get_metadata.return_value = {
+            "name": "Test Company",
+            "sector": "Technology",
+            "industry": "Software",
+            "country": "United States",
+            "market_cap": 1_000_000_000,
+            "category": "Technology",
+        }
+
+        # Mock get_assets to raise exception - should fall back to inferring asset type
+        with patch.object(composite, "get_assets", side_effect=Exception("Error")):
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_metadata(composite, "TEST", mock_asset_service)
+                output = fake_out.getvalue()
+                # Should still work by inferring asset type
+                assert "Ticker: TEST" in output
+                assert "Type: Stock" in output  # Default inference
+                # Verify get_metadata was called with inferred type
+                mock_asset_service.get_metadata.assert_called_once_with("TEST", "Stock")
 

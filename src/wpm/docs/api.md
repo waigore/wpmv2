@@ -46,6 +46,7 @@
     * [get\_positions](#wpm.models.Portfolio.get_positions)
     * [get\_total\_cost\_basis](#wpm.models.Portfolio.get_total_cost_basis)
     * [get\_all\_trades](#wpm.models.Portfolio.get_all_trades)
+    * [get\_assets](#wpm.models.Portfolio.get_assets)
     * [get\_asset\_trades](#wpm.models.Portfolio.get_asset_trades)
     * [get\_total\_market\_value](#wpm.models.Portfolio.get_total_market_value)
     * [get\_total\_unrealized\_pnl](#wpm.models.Portfolio.get_total_unrealized_pnl)
@@ -57,6 +58,19 @@
     * [asset\_positions](#wpm.models.PortfolioHistoryPoint.asset_positions)
     * [prices](#wpm.models.PortfolioHistoryPoint.prices)
     * [\_\_post\_init\_\_](#wpm.models.PortfolioHistoryPoint.__post_init__)
+* [wpm.asset](#wpm.asset)
+  * [AssetMetadataCache](#wpm.asset.AssetMetadataCache)
+    * [\_\_init\_\_](#wpm.asset.AssetMetadataCache.__init__)
+    * [get\_cached\_metadata](#wpm.asset.AssetMetadataCache.get_cached_metadata)
+    * [get\_cached\_metadata\_batch](#wpm.asset.AssetMetadataCache.get_cached_metadata_batch)
+    * [set\_cached\_metadata](#wpm.asset.AssetMetadataCache.set_cached_metadata)
+    * [set\_cached\_metadata\_batch](#wpm.asset.AssetMetadataCache.set_cached_metadata_batch)
+  * [AssetService](#wpm.asset.AssetService)
+    * [\_\_init\_\_](#wpm.asset.AssetService.__init__)
+    * [get\_metadata](#wpm.asset.AssetService.get_metadata)
+    * [get\_metadata\_batch](#wpm.asset.AssetService.get_metadata_batch)
+    * [update\_metadata](#wpm.asset.AssetService.update_metadata)
+    * [update\_metadata\_batch](#wpm.asset.AssetService.update_metadata_batch)
 * [wpm.cost\_basis](#wpm.cost_basis)
   * [calculate\_lots\_from\_trades](#wpm.cost_basis.calculate_lots_from_trades)
   * [calculate\_fifo\_cost\_basis](#wpm.cost_basis.calculate_fifo_cost_basis)
@@ -81,6 +95,9 @@
   * [cmd\_breakdown](#wpm.cli.cmd_breakdown)
   * [format\_lot\_line](#wpm.cli.format_lot_line)
   * [cmd\_show\_lots](#wpm.cli.cmd_show_lots)
+  * [format\_market\_cap](#wpm.cli.format_market_cap)
+  * [cmd\_help](#wpm.cli.cmd_help)
+  * [cmd\_metadata](#wpm.cli.cmd_metadata)
   * [run\_interactive\_mode](#wpm.cli.run_interactive_mode)
   * [main](#wpm.cli.main)
 * [wpm.cache\_utils](#wpm.cache_utils)
@@ -122,6 +139,7 @@
     * [get\_asset\_allocation](#wpm.portfolio.SimplePortfolio.get_asset_allocation)
     * [get\_all\_allocations](#wpm.portfolio.SimplePortfolio.get_all_allocations)
     * [get\_all\_trades](#wpm.portfolio.SimplePortfolio.get_all_trades)
+    * [get\_assets](#wpm.portfolio.SimplePortfolio.get_assets)
     * [get\_asset\_trades](#wpm.portfolio.SimplePortfolio.get_asset_trades)
     * [clone](#wpm.portfolio.SimplePortfolio.clone)
     * [start\_date](#wpm.portfolio.SimplePortfolio.start_date)
@@ -138,6 +156,7 @@
     * [get\_asset\_allocation](#wpm.portfolio.CompositePortfolio.get_asset_allocation)
     * [get\_all\_allocations](#wpm.portfolio.CompositePortfolio.get_all_allocations)
     * [get\_all\_trades](#wpm.portfolio.CompositePortfolio.get_all_trades)
+    * [get\_assets](#wpm.portfolio.CompositePortfolio.get_assets)
     * [get\_asset\_trades](#wpm.portfolio.CompositePortfolio.get_asset_trades)
     * [start\_date](#wpm.portfolio.CompositePortfolio.start_date)
     * [end\_date](#wpm.portfolio.CompositePortfolio.end_date)
@@ -151,22 +170,27 @@
 * [wpm.pricing.service](#wpm.pricing.service)
   * [PriceService](#wpm.pricing.service.PriceService)
     * [\_\_init\_\_](#wpm.pricing.service.PriceService.__init__)
+    * [get\_retriever](#wpm.pricing.service.PriceService.get_retriever)
     * [get\_price](#wpm.pricing.service.PriceService.get_price)
     * [get\_prices](#wpm.pricing.service.PriceService.get_prices)
     * [get\_historical\_price](#wpm.pricing.service.PriceService.get_historical_price)
     * [get\_historical\_prices](#wpm.pricing.service.PriceService.get_historical_prices)
 * [wpm.pricing.coingecko](#wpm.pricing.coingecko)
   * [CoinGeckoRetriever](#wpm.pricing.coingecko.CoinGeckoRetriever)
+    * [metadata\_supported](#wpm.pricing.coingecko.CoinGeckoRetriever.metadata_supported)
     * [\_\_init\_\_](#wpm.pricing.coingecko.CoinGeckoRetriever.__init__)
     * [get\_price](#wpm.pricing.coingecko.CoinGeckoRetriever.get_price)
     * [get\_prices](#wpm.pricing.coingecko.CoinGeckoRetriever.get_prices)
     * [get\_historical\_prices](#wpm.pricing.coingecko.CoinGeckoRetriever.get_historical_prices)
+    * [get\_metadata](#wpm.pricing.coingecko.CoinGeckoRetriever.get_metadata)
 * [wpm.pricing.yahoo](#wpm.pricing.yahoo)
   * [YahooFinanceRetriever](#wpm.pricing.yahoo.YahooFinanceRetriever)
+    * [metadata\_supported](#wpm.pricing.yahoo.YahooFinanceRetriever.metadata_supported)
     * [\_\_init\_\_](#wpm.pricing.yahoo.YahooFinanceRetriever.__init__)
     * [get\_price](#wpm.pricing.yahoo.YahooFinanceRetriever.get_price)
     * [get\_prices](#wpm.pricing.yahoo.YahooFinanceRetriever.get_prices)
     * [get\_historical\_prices](#wpm.pricing.yahoo.YahooFinanceRetriever.get_historical_prices)
+    * [get\_metadata](#wpm.pricing.yahoo.YahooFinanceRetriever.get_metadata)
 * [wpm.pricing.rate\_limiter](#wpm.pricing.rate_limiter)
   * [RateLimiter](#wpm.pricing.rate_limiter.RateLimiter)
     * [\_\_init\_\_](#wpm.pricing.rate_limiter.RateLimiter.__init__)
@@ -193,9 +217,11 @@
     * [clear\_all](#wpm.pricing.historical_cache.HistoricalPriceCache.clear_all)
 * [wpm.pricing.base](#wpm.pricing.base)
   * [PriceRetriever](#wpm.pricing.base.PriceRetriever)
+    * [metadata\_supported](#wpm.pricing.base.PriceRetriever.metadata_supported)
     * [get\_price](#wpm.pricing.base.PriceRetriever.get_price)
     * [get\_prices](#wpm.pricing.base.PriceRetriever.get_prices)
     * [get\_historical\_prices](#wpm.pricing.base.PriceRetriever.get_historical_prices)
+    * [get\_metadata](#wpm.pricing.base.PriceRetriever.get_metadata)
 
 <a id="wpm"></a>
 
@@ -808,6 +834,24 @@ def get_all_trades() -> list[Trade]
 
 Get all trades in the portfolio (including sub-portfolios).
 
+<a id="wpm.models.Portfolio.get_assets"></a>
+
+#### get\_assets
+
+```python
+@abstractmethod
+def get_assets() -> Dict[str, "Asset"]
+```
+
+Get all unique assets in the portfolio (ticker -> Asset mapping).
+
+Returns a lightweight mapping without triggering any calculations.
+This is updated automatically when trades are added.
+
+**Returns**:
+
+  Dictionary mapping ticker to Asset object
+
 <a id="wpm.models.Portfolio.get_asset_trades"></a>
 
 #### get\_asset\_trades
@@ -994,6 +1038,216 @@ def __post_init__()
 ```
 
 Validate history point fields after initialization.
+
+<a id="wpm.asset"></a>
+
+# wpm.asset
+
+Manages asset metadata retrieval and caching.
+
+<a id="wpm.asset.AssetMetadataCache"></a>
+
+## AssetMetadataCache Objects
+
+```python
+class AssetMetadataCache()
+```
+
+Manages persistent Parquet-based asset metadata cache.
+
+<a id="wpm.asset.AssetMetadataCache.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(cache_file: Optional[Path] = None)
+```
+
+Initialize asset metadata cache.
+
+**Arguments**:
+
+- `cache_file` - Path to cache file (default: Config.ASSET_METADATA_CACHE_FILE)
+
+<a id="wpm.asset.AssetMetadataCache.get_cached_metadata"></a>
+
+#### get\_cached\_metadata
+
+```python
+def get_cached_metadata(ticker: str,
+                        asset_type: str) -> Optional[Dict[str, Any]]
+```
+
+Get cached metadata if valid.
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+  
+
+**Returns**:
+
+  Cached metadata dict if valid, None otherwise
+
+<a id="wpm.asset.AssetMetadataCache.get_cached_metadata_batch"></a>
+
+#### get\_cached\_metadata\_batch
+
+```python
+def get_cached_metadata_batch(
+        tickers: List[str],
+        asset_type: str) -> Dict[str, Optional[Dict[str, Any]]]
+```
+
+Get cached metadata for multiple tickers.
+
+**Arguments**:
+
+- `tickers` - List of asset tickers
+- `asset_type` - Asset type for all tickers
+  
+
+**Returns**:
+
+  Dictionary mapping ticker to metadata dict (or None if missing/invalid)
+
+<a id="wpm.asset.AssetMetadataCache.set_cached_metadata"></a>
+
+#### set\_cached\_metadata
+
+```python
+def set_cached_metadata(ticker: str,
+                        asset_type: str,
+                        metadata: Dict[str, Any],
+                        timestamp: Optional[datetime] = None) -> None
+```
+
+Store metadata in cache.
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+- `metadata` - Metadata dictionary
+- `timestamp` - Timestamp (default: current time)
+
+<a id="wpm.asset.AssetMetadataCache.set_cached_metadata_batch"></a>
+
+#### set\_cached\_metadata\_batch
+
+```python
+def set_cached_metadata_batch(metadata_list: List[Dict[str, Any]]) -> None
+```
+
+Store multiple metadata entries in cache efficiently.
+
+**Arguments**:
+
+- `metadata_list` - List of dicts, each containing:
+  - ticker: str
+  - asset_type: str
+  - metadata: Dict[str, Any]
+  - timestamp: Optional[datetime]
+
+<a id="wpm.asset.AssetService"></a>
+
+## AssetService Objects
+
+```python
+class AssetService()
+```
+
+Service for retrieving and caching asset metadata.
+
+<a id="wpm.asset.AssetService.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(cache_file: Optional[Path] = None,
+             price_service: Optional["PriceService"] = None)
+```
+
+Initialize asset service.
+
+**Arguments**:
+
+- `cache_file` - Path to cache file (default: Config.ASSET_METADATA_CACHE_FILE)
+- `price_service` - Optional PriceService instance for retrieving metadata via retrievers
+
+<a id="wpm.asset.AssetService.get_metadata"></a>
+
+#### get\_metadata
+
+```python
+def get_metadata(ticker: str, asset_type: str) -> Optional[Dict[str, Any]]
+```
+
+Get metadata for a single asset.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type ("Stock", "ETF", or "Crypto")
+  
+
+**Returns**:
+
+  Metadata dictionary, or None if retrieval fails
+
+<a id="wpm.asset.AssetService.get_metadata_batch"></a>
+
+#### get\_metadata\_batch
+
+```python
+def get_metadata_batch(tickers: List[str],
+                       asset_type: str) -> Dict[str, Optional[Dict[str, Any]]]
+```
+
+Get metadata for multiple assets with batch optimization.
+
+**Arguments**:
+
+- `tickers` - List of asset ticker symbols
+- `asset_type` - Asset type for all tickers
+  
+
+**Returns**:
+
+  Dictionary mapping ticker to metadata dict (or None if retrieval fails)
+
+<a id="wpm.asset.AssetService.update_metadata"></a>
+
+#### update\_metadata
+
+```python
+def update_metadata(ticker: str, asset_type: str,
+                    info_dict: Dict[str, Any]) -> None
+```
+
+Update cache from yfinance .info dict.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type
+- `info_dict` - yfinance .info dictionary
+
+<a id="wpm.asset.AssetService.update_metadata_batch"></a>
+
+#### update\_metadata\_batch
+
+```python
+def update_metadata_batch(metadata_dict: Dict[str, Dict[str, Any]]) -> None
+```
+
+Update cache for multiple tickers in batch.
+
+**Arguments**:
+
+- `metadata_dict` - Dictionary mapping (ticker, asset_type) tuple to info_dict
+- `Format` - {(ticker, asset_type): info_dict, ...}
 
 <a id="wpm.cost_basis"></a>
 
@@ -1195,7 +1449,8 @@ Parse --from date argument from command args.
 def format_position_line(position: Position,
                          price: Optional[float],
                          is_historical: bool = False,
-                         end_date: Optional[date] = None) -> str
+                         end_date: Optional[date] = None,
+                         allocation: Optional[Decimal] = None) -> str
 ```
 
 Format a position line for display.
@@ -1206,6 +1461,7 @@ Format a position line for display.
 - `price` - Current or historical price (None if unavailable)
 - `is_historical` - Whether this is a historical portfolio
 - `end_date` - End date for historical portfolios (used in label)
+- `allocation` - Optional allocation percentage (Decimal, None if unavailable)
   
 
 **Returns**:
@@ -1218,7 +1474,9 @@ Format a position line for display.
 
 ```python
 def format_historical_asset_line(history_point: PortfolioHistoryPoint,
-                                 ticker: str, asset_type: str) -> str
+                                 ticker: str,
+                                 asset_type: str,
+                                 allocation: Optional[Decimal] = None) -> str
 ```
 
 Format a simplified line for historical asset positions.
@@ -1228,11 +1486,12 @@ Format a simplified line for historical asset positions.
 - `history_point` - History point containing position and price data
 - `ticker` - Asset ticker symbol
 - `asset_type` - Asset type (e.g., "Stock", "ETF", "Crypto")
+- `allocation` - Optional allocation percentage (Decimal, None if unavailable)
   
 
 **Returns**:
 
-  Formatted string: YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price
+  Formatted string: YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price | Allocation: XX.XX%
 
 <a id="wpm.cli.cmd_list_portfolios"></a>
 
@@ -1413,6 +1672,54 @@ Handle 'lots <ticker>' command.
 - `composite` - Composite portfolio containing all assets
 - `ticker` - Asset ticker symbol to show lots for
 - `price_service` - Price service for retrieving current prices
+
+<a id="wpm.cli.format_market_cap"></a>
+
+#### format\_market\_cap
+
+```python
+def format_market_cap(value: Optional[float]) -> str
+```
+
+Format market cap value for display.
+
+**Arguments**:
+
+- `value` - Market cap value (can be None)
+  
+
+**Returns**:
+
+  Formatted string (e.g., "$1.23B", "$1,234.56M", or "N/A")
+
+<a id="wpm.cli.cmd_help"></a>
+
+#### cmd\_help
+
+```python
+def cmd_help() -> None
+```
+
+Handle 'help' command.
+
+Displays a list of available commands and their usage.
+
+<a id="wpm.cli.cmd_metadata"></a>
+
+#### cmd\_metadata
+
+```python
+def cmd_metadata(composite: CompositePortfolio, ticker: str,
+                 asset_service: AssetService) -> None
+```
+
+Handle 'metadata <ticker>' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio containing all assets
+- `ticker` - Asset ticker symbol to show metadata for
+- `asset_service` - Asset service for retrieving metadata
 
 <a id="wpm.cli.run_interactive_mode"></a>
 
@@ -2114,6 +2421,23 @@ Get all trades in the portfolio.
 
   List of all trades
 
+<a id="wpm.portfolio.SimplePortfolio.get_assets"></a>
+
+#### get\_assets
+
+```python
+def get_assets() -> Dict[str, Asset]
+```
+
+Get all unique assets in the portfolio.
+
+Returns a lightweight mapping without triggering any calculations.
+This is updated automatically when trades are added.
+
+**Returns**:
+
+  Dictionary mapping ticker to Asset object
+
 <a id="wpm.portfolio.SimplePortfolio.get_asset_trades"></a>
 
 #### get\_asset\_trades
@@ -2436,6 +2760,23 @@ Get all trades from all sub-portfolios.
 **Returns**:
 
   List of all trades from sub-portfolios
+
+<a id="wpm.portfolio.CompositePortfolio.get_assets"></a>
+
+#### get\_assets
+
+```python
+def get_assets() -> Dict[str, Asset]
+```
+
+Get all unique assets across all sub-portfolios.
+
+Returns a lightweight mapping without triggering any calculations.
+Aggregates assets from all sub-portfolios.
+
+**Returns**:
+
+  Dictionary mapping ticker to Asset object
 
 <a id="wpm.portfolio.CompositePortfolio.get_asset_trades"></a>
 
@@ -2764,6 +3105,30 @@ Initialize price service.
 - `rate_limit_per_minute` - Rate limit for API calls per minute
 - `currency_service` - CurrencyService instance (default: creates new instance)
 
+<a id="wpm.pricing.service.PriceService.get_retriever"></a>
+
+#### get\_retriever
+
+```python
+def get_retriever(asset_type: str) -> PriceRetriever
+```
+
+Get appropriate price retriever for asset type.
+
+**Arguments**:
+
+- `asset_type` - Asset type
+  
+
+**Returns**:
+
+  PriceRetriever instance
+  
+
+**Raises**:
+
+- `ValueError` - If asset type is not supported
+
 <a id="wpm.pricing.service.PriceService.get_price"></a>
 
 #### get\_price
@@ -2896,6 +3261,21 @@ class CoinGeckoRetriever(PriceRetriever)
 
 Price retriever using CoinGecko API for cryptocurrencies.
 
+<a id="wpm.pricing.coingecko.CoinGeckoRetriever.metadata_supported"></a>
+
+#### metadata\_supported
+
+```python
+@property
+def metadata_supported() -> bool
+```
+
+Whether this retriever supports metadata retrieval.
+
+**Returns**:
+
+  False - CoinGecko retriever does not support metadata retrieval
+
 <a id="wpm.pricing.coingecko.CoinGeckoRetriever.__init__"></a>
 
 #### \_\_init\_\_
@@ -2991,6 +3371,31 @@ so this method only handles a single ticker. When a list is provided, raises Val
 
 - `ValueError` - If prices cannot be retrieved, or if multiple tickers are provided
 
+<a id="wpm.pricing.coingecko.CoinGeckoRetriever.get_metadata"></a>
+
+#### get\_metadata
+
+```python
+def get_metadata(ticker: str, asset_type: str) -> Optional[Dict[str, Any]]
+```
+
+Get metadata for an asset.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type (unused)
+  
+
+**Returns**:
+
+  Never returns (always raises NotImplementedError)
+  
+
+**Raises**:
+
+- `NotImplementedError` - CoinGecko does not support metadata retrieval
+
 <a id="wpm.pricing.yahoo"></a>
 
 # wpm.pricing.yahoo
@@ -3006,6 +3411,21 @@ class YahooFinanceRetriever(PriceRetriever)
 ```
 
 Price retriever using yfinance for stocks and ETFs.
+
+<a id="wpm.pricing.yahoo.YahooFinanceRetriever.metadata_supported"></a>
+
+#### metadata\_supported
+
+```python
+@property
+def metadata_supported() -> bool
+```
+
+Whether this retriever supports metadata retrieval.
+
+**Returns**:
+
+  True - Yahoo Finance retriever supports metadata retrieval
 
 <a id="wpm.pricing.yahoo.YahooFinanceRetriever.__init__"></a>
 
@@ -3107,6 +3527,27 @@ Supports both single ticker and batch ticker fetching.
 **Raises**:
 
 - `ValueError` - If prices cannot be retrieved
+
+<a id="wpm.pricing.yahoo.YahooFinanceRetriever.get_metadata"></a>
+
+#### get\_metadata
+
+```python
+def get_metadata(ticker: str, asset_type: str) -> Optional[Dict[str, Any]]
+```
+
+Get metadata for an asset.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type ("Stock", "ETF", or "Crypto")
+  
+
+**Returns**:
+
+  Metadata dictionary with keys: name, sector, industry, country, market_cap, category.
+  Returns None if retrieval fails.
 
 <a id="wpm.pricing.rate_limiter"></a>
 
@@ -3482,6 +3923,22 @@ class PriceRetriever(ABC)
 
 Abstract base class for price retrievers.
 
+<a id="wpm.pricing.base.PriceRetriever.metadata_supported"></a>
+
+#### metadata\_supported
+
+```python
+@property
+@abstractmethod
+def metadata_supported() -> bool
+```
+
+Whether this retriever supports metadata retrieval.
+
+**Returns**:
+
+  True if metadata retrieval is supported, False otherwise
+
 <a id="wpm.pricing.base.PriceRetriever.get_price"></a>
 
 #### get\_price
@@ -3560,4 +4017,30 @@ Get historical prices for an asset or multiple assets over a date range.
 **Raises**:
 
 - `ValueError` - If prices cannot be retrieved
+
+<a id="wpm.pricing.base.PriceRetriever.get_metadata"></a>
+
+#### get\_metadata
+
+```python
+def get_metadata(ticker: str, asset_type: str) -> Optional[Dict[str, Any]]
+```
+
+Get metadata for an asset.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol
+- `asset_type` - Asset type ("Stock", "ETF", or "Crypto")
+  
+
+**Returns**:
+
+  Metadata dictionary with keys: name, sector, industry, country, market_cap, category.
+  Returns None if retrieval fails.
+  
+
+**Raises**:
+
+- `NotImplementedError` - If metadata_supported is False
 

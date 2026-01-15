@@ -324,6 +324,18 @@ class Portfolio(ABC):
         pass
 
     @abstractmethod
+    def get_assets(self) -> Dict[str, "Asset"]:
+        """Get all unique assets in the portfolio (ticker -> Asset mapping).
+
+        Returns a lightweight mapping without triggering any calculations.
+        This is updated automatically when trades are added.
+
+        Returns:
+            Dictionary mapping ticker to Asset object
+        """
+        pass
+
+    @abstractmethod
     def get_asset_trades(
         self, ticker: str, start_date: Optional[date] = None, end_date: Optional[date] = None
     ) -> List[Trade]:

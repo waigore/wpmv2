@@ -2,7 +2,7 @@
 
 import logging
 from datetime import date, datetime
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 from pycoingecko import CoinGeckoAPI
@@ -15,6 +15,15 @@ logger = logging.getLogger(__name__)
 
 class CoinGeckoRetriever(PriceRetriever):
     """Price retriever using CoinGecko API for cryptocurrencies."""
+
+    @property
+    def metadata_supported(self) -> bool:
+        """Whether this retriever supports metadata retrieval.
+
+        Returns:
+            False - CoinGecko retriever does not support metadata retrieval
+        """
+        return False
 
     def __init__(self, api_key: Optional[str] = None, is_demo: Optional[bool] = None):
         """Initialize CoinGecko API client.
@@ -283,3 +292,20 @@ class CoinGeckoRetriever(PriceRetriever):
                 f"Error fetching historical prices for {ticker} from CoinGecko: {str(e)}"
             ) from e
 
+    def get_metadata(self, ticker: str, asset_type: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for an asset.
+
+        Args:
+            ticker: Asset ticker symbol
+            asset_type: Asset type (unused)
+
+        Returns:
+            Never returns (always raises NotImplementedError)
+
+        Raises:
+            NotImplementedError: CoinGecko does not support metadata retrieval
+        """
+        raise NotImplementedError(
+            "Metadata retrieval is not supported by CoinGeckoRetriever. "
+            "Use YahooFinanceRetriever for metadata retrieval."
+        )

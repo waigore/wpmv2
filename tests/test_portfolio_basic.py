@@ -3,6 +3,7 @@
 import pytest
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from wpm.models import Asset, PortfolioError, Trade
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
@@ -220,9 +221,297 @@ class TestSimplePortfolio:
         realized_pnl = portfolio.get_total_realized_pnl(prices)
         assert realized_pnl == 0.0
 
+    def test_get_assets_empty(self):
+        """Test getting assets from empty portfolio."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        assets = portfolio.get_assets()
+        assert assets == {}
+
+    def test_get_assets_after_adding_trades(self):
+        """Test that get_assets() returns correct assets after adding trades."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        asset3 = Asset(ticker="BTC-USD", asset_type="Crypto")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 17),
+                asset=asset3,
+                action="Buy",
+                broker="Coinbase",
+                currency="USD",
+                price=50000.0,
+                price_native=50000.0,
+                quantity=0.1,
+            )
+        )
+
+        assets = portfolio.get_assets()
+        assert len(assets) == 3
+        assert "GOOG" in assets
+        assert assets["GOOG"] == asset1
+        assert "AAPL" in assets
+        assert assets["AAPL"] == asset2
+        assert "BTC-USD" in assets
+        assert assets["BTC-USD"] == asset3
+
+    def test_add_trade_updates_assets(self):
+        """Test that adding a trade updates the asset cache."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        # Initially empty
+        assets = portfolio.get_assets()
+        assert assets == {}
+
+        # Add trade
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        # Asset should now be in cache
+        assets = portfolio.get_assets()
+        assert "GOOG" in assets
+        assert assets["GOOG"] == asset
+
+    def test_get_assets_no_calculations(self):
+        """Test that get_assets() doesn't trigger FIFO calculations."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        # Mock get_positions to verify it's not called
+        with patch.object(portfolio, "get_positions") as mock_get_positions:
+            assets = portfolio.get_assets()
+            # Verify get_assets() worked
+            assert "GOOG" in assets
+            # Verify get_positions() was NOT called
+            mock_get_positions.assert_not_called()
+
+    def test_get_assets_duplicate_ticker(self):
+        """Test that get_assets() handles multiple trades for same ticker correctly."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        # Add multiple trades for same asset
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=160.0,
+                price_native=160.0,
+                quantity=5.0,
+            )
+        )
+
+        # Should only have one entry for GOOG
+        assets = portfolio.get_assets()
+        assert len(assets) == 1
+        assert "GOOG" in assets
+        assert assets["GOOG"] == asset
+
 
 class TestCompositePortfolio:
     """Tests for CompositePortfolio class."""
+
+    def test_get_assets_empty_composite(self):
+        """Test getting assets from empty composite portfolio."""
+        composite = CompositePortfolio(name="Composite")
+        assets = composite.get_assets()
+        assert assets == {}
+
+    def test_get_assets_composite_aggregates(self):
+        """Test that composite portfolio aggregates assets from sub-portfolios."""
+        portfolio1 = SimplePortfolio(name="Portfolio1")
+        portfolio2 = SimplePortfolio(name="Portfolio2")
+
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        asset3 = Asset(ticker="BTC-USD", asset_type="Crypto")
+
+        portfolio1.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio2.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+        portfolio2.add_trade(
+            Trade(
+                date=date(2024, 1, 17),
+                asset=asset3,
+                action="Buy",
+                broker="Coinbase",
+                currency="USD",
+                price=50000.0,
+                price_native=50000.0,
+                quantity=0.1,
+            )
+        )
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio1)
+        composite.add_sub_portfolio(portfolio2)
+
+        assets = composite.get_assets()
+        assert len(assets) == 3
+        assert "GOOG" in assets
+        assert assets["GOOG"] == asset1
+        assert "AAPL" in assets
+        assert assets["AAPL"] == asset2
+        assert "BTC-USD" in assets
+        assert assets["BTC-USD"] == asset3
+
+    def test_get_assets_composite_duplicate_tickers(self):
+        """Test that composite handles duplicate tickers across sub-portfolios."""
+        portfolio1 = SimplePortfolio(name="Portfolio1")
+        portfolio2 = SimplePortfolio(name="Portfolio2")
+
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        portfolio1.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio2.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=160.0,
+                price_native=160.0,
+                quantity=5.0,
+            )
+        )
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio1)
+        composite.add_sub_portfolio(portfolio2)
+
+        assets = composite.get_assets()
+        # Should only have one entry for GOOG (keeps first one)
+        assert len(assets) == 1
+        assert "GOOG" in assets
+        assert assets["GOOG"] == asset
+
+    def test_get_assets_composite_no_calculations(self):
+        """Test that composite get_assets() doesn't trigger calculations."""
+        portfolio = SimplePortfolio(name="SubPortfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        # Mock get_positions to verify it's not called
+        with patch.object(composite, "get_positions") as mock_get_positions:
+            with patch.object(portfolio, "get_positions") as mock_sub_get_positions:
+                assets = composite.get_assets()
+                # Verify get_assets() worked
+                assert "GOOG" in assets
+                # Verify get_positions() was NOT called on either portfolio
+                mock_get_positions.assert_not_called()
+                mock_sub_get_positions.assert_not_called()
 
     def test_create_composite_portfolio(self):
         """Test creating a composite portfolio."""
@@ -253,6 +542,26 @@ class TestCompositePortfolio:
         composite = CompositePortfolio(name="Composite")
         with pytest.raises(PortfolioError):
             composite.add_sub_portfolio("not a portfolio")
+
+    def test_get_sub_portfolios(self):
+        """Test getting sub-portfolios via public method."""
+        composite = CompositePortfolio(name="Composite")
+        sub_portfolio1 = SimplePortfolio(name="Sub1")
+        sub_portfolio2 = SimplePortfolio(name="Sub2")
+        
+        composite.add_sub_portfolio(sub_portfolio1)
+        composite.add_sub_portfolio(sub_portfolio2)
+        
+        sub_portfolios = composite.get_sub_portfolios()
+        assert isinstance(sub_portfolios, dict)
+        assert len(sub_portfolios) == 2
+        assert "Sub1" in sub_portfolios
+        assert "Sub2" in sub_portfolios
+        assert sub_portfolios["Sub1"] is sub_portfolio1
+        assert sub_portfolios["Sub2"] is sub_portfolio2
+        # Verify it returns a copy (modifying the copy shouldn't affect the original)
+        sub_portfolios["Sub3"] = SimplePortfolio(name="Sub3")
+        assert "Sub3" not in composite.get_sub_portfolios()
 
     def test_get_positions_from_sub_portfolios(self):
         """Test aggregating positions from sub-portfolios."""
