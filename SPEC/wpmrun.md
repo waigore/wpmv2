@@ -183,13 +183,14 @@ See detailed description below in the Commands section.
 - If composite portfolio has no assets, display: "No assets found in composite portfolio."
 - If price retrieval fails for an asset type, logs a warning and displays "N/A" for the value (price is not shown when value is N/A) for all assets of that type, but continues processing other asset types
 
-#### `show asset <ticker> [--from YYYY-MM-DD]`
+#### `show asset <ticker> [--from YYYY-MM-DD] [--brokers "broker1,broker2,..."]`
 
 **Description:** Shows the current or historical asset position in the imported portfolio for the specified ticker.
 
 **Arguments:**
 - `<ticker>`: Asset ticker symbol (required)
 - `[--from YYYY-MM-DD]`: Optional start date for historical portfolios. Only valid for historical portfolios (imported with --end-date)
+- `[--brokers "broker1,broker2,..."]`: Optional comma-separated list of broker names to filter positions by. When provided, positions are calculated only from lots matching the specified brokers. Broker names may contain spaces and should be enclosed in double quotes. Example: `show VOO --brokers "IBKR,Charles Schwab"`
 
 **Output Format:**
 
@@ -198,42 +199,55 @@ See detailed description below in the Commands section.
 - Format: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | Current Value = Market Value @ Price | Allocation: XX.XX%`
 - Allocation percentage is calculated as: `(Asset Market Value / Total Portfolio Market Value) × 100`
 - Allocation is rounded to 2 decimal places and displayed only when price is available
-- After the position line, display a summary section with:
+- After the position line, display a broker breakdown section (if not using --brokers filter) showing each broker with:
+  - Broker name
+  - Quantity held at that broker
+  - Average cost per unit for that broker
+  - Cost basis for that broker
+  - Format: `Broker: Quantity @ Average Cost = Cost Basis` (mirroring the overall asset line format)
+- After the broker breakdown (if shown), display a summary section with:
   - Total Market Value: `<formatted_value>` (or "N/A" if no price available)
   - Total Cost Basis: `<formatted_value>` (always displayed)
   - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no price available)
 - Example:
   ```
-  AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00 | Allocation: 25.00%
+  AAPL (Stock): 150.0 @ $150.00 = $22,500.00 | Current Value = $24,000.00 @ $160.00 | Allocation: 25.00%
 
-  Total Market Value: $16,000.00
-  Total Cost Basis: $15,000.00
-  Total Unrealized P/L: +$1,000.00
+  Broker Breakdown:
+  IBKR: 100.0 @ $150.00 = $15,000.00
+  Schwab: 50.0 @ $150.00 = $7,500.00
+
+  Total Market Value: $24,000.00
+  Total Cost Basis: $22,500.00
+  Total Unrealized P/L: +$1,500.00
   ```
 
 **For historical portfolios:**
 - Without `--from`: Shows historical asset positions for the past 30 days (from portfolio.end_date backwards 30 days)
 - With `--from`: Shows historical asset positions from the specified date to portfolio.end_date
 - One line per day, showing the position on that date
-- Format: `YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price | Allocation: XX.XX%`
+- Format: `YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX%`
+- Quantity is displayed from the history point (calculated in domain layer, not CLI)
 - Allocation percentage is calculated as: `(Asset Position Value / Total Portfolio Market Value) × 100` for each date
 - Allocation is rounded to 2 decimal places and displayed only when price is available
 - Only shows days where the asset has a position (position_value > 0)
 - Example:
   ```
-  2024-01-01: AAPL (Stock) = $15,000.00 @ $150.00 | Allocation: 30.00%
-  2024-01-02: AAPL (Stock) = $15,200.00 @ $152.00 | Allocation: 30.40%
-  2024-01-03: AAPL (Stock) = $15,400.00 @ $154.00 | Allocation: 30.80%
+  2024-01-01: AAPL (Stock): 100.0 = $15,000.00 @ $150.00 | Allocation: 30.00%
+  2024-01-02: AAPL (Stock): 100.0 = $15,200.00 @ $152.00 | Allocation: 30.40%
+  2024-01-03: AAPL (Stock): 100.0 = $15,400.00 @ $154.00 | Allocation: 30.80%
   ...
   ```
 - No summary section for historical portfolios (just daily position lines)
 
 **Error Handling:**
-- If ticker is missing: "Error: Ticker required. Usage: show asset <ticker> [--from YYYY-MM-DD]"
+- If ticker is missing: "Error: Ticker required. Usage: show asset <ticker> [--from YYYY-MM-DD] [--brokers \"broker1,broker2,...\"]"
 - If asset not found: "Asset '<ticker>' not found in portfolio."
+- If no positions found with specified brokers: "No positions found for ticker '<ticker>' with specified brokers."
 - If `--from` is used with non-historical portfolio: "Error: --from can only be used with historical portfolios."
 - If `--from` date is invalid or outside portfolio date range: Display appropriate error message
-- If price is unavailable for a date (historical): Display "N/A" instead of price (e.g., `2024-01-01: AAPL (Stock) = $15,000.00 @ N/A`)
+- If price is unavailable for a date (historical): Display "N/A" instead of price (e.g., `2024-01-01: AAPL (Stock): 100.0 = $15,000.00 @ N/A`)
+- If quantity is unavailable for a date (historical): Display "N/A" for quantity (e.g., `2024-01-01: AAPL (Stock): N/A = $15,000.00 @ $150.00`)
 
 #### `metadata <ticker>`
 
@@ -504,7 +518,13 @@ Currently, the `help` command is mentioned in error messages but is not implemen
 
 ## Logging
 
-- Initialize logging using `wpm.utils.setup_logging()`
+- Initialize CLI-specific logging using `setup_cli_logging()` in `wpm.cli` module
+- All logs are written to `logs/wpmcli.log` (relative to current working directory)
+- Logs are **suppressed from stdout/stderr** during CLI execution to maintain a clean interface
+- Only user-facing messages (via `print()`) appear in stdout; all logging output goes to the file
+- The `logs/` directory is created automatically if it doesn't exist
+- Log file uses append mode, so logs accumulate across CLI sessions
+- Log format: `%(asctime)s - %(name)s - %(levelname)s - %(message)s`
 - Log at INFO level for:
   - Import start/completion
   - Portfolio creation
@@ -516,6 +536,8 @@ Currently, the `help` command is mentioned in error messages but is not implemen
   - Invalid user input
 - Log at ERROR level for:
   - Fatal errors that cause exit
+
+**Note:** This logging configuration is CLI-specific and does not affect downstream library users. Library users can configure their own logging using `wpm.utils.setup_logging()` or their own logging setup.
 
 ## Output Formatting
 

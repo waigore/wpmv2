@@ -197,6 +197,7 @@ class SimplePortfolio(Portfolio):
         ticker: str,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        brokers: Optional[List[str]] = None,
         prices: Optional[Dict[Asset, Optional[float]]] = None,
     ) -> List[Lot]:
         """Get all lots for a specified asset (ticker) within the portfolio.
@@ -207,6 +208,8 @@ class SimplePortfolio(Portfolio):
                 If not specified, includes lots from the very beginning.
             end_date: Optional end date for date range filter (inclusive).
                 If not specified, includes lots to the very end.
+            brokers: Optional list of broker names to filter by.
+                If not specified, includes lots from all brokers.
             prices: Optional dictionary mapping Asset to current price for P/L calculations
 
         Returns:
@@ -214,10 +217,10 @@ class SimplePortfolio(Portfolio):
         """
         logger.info(
             f"Getting asset lots for ticker '{ticker}' "
-            f"(start_date={start_date}, end_date={end_date}) in portfolio '{self.name}'"
+            f"(start_date={start_date}, end_date={end_date}, brokers={brokers}) in portfolio '{self.name}'"
         )
 
-        # Filter trades by ticker and date range
+        # Filter trades by ticker, date range, and broker
         filtered_trades: List[Trade] = []
         for trade in self._trades:
             # Filter by ticker
@@ -230,6 +233,10 @@ class SimplePortfolio(Portfolio):
 
             # Filter by end_date if provided
             if end_date is not None and trade.date > end_date:
+                continue
+
+            # Filter by broker if provided
+            if brokers is not None and trade.broker not in brokers:
                 continue
 
             filtered_trades.append(trade)
@@ -254,6 +261,66 @@ class SimplePortfolio(Portfolio):
         )
 
         return lots
+
+    def get_asset_positions_by_broker(self, ticker: str) -> Dict[str, Position]:
+        """Get positions grouped by broker for a specified asset (ticker).
+
+        Returns a dictionary mapping broker names to Position objects for the specified ticker.
+        This encapsulates broker grouping and position calculation logic.
+
+        Args:
+            ticker: Asset ticker symbol to get broker positions for
+
+        Returns:
+            Dictionary mapping broker names to Position objects for the ticker.
+            Returns empty dictionary if ticker not found or no positions exist.
+            Brokers are sorted alphabetically.
+        """
+        logger.info(
+            f"Getting asset positions by broker for ticker '{ticker}' "
+            f"in portfolio '{self.name}'"
+        )
+
+        # Get all lots for the ticker (no broker filter)
+        lots = self.get_asset_lots(ticker)
+
+        # If no lots found, return empty dictionary
+        if not lots:
+            logger.debug(f"No lots found for ticker '{ticker}' in portfolio '{self.name}'")
+            return {}
+
+        # Group lots by broker
+        lots_by_broker: Dict[str, List[Lot]] = {}
+        for lot in lots:
+            broker = lot.broker
+            if broker not in lots_by_broker:
+                lots_by_broker[broker] = []
+            lots_by_broker[broker].append(lot)
+
+        # Calculate position for each broker
+        broker_positions: Dict[str, Position] = {}
+        for broker, broker_lots in lots_by_broker.items():
+            try:
+                position = _position_from_lots(broker_lots)
+                broker_positions[broker] = position
+            except ValueError:
+                # Skip if position calculation fails (shouldn't happen, but handle gracefully)
+                logger.warning(
+                    f"Failed to calculate position for broker '{broker}' "
+                    f"and ticker '{ticker}' in portfolio '{self.name}'"
+                )
+                continue
+
+        # Sort brokers alphabetically for consistent display
+        sorted_brokers = sorted(broker_positions.keys())
+        result = {broker: broker_positions[broker] for broker in sorted_brokers}
+
+        logger.debug(
+            f"Found {len(result)} brokers with positions for ticker '{ticker}' "
+            f"in portfolio '{self.name}'"
+        )
+
+        return result
 
     def get_total_realized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
         """Calculate total realized profit/loss for the portfolio.
@@ -713,6 +780,7 @@ class CompositePortfolio(Portfolio):
         ticker: str,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        brokers: Optional[List[str]] = None,
         prices: Optional[Dict[Asset, Optional[float]]] = None,
     ) -> List[Lot]:
         """Get all lots for a specified asset (ticker) within the portfolio.
@@ -725,6 +793,8 @@ class CompositePortfolio(Portfolio):
                 If not specified, includes lots from the very beginning.
             end_date: Optional end date for date range filter (inclusive).
                 If not specified, includes lots to the very end.
+            brokers: Optional list of broker names to filter by.
+                If not specified, includes lots from all brokers.
             prices: Optional dictionary mapping Asset to current price for P/L calculations
 
         Returns:
@@ -732,12 +802,12 @@ class CompositePortfolio(Portfolio):
         """
         logger.info(
             f"Getting asset lots for ticker '{ticker}' "
-            f"(start_date={start_date}, end_date={end_date}) in composite portfolio '{self.name}'"
+            f"(start_date={start_date}, end_date={end_date}, brokers={brokers}) in composite portfolio '{self.name}'"
         )
 
         all_lots: List[Lot] = []
         for sub_portfolio in self._sub_portfolios.values():
-            sub_lots = sub_portfolio.get_asset_lots(ticker, start_date, end_date, prices)
+            sub_lots = sub_portfolio.get_asset_lots(ticker, start_date, end_date, brokers, prices)
             all_lots.extend(sub_lots)
 
         logger.info(
@@ -746,6 +816,69 @@ class CompositePortfolio(Portfolio):
         )
 
         return all_lots
+
+    def get_asset_positions_by_broker(self, ticker: str) -> Dict[str, Position]:
+        """Get positions grouped by broker for a specified asset (ticker).
+
+        Returns a dictionary mapping broker names to Position objects for the specified ticker.
+        Aggregates positions across all sub-portfolios for the same broker.
+        This encapsulates broker grouping and position calculation logic.
+
+        Args:
+            ticker: Asset ticker symbol to get broker positions for
+
+        Returns:
+            Dictionary mapping broker names to Position objects for the ticker.
+            Returns empty dictionary if ticker not found or no positions exist.
+            Brokers are sorted alphabetically.
+        """
+        logger.info(
+            f"Getting asset positions by broker for ticker '{ticker}' "
+            f"in composite portfolio '{self.name}'"
+        )
+
+        # Get all lots for the ticker across all sub-portfolios (no broker filter)
+        all_lots = self.get_asset_lots(ticker)
+
+        # If no lots found, return empty dictionary
+        if not all_lots:
+            logger.debug(
+                f"No lots found for ticker '{ticker}' in composite portfolio '{self.name}'"
+            )
+            return {}
+
+        # Group lots by broker
+        lots_by_broker: Dict[str, List[Lot]] = {}
+        for lot in all_lots:
+            broker = lot.broker
+            if broker not in lots_by_broker:
+                lots_by_broker[broker] = []
+            lots_by_broker[broker].append(lot)
+
+        # Calculate position for each broker (aggregates across sub-portfolios)
+        broker_positions: Dict[str, Position] = {}
+        for broker, broker_lots in lots_by_broker.items():
+            try:
+                position = _position_from_lots(broker_lots)
+                broker_positions[broker] = position
+            except ValueError:
+                # Skip if position calculation fails (shouldn't happen, but handle gracefully)
+                logger.warning(
+                    f"Failed to calculate position for broker '{broker}' "
+                    f"and ticker '{ticker}' in composite portfolio '{self.name}'"
+                )
+                continue
+
+        # Sort brokers alphabetically for consistent display
+        sorted_brokers = sorted(broker_positions.keys())
+        result = {broker: broker_positions[broker] for broker in sorted_brokers}
+
+        logger.debug(
+            f"Found {len(result)} brokers with positions for ticker '{ticker}' "
+            f"in composite portfolio '{self.name}'"
+        )
+
+        return result
 
     def get_total_realized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
         """Calculate total realized profit/loss aggregated from sub-portfolios.
@@ -1053,6 +1186,43 @@ class CompositePortfolio(Portfolio):
         return cloned_portfolio
 
 
+def _position_from_lots(lots: List[Lot]) -> Position:
+    """Calculate position from a list of lots.
+
+    Aggregates remaining_quantity and calculates cost_basis from lots.
+    Used when broker filtering is needed instead of get_positions().
+
+    Args:
+        lots: List of Lot objects
+
+    Returns:
+        Position object with aggregated quantity and cost_basis
+
+    Raises:
+        ValueError: If lots list is empty
+    """
+    if not lots:
+        raise ValueError("Cannot calculate position from empty lots list")
+
+    # Aggregate remaining quantities
+    total_quantity = sum(lot.remaining_quantity for lot in lots)
+
+    # Calculate cost basis: sum of (purchase_price * remaining_quantity) for each lot
+    total_cost_basis = sum(
+        float(lot.remaining_quantity) * lot.purchase_price for lot in lots
+    )
+
+    # Use the asset from the first lot (all lots should have the same asset)
+    asset = lots[0].asset
+
+    return Position(
+        asset=asset,
+        quantity=total_quantity,
+        cost_basis=total_cost_basis,
+        cost_basis_method="fifo",
+    )
+
+
 def fetch_price_map(
     portfolio: Portfolio,
     price_service: "PriceService",
@@ -1220,6 +1390,7 @@ def get_historical_performance(
     price_service: "PriceService",
     start_date: date,
     end_date: date,
+    brokers: Optional[List[str]] = None,
 ) -> List[PortfolioHistoryPoint]:
     """Get historical performance of a portfolio over a date range.
 
@@ -1240,6 +1411,8 @@ def get_historical_performance(
         price_service: Price service for retrieving historical prices
         start_date: Start date for performance tracking (inclusive)
         end_date: End date for performance tracking (inclusive)
+        brokers: Optional list of broker names to filter by. If provided, only trades
+            from specified brokers are included in position calculations.
 
     Returns:
         List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
@@ -1285,6 +1458,11 @@ def get_historical_performance(
     # Get all trades once (works for both SimplePortfolio and CompositePortfolio)
     all_trades = portfolio.get_all_trades()
 
+    # Filter trades by broker if brokers parameter is provided
+    if brokers is not None:
+        all_trades = [t for t in all_trades if t.broker in brokers]
+        logger.debug(f"Filtered trades by brokers {brokers}: {len(all_trades)} trades remaining")
+
     # Fetch all prices upfront for the entire date range (batch fetch by asset type)
     # Structure: Dict[asset_type, Dict[ticker, Dict[date, price]]]
     all_prices_by_type: Dict[str, Dict[str, Dict[date, float]]] = {}
@@ -1316,6 +1494,7 @@ def get_historical_performance(
     while current_date <= end_date:
         # Filter trades directly by date (instead of cloning portfolio)
         # Only include trades up to and including current_date
+        # Note: broker filtering already applied to all_trades above
         filtered_trades = [t for t in all_trades if t.date <= current_date]
 
         # Calculate positions from filtered trades using calculate_fifo_cost_basis
@@ -1378,6 +1557,9 @@ def get_historical_performance(
         # Calculate asset positions: quantity * price for each asset
         total_market_value = 0.0
         asset_prices: Dict[str, float] = {}
+        quantities: Dict[str, float] = {
+            asset_to_ticker[asset]: 0.0 for asset in all_assets
+        }
 
         for asset in all_assets:
             ticker = asset_to_ticker[asset]
@@ -1391,10 +1573,12 @@ def get_historical_performance(
                 position_value = float(position.quantity) * price
                 asset_positions[ticker] = position_value
                 asset_prices[ticker] = price
+                quantities[ticker] = float(position.quantity)
                 total_market_value += position_value
             else:
                 # Asset not yet purchased or fully sold - position already set to 0.0
                 asset_positions[ticker] = 0.0
+                quantities[ticker] = 0.0
                 # Include price even if position is 0 (for consistency, use price from prices_by_ticker if available)
                 if ticker in prices_by_ticker:
                     asset_prices[ticker] = prices_by_ticker[ticker]
@@ -1410,6 +1594,7 @@ def get_historical_performance(
             total_market_value=total_market_value,
             asset_positions=asset_positions.copy(),
             prices=asset_prices.copy(),
+            quantities=quantities.copy(),
         )
         history_points.append(history_point)
 
@@ -1429,6 +1614,7 @@ def get_historical_allocations(
     price_service: "PriceService",
     start_date: date,
     end_date: date,
+    brokers: Optional[List[str]] = None,
 ) -> List[Dict[Asset, Decimal]]:
     """Get historical percentage allocations of asset positions over a date range.
 
@@ -1444,6 +1630,8 @@ def get_historical_allocations(
         price_service: Price service for retrieving historical prices
         start_date: Start date for allocation tracking (inclusive)
         end_date: End date for allocation tracking (inclusive)
+        brokers: Optional list of broker names to filter by. If provided, only trades
+            from specified brokers are included in allocation calculations.
 
     Returns:
         List of dictionaries, one per date, mapping Asset to Decimal percentage allocation
@@ -1458,7 +1646,7 @@ def get_historical_allocations(
     )
 
     # Get historical performance data (reuses batch price retrieval)
-    history_points = get_historical_performance(portfolio, price_service, start_date, end_date)
+    history_points = get_historical_performance(portfolio, price_service, start_date, end_date, brokers=brokers)
 
     # Get final portfolio positions to establish ticker-to-Asset mapping
     final_positions = portfolio.get_positions()

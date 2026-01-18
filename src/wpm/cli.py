@@ -7,6 +7,7 @@ updates price caches, and provides an interactive command interface.
 
 import argparse
 import logging
+import shlex
 import sys
 from collections import defaultdict
 from datetime import date, timedelta
@@ -32,19 +33,61 @@ from wpm.models import (
 )
 from wpm.portfolio import (
     CompositePortfolio,
+    _position_from_lots,
     fetch_price_map,
     get_historical_allocations,
     get_historical_performance,
     SimplePortfolio,
 )
 from wpm.pricing import PriceService
-from wpm.utils import normalize_date, setup_logging
+from wpm.utils import normalize_date
 
 logger = logging.getLogger(__name__)
 
 # Constants
 IMPORT_DIR = Path("import")
 PROMPT = "wpm> "
+
+
+def setup_cli_logging() -> None:
+    """Configure CLI-specific logging to write to logs/wpmcli.log.
+    
+    This function configures logging for the CLI only, directing all logs
+    to logs/wpmcli.log and suppressing stdout/stderr output. This ensures
+    a clean CLI interface while preserving logs for debugging.
+    
+    Library users are not affected and can still configure their own logging
+    using wpm.utils.setup_logging().
+    """
+    # Create logs directory if it doesn't exist
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+    
+    # Get the root "wpm" logger to capture all module logs
+    wpm_logger = logging.getLogger("wpm")
+    wpm_logger.setLevel(logging.INFO)
+    
+    # Remove any existing StreamHandlers to suppress stdout/stderr output
+    # This ensures no logs appear in the console
+    for handler in wpm_logger.handlers[:]:
+        if isinstance(handler, logging.StreamHandler):
+            wpm_logger.removeHandler(handler)
+    
+    # Add FileHandler for logs/wpmcli.log
+    log_file = logs_dir / "wpmcli.log"
+    file_handler = logging.FileHandler(log_file, mode="a")
+    file_handler.setLevel(logging.INFO)
+    
+    # Use the same formatter as setup_logging() for consistency
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    file_handler.setFormatter(formatter)
+    
+    # Only add handler if it doesn't already exist (avoid duplicates on reload)
+    if not any(isinstance(h, logging.FileHandler) and h.baseFilename == str(log_file.absolute()) 
+               for h in wpm_logger.handlers):
+        wpm_logger.addHandler(file_handler)
 
 
 def parse_args() -> argparse.Namespace:
@@ -245,6 +288,38 @@ def parse_from_date(args: List[str]) -> tuple[Optional[date], List[str]]:
     return from_date, remaining_args
 
 
+def parse_brokers(args: List[str]) -> tuple[Optional[List[str]], List[str]]:
+    """Parse --brokers argument from command args.
+
+    Args:
+        args: Command arguments list
+
+    Returns:
+        Tuple of (brokers list or None, remaining args without --brokers flag and value)
+    """
+    brokers = None
+    remaining_args = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--brokers" and i + 1 < len(args):
+            brokers_str = args[i + 1]
+            # Strip outer quotes if present (handles "broker1,broker2" format)
+            if brokers_str.startswith('"') and brokers_str.endswith('"'):
+                brokers_str = brokers_str[1:-1]
+            elif brokers_str.startswith("'") and brokers_str.endswith("'"):
+                brokers_str = brokers_str[1:-1]
+            # Split by comma and strip whitespace from each broker name
+            brokers = [broker.strip() for broker in brokers_str.split(",") if broker.strip()]
+            # If empty list after stripping, set to None
+            if not brokers:
+                brokers = None
+            i += 2  # Skip both --brokers and the value
+        else:
+            remaining_args.append(args[i])
+            i += 1
+    return brokers, remaining_args
+
+
 def _display_weekly_summary(history_points: List[PortfolioHistoryPoint]) -> None:
     """Display weekly performance summary from history points.
 
@@ -363,12 +438,19 @@ def format_historical_asset_line(
         allocation: Optional allocation percentage (Decimal, None if unavailable)
 
     Returns:
-        Formatted string: YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price | Allocation: XX.XX%
+        Formatted string: YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX%
     """
     date_str = history_point.date.strftime("%Y-%m-%d")
     position_value = history_point.asset_positions.get(ticker, 0.0)
     position_value_str = format_currency(position_value)
     price = history_point.prices.get(ticker)
+    quantity = history_point.quantities.get(ticker)
+
+    # Format quantity
+    if quantity is not None:
+        quantity_str = format_quantity(Decimal(str(quantity)))
+    else:
+        quantity_str = "N/A"
 
     # Format allocation if available
     allocation_str = ""
@@ -377,9 +459,28 @@ def format_historical_asset_line(
 
     if price is not None:
         price_str = format_currency(price)
-        return f"{date_str}: {ticker} ({asset_type}) = {position_value_str} @ {price_str}{allocation_str}"
+        return f"{date_str}: {ticker} ({asset_type}): {quantity_str} = {position_value_str} @ {price_str}{allocation_str}"
 
-    return f"{date_str}: {ticker} ({asset_type}) = {position_value_str} @ N/A{allocation_str}"
+    return f"{date_str}: {ticker} ({asset_type}): {quantity_str} = {position_value_str} @ N/A{allocation_str}"
+
+
+def _format_broker_breakdown(broker_positions: Dict[str, Position]) -> None:
+    """Format broker breakdown section for display.
+
+    Args:
+        broker_positions: Dictionary mapping broker names to Position objects
+    """
+    if not broker_positions:
+        return
+
+    print()  # Blank line before breakdown
+    print("Broker Breakdown:")
+
+    for broker, position in broker_positions.items():
+        quantity = format_quantity(position.quantity)
+        avg_cost = format_currency(position.get_average_cost())
+        cost_basis = format_currency(position.cost_basis)
+        print(f"{broker}: {quantity} @ {avg_cost} = {cost_basis}")
 
 
 def cmd_list_portfolios(composite: CompositePortfolio) -> None:
@@ -568,6 +669,7 @@ def cmd_show_asset(
     ticker: str,
     price_service: PriceService,
     from_date: Optional[date] = None,
+    brokers: Optional[List[str]] = None,
 ) -> None:
     """Handle 'show asset <ticker>' command.
 
@@ -576,6 +678,7 @@ def cmd_show_asset(
         ticker: Asset ticker symbol to show
         price_service: Price service for retrieving prices
         from_date: Optional start date for historical portfolios
+        brokers: Optional list of broker names to filter by
     """
     # Get asset from current portfolio to validate it exists and get asset_type
     positions = composite.get_positions(tickers=[ticker])
@@ -623,10 +726,10 @@ def cmd_show_asset(
 
         try:
             history_points = get_historical_performance(
-                composite, price_service, start_date, end_date
+                composite, price_service, start_date, end_date, brokers=brokers
             )
             allocations_list = get_historical_allocations(
-                composite, price_service, start_date, end_date
+                composite, price_service, start_date, end_date, brokers=brokers
             )
         except Exception as e:
             print(f"Error calculating historical performance: {e}")
@@ -652,7 +755,21 @@ def cmd_show_asset(
         return
 
     # Handle current portfolios
-    position = positions[asset]
+    # If brokers filter is provided, calculate position from filtered lots
+    if brokers is not None:
+        # Get filtered lots
+        lots = composite.get_asset_lots(ticker, brokers=brokers)
+        if not lots:
+            print(f"No positions found for ticker '{ticker}' with specified brokers.")
+            return
+        # Calculate position from lots using helper from portfolio module
+        try:
+            position = _position_from_lots(lots)
+        except ValueError:
+            print(f"No positions found for ticker '{ticker}' with specified brokers.")
+            return
+    else:
+        position = positions[asset]
 
     # Fetch price using helper function
     price_map = fetch_price_map(composite, price_service)
@@ -669,6 +786,12 @@ def cmd_show_asset(
 
     # Display position line
     print(format_position_line(position, price, composite.is_historical, composite.end_date, allocation))
+
+    # Display broker breakdown for current portfolios (no broker filter applied)
+    if brokers is None:
+        broker_positions = composite.get_asset_positions_by_broker(ticker)
+        if broker_positions:
+            _format_broker_breakdown(broker_positions)
 
     # Display summary
     print()  # Blank line before summary
@@ -961,9 +1084,10 @@ def cmd_help() -> None:
     print("    Show all assets in the composite portfolio (aggregated)")
     print("    --up-to: Optional date for historical portfolios (shows weekly summary)")
     print()
-    print("  show asset <ticker> [--from YYYY-MM-DD]")
+    print("  show asset <ticker> [--from YYYY-MM-DD] [--brokers \"broker1,broker2,...\"]")
     print("    Show asset position for the specified ticker")
     print("    --from: Optional start date for historical portfolios")
+    print("    --brokers: Optional comma-separated list of broker names to filter by")
     print()
     print("  metadata <ticker>")
     print("    Display metadata for the specified asset ticker")
@@ -1050,8 +1174,12 @@ def run_interactive_mode(
             if not user_input:
                 continue
 
-            # Parse command
-            parts = user_input.split()
+            # Parse command using shlex to properly handle quoted strings
+            try:
+                parts = shlex.split(user_input)
+            except ValueError:
+                # If shlex fails (e.g., unmatched quotes), fall back to simple split
+                parts = user_input.split()
             command = parts[0].lower()
             args = parts[1:]
 
@@ -1081,18 +1209,20 @@ def run_interactive_mode(
                     else:
                         cmd_show_portfolio(composite, portfolio_name, price_service, up_to_date)
                 elif len(args) >= 2 and args[0] == "asset":
-                    # Parse --from argument if present
+                    # Parse --from and --brokers arguments if present
                     ticker = args[1]
-                    from_date, remaining_args = parse_from_date(args[2:])
+                    # Parse --from first, then parse --brokers from remaining args
+                    from_date, remaining_after_from = parse_from_date(args[2:])
+                    brokers, remaining_args = parse_brokers(remaining_after_from)
                     if remaining_args:
-                        print("Unknown arguments: 'show asset <ticker>' only accepts --from YYYY-MM-DD")
+                        print("Unknown arguments: 'show asset <ticker>' only accepts --from YYYY-MM-DD and --brokers \"broker1,broker2,...\"")
                     else:
                         if from_date is not None and not composite.is_historical:
                             print("Error: --from can only be used with historical portfolios.")
                         else:
-                            cmd_show_asset(composite, ticker, price_service, from_date)
+                            cmd_show_asset(composite, ticker, price_service, from_date, brokers)
                 else:
-                    print("Unknown command: 'show'. Usage: 'show portfolio <name> [--up-to YYYY-MM-DD]', 'show all [--up-to YYYY-MM-DD]', or 'show asset <ticker> [--from YYYY-MM-DD]'")
+                    print("Unknown command: 'show'. Usage: 'show portfolio <name> [--up-to YYYY-MM-DD]', 'show all [--up-to YYYY-MM-DD]', or 'show asset <ticker> [--from YYYY-MM-DD] [--brokers \"broker1,broker2,...\"]'")
             elif command == "breakdown":
                 cmd_breakdown(composite, args)
             elif command == "lots":
@@ -1127,8 +1257,8 @@ def run_interactive_mode(
 
 def main() -> None:
     """Main entry point for wpm CLI."""
-    # Initialize logging
-    setup_logging()
+    # Initialize CLI-specific logging (directs logs to logs/wpmcli.log, suppresses stdout/stderr)
+    setup_cli_logging()
 
     # Parse arguments
     args = parse_args()

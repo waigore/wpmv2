@@ -73,6 +73,7 @@ def trades_to_cache_key(trades: List[Trade]) -> tuple:
             t.asset.ticker,
             t.asset.asset_type,
             t.action,
+            t.broker,
             t.quantity,
             t.price,
         )

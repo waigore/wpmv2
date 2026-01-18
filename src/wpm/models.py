@@ -384,6 +384,7 @@ class Portfolio(ABC):
         ticker: str,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        brokers: Optional[List[str]] = None,
         prices: Optional[Dict[Asset, Optional[float]]] = None,
     ) -> List["Lot"]:
         """Get all lots for a specified asset (ticker) within the portfolio.
@@ -394,6 +395,8 @@ class Portfolio(ABC):
                 If not specified, includes lots from the very beginning.
             end_date: Optional end date for date range filter (inclusive).
                 If not specified, includes lots to the very end.
+            brokers: Optional list of broker names to filter by.
+                If not specified, includes lots from all brokers.
             prices: Optional dictionary mapping Asset to current price for P/L calculations
 
         Returns:
@@ -432,6 +435,23 @@ class Portfolio(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_asset_positions_by_broker(self, ticker: str) -> Dict[str, "Position"]:
+        """Get positions grouped by broker for a specified asset (ticker).
+
+        Returns a dictionary mapping broker names to Position objects for the specified ticker.
+        This encapsulates broker grouping and position calculation logic.
+
+        Args:
+            ticker: Asset ticker symbol to get broker positions for
+
+        Returns:
+            Dictionary mapping broker names to Position objects for the ticker.
+            Returns empty dictionary if ticker not found or no positions exist.
+            Brokers are sorted alphabetically.
+        """
+        pass
+
     def get_position(self, asset: Asset) -> Optional["Position"]:
         """Get position for a specific asset."""
         positions = self.get_positions()
@@ -446,6 +466,7 @@ class PortfolioHistoryPoint:
     total_market_value: float
     asset_positions: Dict[str, float]  # Maps ticker to position value (quantity * price)
     prices: Dict[str, float]  # Maps ticker to price on that date
+    quantities: Dict[str, float]  # Maps ticker to quantity held on that date
 
     def __post_init__(self):
         """Validate history point fields after initialization."""
@@ -461,6 +482,9 @@ class PortfolioHistoryPoint:
         if not isinstance(self.prices, dict):
             raise ValidationError("Prices must be a dictionary")
 
+        if not isinstance(self.quantities, dict):
+            raise ValidationError("Quantities must be a dictionary")
+
         for ticker, position_value in self.asset_positions.items():
             if not isinstance(ticker, str):
                 raise ValidationError("Asset positions keys must be strings (tickers)")
@@ -475,4 +499,12 @@ class PortfolioHistoryPoint:
             if not isinstance(price, (int, float)) or price < 0:
                 raise ValidationError(
                     f"Price for {ticker} must be a non-negative number"
+                )
+
+        for ticker, quantity in self.quantities.items():
+            if not isinstance(ticker, str):
+                raise ValidationError("Quantities keys must be strings (tickers)")
+            if not isinstance(quantity, (int, float)) or quantity < 0:
+                raise ValidationError(
+                    f"Quantity for {ticker} must be a non-negative number"
                 )

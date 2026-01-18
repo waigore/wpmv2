@@ -180,6 +180,255 @@ class TestSimplePortfolio:
         assert lots[1].purchase_date == date(2025, 11, 1)
         assert lots[1].remaining_quantity == Decimal('1')
 
+    def test_get_asset_lots_broker_filter_single(self):
+        """Test get_asset_lots with single broker filter."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        trades = [
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            ),
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            ),
+        ]
+        for trade in trades:
+            portfolio.add_trade(trade)
+
+        # Filter by IBKR only
+        lots = portfolio.get_asset_lots("VOO", brokers=["IBKR"])
+        assert len(lots) == 1
+        assert lots[0].broker == "IBKR"
+        assert lots[0].purchase_date == date(2025, 10, 1)
+
+    def test_get_asset_lots_broker_filter_multiple(self):
+        """Test get_asset_lots with multiple broker filter."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        trades = [
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            ),
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            ),
+            Trade(
+                date=date(2025, 12, 1),
+                asset=asset,
+                action="Buy",
+                broker="Tiger",
+                currency="USD",
+                price=620.0,
+                price_native=620.0,
+                quantity=1.0,
+            ),
+        ]
+        for trade in trades:
+            portfolio.add_trade(trade)
+
+        # Filter by IBKR and Schwab
+        lots = portfolio.get_asset_lots("VOO", brokers=["IBKR", "Schwab"])
+        assert len(lots) == 2
+        brokers = {lot.broker for lot in lots}
+        assert brokers == {"IBKR", "Schwab"}
+
+    def test_get_asset_lots_broker_filter_none(self):
+        """Test get_asset_lots with None broker filter (all brokers)."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        trades = [
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            ),
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            ),
+        ]
+        for trade in trades:
+            portfolio.add_trade(trade)
+
+        # None should return all lots
+        lots = portfolio.get_asset_lots("VOO", brokers=None)
+        assert len(lots) == 2
+
+    def test_get_asset_lots_broker_filter_empty_list(self):
+        """Test get_asset_lots with empty broker list."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        portfolio.add_trade(
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+
+        # Empty list should return no lots
+        lots = portfolio.get_asset_lots("VOO", brokers=[])
+        assert len(lots) == 0
+
+    def test_get_asset_lots_broker_filter_nonexistent(self):
+        """Test get_asset_lots with broker that doesn't exist."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        portfolio.add_trade(
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+
+        # Non-existent broker should return no lots
+        lots = portfolio.get_asset_lots("VOO", brokers=["NonexistentBroker"])
+        assert len(lots) == 0
+
+    def test_get_asset_lots_broker_filter_with_date_filter(self):
+        """Test get_asset_lots with broker filter combined with date filter."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        trades = [
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            ),
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            ),
+            Trade(
+                date=date(2025, 12, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=620.0,
+                price_native=620.0,
+                quantity=1.0,
+            ),
+        ]
+        for trade in trades:
+            portfolio.add_trade(trade)
+
+        # Filter by IBKR and date range before Dec 1
+        lots = portfolio.get_asset_lots(
+            "VOO", start_date=date(2025, 10, 1), end_date=date(2025, 11, 30), brokers=["IBKR"]
+        )
+        assert len(lots) == 1
+        assert lots[0].broker == "IBKR"
+        assert lots[0].purchase_date == date(2025, 10, 1)
+
+    def test_get_asset_lots_broker_filter_preserves_lot_calculations(self):
+        """Test that broker filtering preserves lot calculations correctly."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        trades = [
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            ),
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            ),
+            Trade(
+                date=date(2025, 12, 1),
+                asset=asset,
+                action="Sell",
+                broker="IBKR",
+                currency="USD",
+                price=620.0,
+                price_native=620.0,
+                quantity=1.0,
+            ),
+        ]
+        for trade in trades:
+            portfolio.add_trade(trade)
+
+        # Filter by IBKR only - should include both buy and sell from IBKR
+        lots = portfolio.get_asset_lots("VOO", brokers=["IBKR"])
+        assert len(lots) == 1
+        assert lots[0].broker == "IBKR"
+        assert lots[0].remaining_quantity == Decimal('1')
+        assert lots[0].original_quantity == Decimal('2')
+        assert len(lots[0].matched_sells) == 1
+
     def test_get_total_realized_pnl_simple_portfolio(self):
         """Test get_total_realized_pnl for simple portfolio."""
         portfolio = SimplePortfolio(name="Test Portfolio")
@@ -791,6 +1040,182 @@ class TestCompositePortfolio:
 
         lots = composite.get_asset_lots("VOO")
         assert len(lots) == 2
+
+    def test_get_asset_lots_composite_broker_filter_single(self):
+        """Test get_asset_lots with broker filter propagates to sub-portfolios."""
+        composite = CompositePortfolio(name="Composite")
+        sub1 = SimplePortfolio(name="Sub1")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        sub1.add_trade(
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+
+        sub2 = SimplePortfolio(name="Sub2")
+        sub2.add_trade(
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            )
+        )
+
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+
+        # Filter by IBKR only
+        lots = composite.get_asset_lots("VOO", brokers=["IBKR"])
+        assert len(lots) == 1
+        assert lots[0].broker == "IBKR"
+
+    def test_get_asset_lots_composite_broker_filter_multiple(self):
+        """Test get_asset_lots with multiple brokers across sub-portfolios."""
+        composite = CompositePortfolio(name="Composite")
+        sub1 = SimplePortfolio(name="Sub1")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        sub1.add_trade(
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+
+        sub2 = SimplePortfolio(name="Sub2")
+        sub2.add_trade(
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            )
+        )
+
+        sub3 = SimplePortfolio(name="Sub3")
+        sub3.add_trade(
+            Trade(
+                date=date(2025, 12, 1),
+                asset=asset,
+                action="Buy",
+                broker="Tiger",
+                currency="USD",
+                price=620.0,
+                price_native=620.0,
+                quantity=1.0,
+            )
+        )
+
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+        composite.add_sub_portfolio(sub3)
+
+        # Filter by IBKR and Schwab
+        lots = composite.get_asset_lots("VOO", brokers=["IBKR", "Schwab"])
+        assert len(lots) == 2
+        brokers = {lot.broker for lot in lots}
+        assert brokers == {"IBKR", "Schwab"}
+
+    def test_get_asset_lots_composite_broker_filter_none(self):
+        """Test get_asset_lots with None broker filter returns all lots from sub-portfolios."""
+        composite = CompositePortfolio(name="Composite")
+        sub1 = SimplePortfolio(name="Sub1")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        sub1.add_trade(
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+
+        sub2 = SimplePortfolio(name="Sub2")
+        sub2.add_trade(
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            )
+        )
+
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+
+        # None should return all lots from all sub-portfolios
+        lots = composite.get_asset_lots("VOO", brokers=None)
+        assert len(lots) == 2
+
+    def test_get_asset_lots_composite_same_broker_different_sub_portfolios(self):
+        """Test aggregation when multiple sub-portfolios have same broker."""
+        composite = CompositePortfolio(name="Composite")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+
+        sub1 = SimplePortfolio(name="Sub1")
+        sub1.add_trade(
+            Trade(
+                date=date(2025, 10, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+
+        sub2 = SimplePortfolio(name="Sub2")
+        sub2.add_trade(
+            Trade(
+                date=date(2025, 11, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            )
+        )
+
+        composite.add_sub_portfolio(sub1)
+        composite.add_sub_portfolio(sub2)
+
+        # Filter by IBKR should aggregate from both sub-portfolios
+        lots = composite.get_asset_lots("VOO", brokers=["IBKR"])
+        assert len(lots) == 2
+        assert all(lot.broker == "IBKR" for lot in lots)
 
     def test_get_total_realized_pnl_composite_portfolio(self):
         """Test get_total_realized_pnl for composite portfolio."""

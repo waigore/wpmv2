@@ -479,18 +479,21 @@ class TestHistoricalAllocations:
                 total_market_value=1500.0,  # Only GOOG
                 asset_positions={"GOOG": 1500.0, "AAPL": 0.0},
                 prices={"GOOG": 150.0},
+                quantities={"GOOG": 10.0, "AAPL": 0.0},
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 16),
                 total_market_value=2500.0,  # GOOG + AAPL
                 asset_positions={"GOOG": 1500.0, "AAPL": 1000.0},
                 prices={"GOOG": 150.0, "AAPL": 200.0},
+                quantities={"GOOG": 10.0, "AAPL": 5.0},
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 17),
                 total_market_value=2700.0,  # GOOG + AAPL with new prices
                 asset_positions={"GOOG": 1600.0, "AAPL": 1100.0},
                 prices={"GOOG": 160.0, "AAPL": 220.0},
+                quantities={"GOOG": 10.0, "AAPL": 5.0},
             ),
         ]
         mock_get_perf.return_value = history_points
@@ -551,12 +554,14 @@ class TestHistoricalAllocations:
                 total_market_value=1500.0,
                 asset_positions={"GOOG": 1500.0, "AAPL": 0.0},
                 prices={"GOOG": 150.0},
+                quantities={"GOOG": 10.0, "AAPL": 0.0},
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 16),
                 total_market_value=1500.0,
                 asset_positions={"GOOG": 1600.0, "AAPL": 0.0},
                 prices={"GOOG": 160.0},
+                quantities={"GOOG": 10.0, "AAPL": 0.0},
             ),
         ]
         mock_get_perf.return_value = history_points

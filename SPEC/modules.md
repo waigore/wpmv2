@@ -63,14 +63,15 @@
   - Returns list of Trade objects matching the ticker and date range (includes both Buy and Sell trades)
   - For SimplePortfolio: Filters trades from `_trades` list by ticker and date range
   - For CompositePortfolio: Aggregates asset trades from all sub-portfolios by calling `get_asset_trades` on each sub-portfolio and returning the combined result list
-- `get_asset_lots(ticker, start_date=None, end_date=None, prices=None)`: Get all lots for a specified asset (ticker) within the portfolio
+- `get_asset_lots(ticker, start_date=None, end_date=None, brokers=None, prices=None)`: Get all lots for a specified asset (ticker) within the portfolio
   - `ticker` (str, required): Asset ticker symbol to filter lots by
   - `start_date` (date, optional): Start date for date range filter (inclusive)
   - `end_date` (date, optional): End date for date range filter (inclusive)
+  - `brokers` (List[str], optional): List of broker names to filter by. If None, includes lots from all brokers
   - `prices` (Dict[Asset, Optional[float]], optional): Current prices for P/L calculations
   - Returns list of Lot objects for the ticker
-  - For SimplePortfolio: Calculates lots from filtered trades (benefits from cached lot calculations)
-  - For CompositePortfolio: Aggregates lots from all sub-portfolios
+  - For SimplePortfolio: Filters trades by ticker, date range, and broker (if provided), then calculates lots from filtered trades (benefits from cached lot calculations)
+  - For CompositePortfolio: Aggregates lots from all sub-portfolios, passing broker filter to each sub-portfolio
 - `get_total_cost_basis()`: Calculate total cost basis
   - Uses LRU caching (manual cache with OrderedDict, max size 128)
   - Cache key: trades list
@@ -105,11 +106,12 @@
   - Returns list of Portfolio clones, one for each date in the range
   - Each snapshot represents the portfolio state as of that date (cloned with `end_date=current_date`)
   - Date range must be within portfolio's date range (if portfolio has a date range)
-- `get_historical_performance(portfolio, price_service, start_date, end_date)`: Get historical performance of a portfolio over a date range
+- `get_historical_performance(portfolio, price_service, start_date, end_date, brokers=None)`: Get historical performance of a portfolio over a date range
   - `portfolio` (Portfolio, required): Portfolio to analyze (SimplePortfolio or CompositePortfolio)
   - `price_service` (PriceService, required): Price service for retrieving historical prices
   - `start_date` (date, required): Start date for performance tracking (inclusive)
   - `end_date` (date, required): End date for performance tracking (inclusive)
+  - `brokers` (List[str], optional): Optional list of broker names to filter by. If provided, only trades from specified brokers are included in position calculations
   - Returns list of PortfolioHistoryPoint objects, one for each day from start_date to end_date (inclusive)
   - Each history point contains:
     - `date`: The date this point represents

@@ -53,10 +53,12 @@
     * [get\_asset\_lots](#wpm.models.Portfolio.get_asset_lots)
     * [get\_total\_realized\_pnl](#wpm.models.Portfolio.get_total_realized_pnl)
     * [clone](#wpm.models.Portfolio.clone)
+    * [get\_asset\_positions\_by\_broker](#wpm.models.Portfolio.get_asset_positions_by_broker)
     * [get\_position](#wpm.models.Portfolio.get_position)
   * [PortfolioHistoryPoint](#wpm.models.PortfolioHistoryPoint)
     * [asset\_positions](#wpm.models.PortfolioHistoryPoint.asset_positions)
     * [prices](#wpm.models.PortfolioHistoryPoint.prices)
+    * [quantities](#wpm.models.PortfolioHistoryPoint.quantities)
     * [\_\_post\_init\_\_](#wpm.models.PortfolioHistoryPoint.__post_init__)
 * [wpm.asset](#wpm.asset)
   * [AssetMetadataCache](#wpm.asset.AssetMetadataCache)
@@ -75,6 +77,7 @@
   * [calculate\_lots\_from\_trades](#wpm.cost_basis.calculate_lots_from_trades)
   * [calculate\_fifo\_cost\_basis](#wpm.cost_basis.calculate_fifo_cost_basis)
 * [wpm.cli](#wpm.cli)
+  * [setup\_cli\_logging](#wpm.cli.setup_cli_logging)
   * [parse\_args](#wpm.cli.parse_args)
   * [fetch\_prices\_for\_portfolio](#wpm.cli.fetch_prices_for_portfolio)
   * [format\_currency](#wpm.cli.format_currency)
@@ -82,6 +85,7 @@
   * [format\_quantity](#wpm.cli.format_quantity)
   * [parse\_up\_to\_date](#wpm.cli.parse_up_to_date)
   * [parse\_from\_date](#wpm.cli.parse_from_date)
+  * [parse\_brokers](#wpm.cli.parse_brokers)
   * [format\_position\_line](#wpm.cli.format_position_line)
   * [format\_historical\_asset\_line](#wpm.cli.format_historical_asset_line)
   * [cmd\_list\_portfolios](#wpm.cli.cmd_list_portfolios)
@@ -135,6 +139,7 @@
     * [get\_total\_market\_value](#wpm.portfolio.SimplePortfolio.get_total_market_value)
     * [get\_total\_unrealized\_pnl](#wpm.portfolio.SimplePortfolio.get_total_unrealized_pnl)
     * [get\_asset\_lots](#wpm.portfolio.SimplePortfolio.get_asset_lots)
+    * [get\_asset\_positions\_by\_broker](#wpm.portfolio.SimplePortfolio.get_asset_positions_by_broker)
     * [get\_total\_realized\_pnl](#wpm.portfolio.SimplePortfolio.get_total_realized_pnl)
     * [get\_asset\_allocation](#wpm.portfolio.SimplePortfolio.get_asset_allocation)
     * [get\_all\_allocations](#wpm.portfolio.SimplePortfolio.get_all_allocations)
@@ -147,11 +152,13 @@
   * [CompositePortfolio](#wpm.portfolio.CompositePortfolio)
     * [\_\_init\_\_](#wpm.portfolio.CompositePortfolio.__init__)
     * [add\_sub\_portfolio](#wpm.portfolio.CompositePortfolio.add_sub_portfolio)
+    * [get\_sub\_portfolios](#wpm.portfolio.CompositePortfolio.get_sub_portfolios)
     * [get\_positions](#wpm.portfolio.CompositePortfolio.get_positions)
     * [get\_total\_cost\_basis](#wpm.portfolio.CompositePortfolio.get_total_cost_basis)
     * [get\_total\_market\_value](#wpm.portfolio.CompositePortfolio.get_total_market_value)
     * [get\_total\_unrealized\_pnl](#wpm.portfolio.CompositePortfolio.get_total_unrealized_pnl)
     * [get\_asset\_lots](#wpm.portfolio.CompositePortfolio.get_asset_lots)
+    * [get\_asset\_positions\_by\_broker](#wpm.portfolio.CompositePortfolio.get_asset_positions_by_broker)
     * [get\_total\_realized\_pnl](#wpm.portfolio.CompositePortfolio.get_total_realized_pnl)
     * [get\_asset\_allocation](#wpm.portfolio.CompositePortfolio.get_asset_allocation)
     * [get\_all\_allocations](#wpm.portfolio.CompositePortfolio.get_all_allocations)
@@ -171,6 +178,8 @@
   * [PriceService](#wpm.pricing.service.PriceService)
     * [\_\_init\_\_](#wpm.pricing.service.PriceService.__init__)
     * [get\_retriever](#wpm.pricing.service.PriceService.get_retriever)
+    * [get\_stock\_retriever](#wpm.pricing.service.PriceService.get_stock_retriever)
+    * [detect\_currency](#wpm.pricing.service.PriceService.detect_currency)
     * [get\_price](#wpm.pricing.service.PriceService.get_price)
     * [get\_prices](#wpm.pricing.service.PriceService.get_prices)
     * [get\_historical\_price](#wpm.pricing.service.PriceService.get_historical_price)
@@ -929,6 +938,7 @@ def get_asset_lots(
         ticker: str,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        brokers: Optional[List[str]] = None,
         prices: Optional[Dict[Asset, Optional[float]]] = None) -> List["Lot"]
 ```
 
@@ -941,6 +951,8 @@ Get all lots for a specified asset (ticker) within the portfolio.
   If not specified, includes lots from the very beginning.
 - `end_date` - Optional end date for date range filter (inclusive).
   If not specified, includes lots to the very end.
+- `brokers` - Optional list of broker names to filter by.
+  If not specified, includes lots from all brokers.
 - `prices` - Optional dictionary mapping Asset to current price for P/L calculations
   
 
@@ -996,6 +1008,31 @@ Create a deep copy of the portfolio.
 
   New Portfolio instance with cloned data
 
+<a id="wpm.models.Portfolio.get_asset_positions_by_broker"></a>
+
+#### get\_asset\_positions\_by\_broker
+
+```python
+@abstractmethod
+def get_asset_positions_by_broker(ticker: str) -> Dict[str, "Position"]
+```
+
+Get positions grouped by broker for a specified asset (ticker).
+
+Returns a dictionary mapping broker names to Position objects for the specified ticker.
+This encapsulates broker grouping and position calculation logic.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol to get broker positions for
+  
+
+**Returns**:
+
+  Dictionary mapping broker names to Position objects for the ticker.
+  Returns empty dictionary if ticker not found or no positions exist.
+  Brokers are sorted alphabetically.
+
 <a id="wpm.models.Portfolio.get_position"></a>
 
 #### get\_position
@@ -1028,6 +1065,12 @@ Maps ticker to position value (quantity * price)
 #### prices
 
 Maps ticker to price on that date
+
+<a id="wpm.models.PortfolioHistoryPoint.quantities"></a>
+
+#### quantities
+
+Maps ticker to quantity held on that date
 
 <a id="wpm.models.PortfolioHistoryPoint.__post_init__"></a>
 
@@ -1306,6 +1349,23 @@ Command-line utility for WPM (Wealth Portfolio Manager).
 This utility orchestrates CSV imports, creates composite portfolios,
 updates price caches, and provides an interactive command interface.
 
+<a id="wpm.cli.setup_cli_logging"></a>
+
+#### setup\_cli\_logging
+
+```python
+def setup_cli_logging() -> None
+```
+
+Configure CLI-specific logging to write to logs/wpmcli.log.
+
+This function configures logging for the CLI only, directing all logs
+to logs/wpmcli.log and suppressing stdout/stderr output. This ensures
+a clean CLI interface while preserving logs for debugging.
+
+Library users are not affected and can still configure their own logging
+using wpm.utils.setup_logging().
+
 <a id="wpm.cli.parse_args"></a>
 
 #### parse\_args
@@ -1441,6 +1501,25 @@ Parse --from date argument from command args.
 
   Tuple of (from_date or None, remaining args without --from flag and date)
 
+<a id="wpm.cli.parse_brokers"></a>
+
+#### parse\_brokers
+
+```python
+def parse_brokers(args: List[str]) -> tuple[Optional[List[str]], List[str]]
+```
+
+Parse --brokers argument from command args.
+
+**Arguments**:
+
+- `args` - Command arguments list
+  
+
+**Returns**:
+
+  Tuple of (brokers list or None, remaining args without --brokers flag and value)
+
 <a id="wpm.cli.format_position_line"></a>
 
 #### format\_position\_line
@@ -1491,7 +1570,7 @@ Format a simplified line for historical asset positions.
 
 **Returns**:
 
-  Formatted string: YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price | Allocation: XX.XX%
+  Formatted string: YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX%
 
 <a id="wpm.cli.cmd_list_portfolios"></a>
 
@@ -1553,7 +1632,8 @@ Handle 'show all' command.
 def cmd_show_asset(composite: CompositePortfolio,
                    ticker: str,
                    price_service: PriceService,
-                   from_date: Optional[date] = None) -> None
+                   from_date: Optional[date] = None,
+                   brokers: Optional[List[str]] = None) -> None
 ```
 
 Handle 'show asset <ticker>' command.
@@ -1564,6 +1644,7 @@ Handle 'show asset <ticker>' command.
 - `ticker` - Asset ticker symbol to show
 - `price_service` - Price service for retrieving prices
 - `from_date` - Optional start date for historical portfolios
+- `brokers` - Optional list of broker names to filter by
 
 <a id="wpm.cli.format_breakdown_asset_type"></a>
 
@@ -2317,6 +2398,7 @@ def get_asset_lots(
         ticker: str,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        brokers: Optional[List[str]] = None,
         prices: Optional[Dict[Asset, Optional[float]]] = None) -> List[Lot]
 ```
 
@@ -2329,12 +2411,38 @@ Get all lots for a specified asset (ticker) within the portfolio.
   If not specified, includes lots from the very beginning.
 - `end_date` - Optional end date for date range filter (inclusive).
   If not specified, includes lots to the very end.
+- `brokers` - Optional list of broker names to filter by.
+  If not specified, includes lots from all brokers.
 - `prices` - Optional dictionary mapping Asset to current price for P/L calculations
   
 
 **Returns**:
 
   List of Lot objects for the ticker
+
+<a id="wpm.portfolio.SimplePortfolio.get_asset_positions_by_broker"></a>
+
+#### get\_asset\_positions\_by\_broker
+
+```python
+def get_asset_positions_by_broker(ticker: str) -> Dict[str, Position]
+```
+
+Get positions grouped by broker for a specified asset (ticker).
+
+Returns a dictionary mapping broker names to Position objects for the specified ticker.
+This encapsulates broker grouping and position calculation logic.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol to get broker positions for
+  
+
+**Returns**:
+
+  Dictionary mapping broker names to Position objects for the ticker.
+  Returns empty dictionary if ticker not found or no positions exist.
+  Brokers are sorted alphabetically.
 
 <a id="wpm.portfolio.SimplePortfolio.get_total_realized_pnl"></a>
 
@@ -2570,6 +2678,20 @@ Add a sub-portfolio to this composite portfolio.
 - `PortfolioError` - If portfolio name already exists, portfolio is invalid,
   or is_historical flags don't match
 
+<a id="wpm.portfolio.CompositePortfolio.get_sub_portfolios"></a>
+
+#### get\_sub\_portfolios
+
+```python
+def get_sub_portfolios() -> Dict[str, "Portfolio"]
+```
+
+Get a copy of all sub-portfolios.
+
+**Returns**:
+
+  Dictionary mapping sub-portfolio name to Portfolio instance
+
 <a id="wpm.portfolio.CompositePortfolio.get_positions"></a>
 
 #### get\_positions
@@ -2653,6 +2775,7 @@ def get_asset_lots(
         ticker: str,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        brokers: Optional[List[str]] = None,
         prices: Optional[Dict[Asset, Optional[float]]] = None) -> List[Lot]
 ```
 
@@ -2667,12 +2790,39 @@ Aggregates lots from all sub-portfolios.
   If not specified, includes lots from the very beginning.
 - `end_date` - Optional end date for date range filter (inclusive).
   If not specified, includes lots to the very end.
+- `brokers` - Optional list of broker names to filter by.
+  If not specified, includes lots from all brokers.
 - `prices` - Optional dictionary mapping Asset to current price for P/L calculations
   
 
 **Returns**:
 
   List of Lot objects for the ticker (aggregated from all sub-portfolios)
+
+<a id="wpm.portfolio.CompositePortfolio.get_asset_positions_by_broker"></a>
+
+#### get\_asset\_positions\_by\_broker
+
+```python
+def get_asset_positions_by_broker(ticker: str) -> Dict[str, Position]
+```
+
+Get positions grouped by broker for a specified asset (ticker).
+
+Returns a dictionary mapping broker names to Position objects for the specified ticker.
+Aggregates positions across all sub-portfolios for the same broker.
+This encapsulates broker grouping and position calculation logic.
+
+**Arguments**:
+
+- `ticker` - Asset ticker symbol to get broker positions for
+  
+
+**Returns**:
+
+  Dictionary mapping broker names to Position objects for the ticker.
+  Returns empty dictionary if ticker not found or no positions exist.
+  Brokers are sorted alphabetically.
 
 <a id="wpm.portfolio.CompositePortfolio.get_total_realized_pnl"></a>
 
@@ -2932,9 +3082,12 @@ Creates a clone of the portfolio for each date from start_date to end_date
 #### get\_historical\_performance
 
 ```python
-def get_historical_performance(portfolio: Portfolio,
-                               price_service: "PriceService", start_date: date,
-                               end_date: date) -> List[PortfolioHistoryPoint]
+def get_historical_performance(
+        portfolio: Portfolio,
+        price_service: "PriceService",
+        start_date: date,
+        end_date: date,
+        brokers: Optional[List[str]] = None) -> List[PortfolioHistoryPoint]
 ```
 
 Get historical performance of a portfolio over a date range.
@@ -2957,6 +3110,8 @@ for better performance.
 - `price_service` - Price service for retrieving historical prices
 - `start_date` - Start date for performance tracking (inclusive)
 - `end_date` - End date for performance tracking (inclusive)
+- `brokers` - Optional list of broker names to filter by. If provided, only trades
+  from specified brokers are included in position calculations.
   
 
 **Returns**:
@@ -2974,9 +3129,12 @@ for better performance.
 #### get\_historical\_allocations
 
 ```python
-def get_historical_allocations(portfolio: Portfolio,
-                               price_service: "PriceService", start_date: date,
-                               end_date: date) -> List[Dict[Asset, Decimal]]
+def get_historical_allocations(
+        portfolio: Portfolio,
+        price_service: "PriceService",
+        start_date: date,
+        end_date: date,
+        brokers: Optional[List[str]] = None) -> List[Dict[Asset, Decimal]]
 ```
 
 Get historical percentage allocations of asset positions over a date range.
@@ -2994,6 +3152,8 @@ for efficiency.
 - `price_service` - Price service for retrieving historical prices
 - `start_date` - Start date for allocation tracking (inclusive)
 - `end_date` - End date for allocation tracking (inclusive)
+- `brokers` - Optional list of broker names to filter by. If provided, only trades
+  from specified brokers are included in allocation calculations.
   
 
 **Returns**:
@@ -3128,6 +3288,39 @@ Get appropriate price retriever for asset type.
 **Raises**:
 
 - `ValueError` - If asset type is not supported
+
+<a id="wpm.pricing.service.PriceService.get_stock_retriever"></a>
+
+#### get\_stock\_retriever
+
+```python
+def get_stock_retriever() -> PriceRetriever
+```
+
+Get the stock/ETF retriever instance.
+
+**Returns**:
+
+  YahooFinanceRetriever instance for stocks and ETFs
+
+<a id="wpm.pricing.service.PriceService.detect_currency"></a>
+
+#### detect\_currency
+
+```python
+def detect_currency(ticker: str) -> str
+```
+
+Detect currency from ticker symbol.
+
+**Arguments**:
+
+- `ticker` - Ticker symbol (e.g., "2800.HK", "GOOG")
+  
+
+**Returns**:
+
+  Currency code (e.g., "HKD", "USD")
 
 <a id="wpm.pricing.service.PriceService.get_price"></a>
 

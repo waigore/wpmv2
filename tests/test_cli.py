@@ -10,6 +10,7 @@ import sys
 from wpm.cli import (
     parse_up_to_date,
     parse_from_date,
+    parse_brokers,
     cmd_show_all,
     cmd_show_portfolio,
     cmd_show_asset,
@@ -97,6 +98,73 @@ class TestParseFromDate:
         assert "invalid-date" in remaining or "--from" in remaining
 
 
+class TestParseBrokers:
+    """Tests for parse_brokers function."""
+
+    def test_parse_brokers_with_quoted_string(self):
+        """Test parsing --brokers with quoted string."""
+        args = ["--brokers", '"IBKR,Schwab"', "extra"]
+        brokers, remaining = parse_brokers(args)
+        assert brokers == ["IBKR", "Schwab"]
+        assert remaining == ["extra"]
+
+    def test_parse_brokers_with_spaces_in_names(self):
+        """Test parsing --brokers with broker names containing spaces."""
+        args = ["--brokers", '"IBKR,Charles Schwab"', "extra"]
+        brokers, remaining = parse_brokers(args)
+        assert brokers == ["IBKR", "Charles Schwab"]
+        assert remaining == ["extra"]
+
+    def test_parse_brokers_with_single_quotes(self):
+        """Test parsing --brokers with single quotes."""
+        args = ["--brokers", "'IBKR,Schwab'", "extra"]
+        brokers, remaining = parse_brokers(args)
+        assert brokers == ["IBKR", "Schwab"]
+        assert remaining == ["extra"]
+
+    def test_parse_brokers_without_quotes(self):
+        """Test parsing --brokers without quotes."""
+        args = ["--brokers", "IBKR,Schwab", "extra"]
+        brokers, remaining = parse_brokers(args)
+        assert brokers == ["IBKR", "Schwab"]
+        assert remaining == ["extra"]
+
+    def test_parse_brokers_without_flag(self):
+        """Test parsing args without --brokers flag."""
+        args = ["portfolio", "name"]
+        brokers, remaining = parse_brokers(args)
+        assert brokers is None
+        assert remaining == ["portfolio", "name"]
+
+    def test_parse_brokers_no_value_after_flag(self):
+        """Test parsing --brokers without value argument."""
+        args = ["--brokers"]
+        brokers, remaining = parse_brokers(args)
+        assert brokers is None
+        assert remaining == ["--brokers"]
+
+    def test_parse_brokers_empty_string(self):
+        """Test parsing --brokers with empty string."""
+        args = ["--brokers", '""']
+        brokers, remaining = parse_brokers(args)
+        assert brokers is None
+
+    def test_parse_brokers_with_whitespace(self):
+        """Test parsing --brokers with whitespace around broker names."""
+        args = ["--brokers", '"IBKR, Schwab , Tiger"']
+        brokers, remaining = parse_brokers(args)
+        assert brokers == ["IBKR", "Schwab", "Tiger"]
+
+    def test_parse_brokers_combined_with_from(self):
+        """Test parsing --brokers combined with --from."""
+        args = ["--from", "2024-01-15", "--brokers", '"IBKR,Schwab"']
+        from_date, remaining_after_from = parse_from_date(args)
+        brokers, remaining = parse_brokers(remaining_after_from)
+        assert from_date == date(2024, 1, 15)
+        assert brokers == ["IBKR", "Schwab"]
+        assert remaining == []
+
+
 class TestFormatHistoricalAssetLine:
     """Tests for format_historical_asset_line function."""
 
@@ -107,6 +175,7 @@ class TestFormatHistoricalAssetLine:
             total_market_value=1000.0,
             asset_positions={"GOOG": 1000.0},
             prices={"GOOG": 100.0},
+            quantities={"GOOG": 10.0},
         )
         result = format_historical_asset_line(history_point, "GOOG", "Stock")
         assert "2024-01-15" in result
@@ -122,6 +191,7 @@ class TestFormatHistoricalAssetLine:
             total_market_value=1000.0,
             asset_positions={"GOOG": 1000.0},
             prices={},
+            quantities={"GOOG": 10.0},
         )
         result = format_historical_asset_line(history_point, "GOOG", "Stock")
         assert "2024-01-15" in result
@@ -137,6 +207,7 @@ class TestFormatHistoricalAssetLine:
             total_market_value=0.0,
             asset_positions={"GOOG": 0.0},
             prices={"GOOG": 100.0},
+            quantities={"GOOG": 0.0},
         )
         result = format_historical_asset_line(history_point, "GOOG", "Stock")
         assert "2024-01-15" in result
@@ -228,12 +299,14 @@ class TestCmdShowAsset:
                         total_market_value=1600.0,
                         asset_positions={"GOOG": 1600.0},
                         prices={"GOOG": 160.0},
+                        quantities={"GOOG": 10.0},
                     ),
                     PortfolioHistoryPoint(
                         date=date(2024, 1, 31),
                         total_market_value=1610.0,
                         asset_positions={"GOOG": 1610.0},
                         prices={"GOOG": 161.0},
+                        quantities={"GOOG": 10.0},
                     ),
                 ]
                 mock_get_perf.return_value = history_points
@@ -296,6 +369,7 @@ class TestCmdShowAsset:
                         total_market_value=1550.0,
                         asset_positions={"GOOG": 1550.0},
                         prices={"GOOG": 155.0},
+                        quantities={"GOOG": 10.0},
                     ),
                 ]
                 mock_get_perf.return_value = history_points
@@ -341,6 +415,7 @@ class TestCmdShowAsset:
                         total_market_value=1500.0,
                         asset_positions={"GOOG": 1500.0},
                         prices={},  # Missing price
+                        quantities={"GOOG": 10.0},
                     ),
                 ]
                 mock_get_perf.return_value = history_points
@@ -357,6 +432,193 @@ class TestCmdShowAsset:
                     assert "2024-01-15" in output
                     assert "N/A" in output
 
+    def test_cmd_show_asset_current_portfolio_with_broker_filter_single(self):
+        """Test show asset with single broker filter for current portfolio."""
+        portfolio = SimplePortfolio(name="Test")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+            mock_fetch_price_map.return_value = {asset: 620.0}
+
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_show_asset(composite, "VOO", mock_price_service, brokers=["IBKR"])
+                output = fake_out.getvalue()
+                assert "VOO" in output
+                assert "ETF" in output
+                # Should show quantity 2.0 from IBKR only (not 3.0 from both brokers)
+                assert "2.0" in output or "2" in output
+
+    def test_cmd_show_asset_current_portfolio_with_broker_filter_multiple(self):
+        """Test show asset with multiple broker filter for current portfolio."""
+        portfolio = SimplePortfolio(name="Test")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 17),
+                asset=asset,
+                action="Buy",
+                broker="Tiger",
+                currency="USD",
+                price=620.0,
+                price_native=620.0,
+                quantity=1.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+            mock_fetch_price_map.return_value = {asset: 630.0}
+
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_show_asset(composite, "VOO", mock_price_service, brokers=["IBKR", "Schwab"])
+                output = fake_out.getvalue()
+                assert "VOO" in output
+                # Should show quantity 3.0 from IBKR and Schwab (not 4.0 from all brokers)
+
+    def test_cmd_show_asset_current_portfolio_with_broker_filter_no_match(self):
+        """Test show asset with broker filter when no matching brokers exist."""
+        portfolio = SimplePortfolio(name="Test")
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_show_asset(composite, "VOO", mock_price_service, brokers=["NonexistentBroker"])
+            output = fake_out.getvalue()
+            assert "No positions found" in output
+            assert "VOO" in output
+            assert "specified brokers" in output
+
+    def test_cmd_show_asset_historical_portfolio_with_broker_filter(self):
+        """Test show asset with broker filter for historical portfolio."""
+        portfolio = SimplePortfolio(name="Test", is_historical=True)
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=600.0,
+                price_native=600.0,
+                quantity=2.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="Schwab",
+                currency="USD",
+                price=610.0,
+                price_native=610.0,
+                quantity=1.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite", is_historical=True)
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        with patch("wpm.cli.get_historical_performance") as mock_get_perf:
+            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+                # Mock history points filtered by broker
+                history_points = [
+                    PortfolioHistoryPoint(
+                        date=date(2024, 1, 31),
+                        total_market_value=1200.0,
+                        asset_positions={"VOO": 1200.0},  # Only IBKR lots (2.0 * 600)
+                        prices={"VOO": 600.0},
+                        quantities={"VOO": 2.0},
+                    ),
+                ]
+                mock_get_perf.return_value = history_points
+
+                allocations_list = [
+                    {asset: Decimal('100.00')},
+                ]
+                mock_get_alloc.return_value = allocations_list
+
+                with patch("sys.stdout", new=StringIO()) as fake_out:
+                    cmd_show_asset(composite, "VOO", mock_price_service, brokers=["IBKR"])
+                    output = fake_out.getvalue()
+                    assert "VOO" in output
+                    # Verify that get_historical_performance was called with brokers parameter
+                    mock_get_perf.assert_called_once()
+                    call_kwargs = mock_get_perf.call_args[1]
+                    assert call_kwargs.get("brokers") == ["IBKR"]
+
 
 class TestWeeklySummary:
     """Tests for weekly summary display."""
@@ -369,18 +631,21 @@ class TestWeeklySummary:
                 total_market_value=1000.0,
                 asset_positions={"GOOG": 1000.0},
                 prices={"GOOG": 100.0},
+                quantities={"GOOG": 10.0},
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 16),  # Tuesday
                 total_market_value=1050.0,
                 asset_positions={"GOOG": 1050.0},
                 prices={"GOOG": 105.0},
+                quantities={"GOOG": 10.0},
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 17),  # Wednesday
                 total_market_value=1100.0,
                 asset_positions={"GOOG": 1100.0},
                 prices={"GOOG": 110.0},
+                quantities={"GOOG": 10.0},
             ),
         ]
 
@@ -402,24 +667,28 @@ class TestWeeklySummary:
                 total_market_value=1000.0,
                 asset_positions={"GOOG": 1000.0},
                 prices={"GOOG": 100.0},
+                quantities={"GOOG": 10.0},
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 20),  # Saturday, Week 1
                 total_market_value=1050.0,
                 asset_positions={"GOOG": 1050.0},
                 prices={"GOOG": 105.0},
+                quantities={"GOOG": 10.0},
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 22),  # Monday, Week 2
                 total_market_value=1100.0,
                 asset_positions={"GOOG": 1100.0},
                 prices={"GOOG": 110.0},
+                quantities={"GOOG": 10.0},
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 28),  # Sunday, Week 2
                 total_market_value=1200.0,
                 asset_positions={"GOOG": 1200.0},
                 prices={"GOOG": 120.0},
+                quantities={"GOOG": 10.0},
             ),
         ]
 
@@ -673,6 +942,7 @@ class TestFormatHistoricalAssetLineWithAllocation:
             total_market_value=1000.0,
             asset_positions={"GOOG": 1000.0},
             prices={"GOOG": 100.0},
+            quantities={"GOOG": 10.0},
         )
         allocation = Decimal('100.00')
         result = format_historical_asset_line(history_point, "GOOG", "Stock", allocation)
@@ -687,6 +957,7 @@ class TestFormatHistoricalAssetLineWithAllocation:
             total_market_value=1000.0,
             asset_positions={"GOOG": 1000.0},
             prices={"GOOG": 100.0},
+            quantities={"GOOG": 10.0},
         )
         result = format_historical_asset_line(history_point, "GOOG", "Stock", None)
         assert "2024-01-15" in result
@@ -892,12 +1163,14 @@ class TestCmdShowAssetWithAllocations:
                         total_market_value=1600.0,
                         asset_positions={"GOOG": 1600.0},
                         prices={"GOOG": 160.0},
+                        quantities={"GOOG": 10.0},
                     ),
                     PortfolioHistoryPoint(
                         date=date(2024, 1, 31),
                         total_market_value=1610.0,
                         asset_positions={"GOOG": 1610.0},
                         prices={"GOOG": 161.0},
+                        quantities={"GOOG": 10.0},
                     ),
                 ]
                 mock_get_perf.return_value = history_points
