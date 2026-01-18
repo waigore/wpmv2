@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from wpm.cost_basis import calculate_fifo_cost_basis, calculate_lots_from_trades
-from wpm.models import Asset, Trade
+from wpm.models import Asset, Trade, ValidationError
 
 
 class TestFIFOCostBasis:
@@ -270,4 +270,153 @@ class TestFIFOCostBasis:
         position = positions[asset]
         assert position.quantity == total_quantity
         assert abs(position.cost_basis - total_cost_basis) < 0.01  # Allow for floating point differences
+
+    def test_fifo_broker_matching_same_broker(self):
+        """Test FIFO matching when buy and sell are from same broker."""
+        asset = Asset(ticker="AAPL", asset_type="Stock")
+        trades = [
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            ),
+            Trade(
+                date=date(2024, 2, 15),
+                asset=asset,
+                action="Sell",
+                broker="IBKR",
+                currency="USD",
+                price=160.0,
+                price_native=160.0,
+                quantity=5.0,
+            ),
+        ]
+
+        lots_by_asset = calculate_lots_from_trades(trades)
+        assert asset in lots_by_asset
+        lots = lots_by_asset[asset]
+        assert len(lots) == 1
+        assert lots[0].remaining_quantity == Decimal('5.0')
+        assert len(lots[0].matched_sells) == 1
+        assert lots[0].matched_sells[0][0].broker == "IBKR"
+
+    def test_fifo_broker_matching_different_brokers(self):
+        """Test that sell from Broker A cannot match buy from Broker B."""
+        asset = Asset(ticker="AAPL", asset_type="Stock")
+        trades = [
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            ),
+            Trade(
+                date=date(2024, 2, 15),
+                asset=asset,
+                action="Sell",
+                broker="Fidelity",  # Different broker
+                currency="USD",
+                price=160.0,
+                price_native=160.0,
+                quantity=5.0,
+            ),
+        ]
+
+        # This should raise ValidationError because Fidelity sell cannot match IBKR buy
+        with pytest.raises(ValidationError, match="Cannot sell.*from broker 'Fidelity' when no matching buy lots exist"):
+            calculate_lots_from_trades(trades)
+
+    def test_fifo_broker_matching_no_matching_broker_error(self):
+        """Test ValidationError when sell has no matching broker buy."""
+        asset = Asset(ticker="AAPL", asset_type="Stock")
+        trades = [
+            Trade(
+                date=date(2024, 2, 15),
+                asset=asset,
+                action="Sell",
+                broker="IBKR",
+                currency="USD",
+                price=160.0,
+                price_native=160.0,
+                quantity=5.0,
+            ),
+        ]
+
+        # This should raise ValidationError because there's no buy from IBKR
+        with pytest.raises(ValidationError, match="Cannot sell.*from broker 'IBKR' when no matching buy lots exist"):
+            calculate_lots_from_trades(trades)
+
+    def test_fifo_broker_matching_multiple_brokers_same_asset(self):
+        """Test that each broker's FIFO queue is independent."""
+        asset = Asset(ticker="AAPL", asset_type="Stock")
+        trades = [
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            ),
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset,
+                action="Buy",
+                broker="Fidelity",
+                currency="USD",
+                price=152.0,
+                price_native=152.0,
+                quantity=5.0,
+            ),
+            Trade(
+                date=date(2024, 2, 15),
+                asset=asset,
+                action="Sell",
+                broker="IBKR",
+                currency="USD",
+                price=160.0,
+                price_native=160.0,
+                quantity=5.0,
+            ),
+            Trade(
+                date=date(2024, 2, 16),
+                asset=asset,
+                action="Sell",
+                broker="Fidelity",
+                currency="USD",
+                price=162.0,
+                price_native=162.0,
+                quantity=3.0,
+            ),
+        ]
+
+        lots_by_asset = calculate_lots_from_trades(trades)
+        assert asset in lots_by_asset
+        lots = lots_by_asset[asset]
+        
+        # Should have 2 lots (one per broker)
+        assert len(lots) == 2
+        
+        # Find IBKR lot
+        ibkr_lot = next(lot for lot in lots if lot.broker == "IBKR")
+        assert ibkr_lot.remaining_quantity == Decimal('5.0')  # 10 - 5 = 5
+        assert len(ibkr_lot.matched_sells) == 1
+        assert ibkr_lot.matched_sells[0][0].broker == "IBKR"
+        
+        # Find Fidelity lot
+        fidelity_lot = next(lot for lot in lots if lot.broker == "Fidelity")
+        assert fidelity_lot.remaining_quantity == Decimal('2.0')  # 5 - 3 = 2
+        assert len(fidelity_lot.matched_sells) == 1
+        assert fidelity_lot.matched_sells[0][0].broker == "Fidelity"
 

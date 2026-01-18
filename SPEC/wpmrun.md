@@ -121,6 +121,7 @@ See detailed description below in the Commands section.
   - Total Market Value: `<formatted_value>` (or "N/A" if no prices available)
   - Total Cost Basis: `<formatted_value>` (always displayed, doesn't depend on prices)
   - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no prices available)
+  - Total Realized P/L: `<formatted_value>` (with + prefix for profit, - for loss, always displayed since realized P/L doesn't depend on prices)
 - Example (current portfolio):
   ```
   BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00 | Allocation: 35.94%
@@ -130,6 +131,7 @@ See detailed description below in the Commands section.
   Total Market Value: $64,000.00
   Total Cost Basis: $62,500.00
   Total Unrealized P/L: +$1,500.00
+  Total Realized P/L: +$200.00
   ```
 - Example (historical portfolio):
   ```
@@ -140,6 +142,7 @@ See detailed description below in the Commands section.
   Total Market Value: $64,000.00
   Total Cost Basis: $62,500.00
   Total Unrealized P/L: +$1,500.00
+  Total Realized P/L: +$200.00
   ```
 
 **Error Handling:**
@@ -168,6 +171,7 @@ See detailed description below in the Commands section.
   - Total Market Value: `<formatted_value>` (or "N/A" if no prices available)
   - Total Cost Basis: `<formatted_value>` (always displayed, doesn't depend on prices)
   - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no prices available)
+  - Total Realized P/L: `<formatted_value>` (with + prefix for profit, - for loss, always displayed since realized P/L doesn't depend on prices)
 - Example (current portfolio):
   ```
   AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00 | Allocation: 11.11%
@@ -177,6 +181,7 @@ See detailed description below in the Commands section.
   Total Market Value: $144,000.00
   Total Cost Basis: $137,500.00
   Total Unrealized P/L: +$6,500.00
+  Total Realized P/L: +$500.00
   ```
 
 **Error Handling:**
@@ -209,6 +214,8 @@ See detailed description below in the Commands section.
   - Total Market Value: `<formatted_value>` (or "N/A" if no price available)
   - Total Cost Basis: `<formatted_value>` (always displayed)
   - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no price available)
+  - Realized P/L: `<formatted_value>` (with + prefix for profit, - for loss, always displayed)
+- Note that when `--brokers` filter is provided, realized P/L should only include lots matching the specified brokers
 - Example:
   ```
   AAPL (Stock): 150.0 @ $150.00 = $22,500.00 | Current Value = $24,000.00 @ $160.00 | Allocation: 25.00%
@@ -220,6 +227,7 @@ See detailed description below in the Commands section.
   Total Market Value: $24,000.00
   Total Cost Basis: $22,500.00
   Total Unrealized P/L: +$1,500.00
+  Realized P/L: +$300.00
   ```
 
 **For historical portfolios:**

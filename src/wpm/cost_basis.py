@@ -3,7 +3,7 @@
 import logging
 from collections import deque
 from decimal import Decimal
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from wpm.cache_utils import LRUCache, trades_to_cache_key
 from wpm.models import Asset, Lot, Position, Trade, ValidationError
@@ -17,6 +17,9 @@ _lots_cache: LRUCache[Dict[Asset, List[Lot]]] = LRUCache(maxsize=128)
 def _calculate_lots_from_trades_impl(trades: List[Trade]) -> Dict[Asset, List[Lot]]:
     """Calculate lots from trades using FIFO method (internal implementation).
 
+    Sell trades must match against buy lots from the same broker. If a sell trade
+    cannot find a matching buy lot from the same broker, a ValidationError is raised.
+
     Args:
         trades: List of trades to process
 
@@ -27,8 +30,9 @@ def _calculate_lots_from_trades_impl(trades: List[Trade]) -> Dict[Asset, List[Lo
 
     # Dictionary to store lots for each asset
     lots_by_asset: Dict[Asset, List[Lot]] = {}
-    # Dictionary to store FIFO queues for each asset (deque of Lot objects)
-    fifo_lots: Dict[Asset, deque] = {}
+    # Dictionary to store FIFO queues for each asset-broker combination (deque of Lot objects)
+    # Key is (Asset, broker) tuple to enforce broker matching
+    fifo_lots: Dict[Tuple[Asset, str], deque] = {}
 
     # Sort trades chronologically
     sorted_trades = sorted(trades, key=lambda t: t.date)
@@ -36,12 +40,8 @@ def _calculate_lots_from_trades_impl(trades: List[Trade]) -> Dict[Asset, List[Lo
     for trade in sorted_trades:
         asset = trade.asset
 
-        if asset not in fifo_lots:
-            fifo_lots[asset] = deque()
-            lots_by_asset[asset] = []
-
         if trade.is_buy():
-            logger.debug(f"Processing buy: {trade.quantity} @ ${trade.price}")
+            logger.debug(f"Processing buy: {trade.quantity} @ ${trade.price} from broker {trade.broker}")
             # Create a new lot from the buy trade
             lot = Lot(
                 purchase_date=trade.date,
@@ -53,31 +53,47 @@ def _calculate_lots_from_trades_impl(trades: List[Trade]) -> Dict[Asset, List[Lo
                 broker=trade.broker,
                 matched_sells=[],
             )
-            fifo_lots[asset].append(lot)
+            # Use (asset, broker) as key to maintain separate FIFO queues per broker
+            lot_key = (asset, trade.broker)
+            if lot_key not in fifo_lots:
+                fifo_lots[lot_key] = deque()
+            if asset not in lots_by_asset:
+                lots_by_asset[asset] = []
+            
+            fifo_lots[lot_key].append(lot)
             lots_by_asset[asset].append(lot)
         else:
-            logger.debug(f"Processing sell: {trade.quantity} @ ${trade.price}")
+            logger.debug(f"Processing sell: {trade.quantity} @ ${trade.price} from broker {trade.broker}")
             remaining_sell_quantity = trade.quantity
 
-            # Calculate total available quantity
-            total_available = sum(lot.remaining_quantity for lot in fifo_lots[asset])
+            # Match sell only against lots from the same broker
+            lot_key = (asset, trade.broker)
+            
+            # Check if there are any lots available for this broker
+            if lot_key not in fifo_lots or not fifo_lots[lot_key]:
+                raise ValidationError(
+                    f"Cannot sell {remaining_sell_quantity} units from broker '{trade.broker}' when no matching buy lots exist for that broker"
+                )
+
+            # Calculate total available quantity only from lots matching the sell's broker
+            total_available = sum(lot.remaining_quantity for lot in fifo_lots[lot_key])
 
             # Check if we're trying to sell more than available
             if remaining_sell_quantity > total_available:
                 raise ValidationError(
-                    f"Cannot sell {remaining_sell_quantity} units when only {total_available} are available"
+                    f"Cannot sell {remaining_sell_quantity} units from broker '{trade.broker}' when only {total_available} are available for that broker"
                 )
 
-            # Match sell against lots using FIFO
-            while remaining_sell_quantity > 0 and fifo_lots[asset]:
-                oldest_lot = fifo_lots[asset][0]
+            # Match sell against lots using FIFO (only from the same broker)
+            while remaining_sell_quantity > 0 and fifo_lots[lot_key]:
+                oldest_lot = fifo_lots[lot_key][0]
 
                 if oldest_lot.remaining_quantity <= remaining_sell_quantity:
                     # Entire lot is consumed
                     consumed_quantity = oldest_lot.remaining_quantity
                     oldest_lot.remaining_quantity = Decimal('0')
                     oldest_lot.matched_sells.append((trade, consumed_quantity))
-                    fifo_lots[asset].popleft()
+                    fifo_lots[lot_key].popleft()
                 else:
                     # Partial lot consumption
                     consumed_quantity = remaining_sell_quantity
@@ -87,7 +103,7 @@ def _calculate_lots_from_trades_impl(trades: List[Trade]) -> Dict[Asset, List[Lo
                 remaining_sell_quantity -= consumed_quantity
 
                 logger.debug(
-                    f"Matched {consumed_quantity} units from lot @ ${oldest_lot.purchase_price}"
+                    f"Matched {consumed_quantity} units from lot @ ${oldest_lot.purchase_price} (broker: {oldest_lot.broker})"
                 )
 
     logger.debug(
@@ -100,6 +116,9 @@ def calculate_lots_from_trades(trades: List[Trade]) -> Dict[Asset, List[Lot]]:
     """Calculate lots from trades using FIFO method.
 
     Uses LRU caching to avoid recalculating lots for the same set of trades.
+
+    Sell trades must match against buy lots from the same broker. If a sell trade
+    cannot find a matching buy lot from the same broker, a ValidationError is raised.
 
     Args:
         trades: List of trades to process

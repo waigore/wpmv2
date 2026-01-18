@@ -405,18 +405,31 @@ class Portfolio(ABC):
         pass
 
     @abstractmethod
-    def get_total_realized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
+    def get_total_realized_pnl(self) -> float:
         """Calculate total realized profit/loss for the portfolio.
 
         Derives from lots' realized P/L.
 
-        Args:
-            prices: Dictionary mapping Asset to current price (None if unavailable).
-                Note: Realized P/L doesn't actually depend on current prices, but included
-                for consistency with other P/L methods.
-
         Returns:
             Total realized profit/loss in USD
+        """
+        pass
+
+    @abstractmethod
+    def get_asset_realized_pnl(
+        self,
+        ticker: str,
+        brokers: Optional[List[str]] = None,
+    ) -> float:
+        """Calculate realized profit/loss for a specific asset position.
+
+        Args:
+            ticker: Asset ticker symbol
+            brokers: Optional list of broker names to filter by.
+                If not specified, includes lots from all brokers.
+
+        Returns:
+            Realized profit/loss in USD for the specified asset
         """
         pass
 

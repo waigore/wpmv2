@@ -458,16 +458,14 @@ class TestSimplePortfolio:
         for trade in trades:
             portfolio.add_trade(trade)
 
-        prices = {asset: 630.0}
-        realized_pnl = portfolio.get_total_realized_pnl(prices)
+        realized_pnl = portfolio.get_total_realized_pnl()
         # 1 * (620 - 600) = 20
         assert realized_pnl == 20.0
 
     def test_get_total_realized_pnl_empty_portfolio(self):
         """Test get_total_realized_pnl for empty portfolio."""
         portfolio = SimplePortfolio(name="Test Portfolio")
-        prices = {}
-        realized_pnl = portfolio.get_total_realized_pnl(prices)
+        realized_pnl = portfolio.get_total_realized_pnl()
         assert realized_pnl == 0.0
 
     def test_get_assets_empty(self):
@@ -1265,8 +1263,7 @@ class TestCompositePortfolio:
         composite.add_sub_portfolio(sub1)
         composite.add_sub_portfolio(sub2)
 
-        prices = {asset1: 630.0, asset2: 160.0}
-        realized_pnl = composite.get_total_realized_pnl(prices)
+        realized_pnl = composite.get_total_realized_pnl()
         # From sub1: 1 * (620 - 600) = 20
         # From sub2: 0 (no sells)
         assert realized_pnl == 20.0

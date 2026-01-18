@@ -575,6 +575,7 @@ def cmd_show_portfolio(
     total_cost_basis = portfolio.get_total_cost_basis()
     total_market_value = portfolio.get_total_market_value(price_map)
     total_unrealized_pnl = portfolio.get_total_unrealized_pnl(price_map)
+    total_realized_pnl = portfolio.get_total_realized_pnl()
 
     # Check if we have any prices available
     has_prices = any(price is not None for price in price_map.values())
@@ -585,6 +586,7 @@ def cmd_show_portfolio(
         print(f"Total Unrealized P/L: {format_unrealized_pnl(total_unrealized_pnl)}")
     else:
         print("Total Unrealized P/L: N/A")
+    print(f"Total Realized P/L: {format_unrealized_pnl(total_realized_pnl)}")
 
 
 def cmd_show_all(
@@ -652,6 +654,7 @@ def cmd_show_all(
     total_cost_basis = composite.get_total_cost_basis()
     total_market_value = composite.get_total_market_value(price_map)
     total_unrealized_pnl = composite.get_total_unrealized_pnl(price_map)
+    total_realized_pnl = composite.get_total_realized_pnl()
 
     # Check if we have any prices available
     has_prices = any(price is not None for price in price_map.values())
@@ -662,6 +665,7 @@ def cmd_show_all(
         print(f"Total Unrealized P/L: {format_unrealized_pnl(total_unrealized_pnl)}")
     else:
         print("Total Unrealized P/L: N/A")
+    print(f"Total Realized P/L: {format_unrealized_pnl(total_realized_pnl)}")
 
 
 def cmd_show_asset(
@@ -798,6 +802,8 @@ def cmd_show_asset(
     cost_basis = position.cost_basis
     market_value = float(position.quantity) * price if price is not None else 0.0
     unrealized_pnl = market_value - cost_basis if price is not None else 0.0
+    # Calculate realized P/L for the asset (accounting for broker filter)
+    realized_pnl = composite.get_asset_realized_pnl(ticker, brokers=brokers)
 
     print(f"Total Market Value: {format_currency(market_value) if price is not None else 'N/A'}")
     print(f"Total Cost Basis: {format_currency(cost_basis)}")
@@ -805,6 +811,7 @@ def cmd_show_asset(
         print(f"Total Unrealized P/L: {format_unrealized_pnl(unrealized_pnl)}")
     else:
         print("Total Unrealized P/L: N/A")
+    print(f"Realized P/L: {format_unrealized_pnl(realized_pnl)}")
 
 
 def format_breakdown_asset_type(breakdown: Dict[str, Dict]) -> None:

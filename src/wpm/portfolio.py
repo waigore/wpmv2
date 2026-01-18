@@ -322,15 +322,10 @@ class SimplePortfolio(Portfolio):
 
         return result
 
-    def get_total_realized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
+    def get_total_realized_pnl(self) -> float:
         """Calculate total realized profit/loss for the portfolio.
 
         Derives from lots' realized P/L.
-
-        Args:
-            prices: Dictionary mapping Asset to current price (None if unavailable).
-                Note: Realized P/L doesn't actually depend on current prices, but included
-                for consistency with other P/L methods.
 
         Returns:
             Total realized profit/loss in USD
@@ -348,6 +343,28 @@ class SimplePortfolio(Portfolio):
                 total_realized_pnl += lot.get_realized_pnl()
 
         return total_realized_pnl
+
+    def get_asset_realized_pnl(
+        self,
+        ticker: str,
+        brokers: Optional[List[str]] = None,
+    ) -> float:
+        """Calculate realized profit/loss for a specific asset position.
+
+        Uses get_asset_lots() behind the scenes and sums realized P/L from all lots.
+
+        Args:
+            ticker: Asset ticker symbol
+            brokers: Optional list of broker names to filter by.
+
+        Returns:
+            Realized profit/loss in USD for the specified asset
+        """
+        # Get lots for the asset (with broker filtering if provided)
+        lots = self.get_asset_lots(ticker, brokers=brokers)
+
+        # Sum realized P/L from all lots
+        return sum(lot.get_realized_pnl() for lot in lots)
 
     def get_asset_allocation(
         self, asset: Asset, prices: Dict[Asset, Optional[float]]
@@ -880,24 +897,41 @@ class CompositePortfolio(Portfolio):
 
         return result
 
-    def get_total_realized_pnl(self, prices: Dict[Asset, Optional[float]]) -> float:
+    def get_total_realized_pnl(self) -> float:
         """Calculate total realized profit/loss aggregated from sub-portfolios.
 
         Derives from lots' realized P/L.
-
-        Args:
-            prices: Dictionary mapping Asset to current price (None if unavailable).
-                Note: Realized P/L doesn't actually depend on current prices, but included
-                for consistency with other P/L methods.
 
         Returns:
             Total realized profit/loss in USD
         """
         total = sum(
-            sub_portfolio.get_total_realized_pnl(prices)
+            sub_portfolio.get_total_realized_pnl()
             for sub_portfolio in self._sub_portfolios.values()
         )
         return total
+
+    def get_asset_realized_pnl(
+        self,
+        ticker: str,
+        brokers: Optional[List[str]] = None,
+    ) -> float:
+        """Calculate realized profit/loss for a specific asset position.
+
+        Aggregates realized P/L from all sub-portfolios.
+
+        Args:
+            ticker: Asset ticker symbol
+            brokers: Optional list of broker names to filter by.
+
+        Returns:
+            Realized profit/loss in USD for the specified asset
+        """
+        # Aggregate realized P/L from all sub-portfolios
+        return sum(
+            sub_portfolio.get_asset_realized_pnl(ticker, brokers)
+            for sub_portfolio in self._sub_portfolios.values()
+        )
 
     def get_asset_allocation(
         self, asset: Asset, prices: Dict[Asset, Optional[float]]

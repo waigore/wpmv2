@@ -67,7 +67,7 @@ Represents current holdings for a specific asset within a portfolio.
 
 ## Lot
 
-Represents a purchase record (lot) for an asset with FIFO sell matching. A lot tracks the original purchase and accounts for sell trades using FIFO method.
+Represents a purchase record (lot) for an asset with FIFO sell matching. A lot tracks the original purchase and accounts for sell trades using FIFO method. FIFO sell matching is broker-scoped: sell trades only match against buy lots from the same broker.
 
 **Fields:**
 - `purchase_date` (date, required): Date of the buy trade that created this lot

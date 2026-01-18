@@ -52,6 +52,7 @@
     * [get\_total\_unrealized\_pnl](#wpm.models.Portfolio.get_total_unrealized_pnl)
     * [get\_asset\_lots](#wpm.models.Portfolio.get_asset_lots)
     * [get\_total\_realized\_pnl](#wpm.models.Portfolio.get_total_realized_pnl)
+    * [get\_asset\_realized\_pnl](#wpm.models.Portfolio.get_asset_realized_pnl)
     * [clone](#wpm.models.Portfolio.clone)
     * [get\_asset\_positions\_by\_broker](#wpm.models.Portfolio.get_asset_positions_by_broker)
     * [get\_position](#wpm.models.Portfolio.get_position)
@@ -141,6 +142,7 @@
     * [get\_asset\_lots](#wpm.portfolio.SimplePortfolio.get_asset_lots)
     * [get\_asset\_positions\_by\_broker](#wpm.portfolio.SimplePortfolio.get_asset_positions_by_broker)
     * [get\_total\_realized\_pnl](#wpm.portfolio.SimplePortfolio.get_total_realized_pnl)
+    * [get\_asset\_realized\_pnl](#wpm.portfolio.SimplePortfolio.get_asset_realized_pnl)
     * [get\_asset\_allocation](#wpm.portfolio.SimplePortfolio.get_asset_allocation)
     * [get\_all\_allocations](#wpm.portfolio.SimplePortfolio.get_all_allocations)
     * [get\_all\_trades](#wpm.portfolio.SimplePortfolio.get_all_trades)
@@ -160,6 +162,7 @@
     * [get\_asset\_lots](#wpm.portfolio.CompositePortfolio.get_asset_lots)
     * [get\_asset\_positions\_by\_broker](#wpm.portfolio.CompositePortfolio.get_asset_positions_by_broker)
     * [get\_total\_realized\_pnl](#wpm.portfolio.CompositePortfolio.get_total_realized_pnl)
+    * [get\_asset\_realized\_pnl](#wpm.portfolio.CompositePortfolio.get_asset_realized_pnl)
     * [get\_asset\_allocation](#wpm.portfolio.CompositePortfolio.get_asset_allocation)
     * [get\_all\_allocations](#wpm.portfolio.CompositePortfolio.get_all_allocations)
     * [get\_all\_trades](#wpm.portfolio.CompositePortfolio.get_all_trades)
@@ -966,23 +969,39 @@ Get all lots for a specified asset (ticker) within the portfolio.
 
 ```python
 @abstractmethod
-def get_total_realized_pnl(prices: Dict[Asset, Optional[float]]) -> float
+def get_total_realized_pnl() -> float
 ```
 
 Calculate total realized profit/loss for the portfolio.
 
 Derives from lots' realized P/L.
 
+**Returns**:
+
+  Total realized profit/loss in USD
+
+<a id="wpm.models.Portfolio.get_asset_realized_pnl"></a>
+
+#### get\_asset\_realized\_pnl
+
+```python
+@abstractmethod
+def get_asset_realized_pnl(ticker: str,
+                           brokers: Optional[List[str]] = None) -> float
+```
+
+Calculate realized profit/loss for a specific asset position.
+
 **Arguments**:
 
-- `prices` - Dictionary mapping Asset to current price (None if unavailable).
-- `Note` - Realized P/L doesn't actually depend on current prices, but included
-  for consistency with other P/L methods.
+- `ticker` - Asset ticker symbol
+- `brokers` - Optional list of broker names to filter by.
+  If not specified, includes lots from all brokers.
   
 
 **Returns**:
 
-  Total realized profit/loss in USD
+  Realized profit/loss in USD for the specified asset
 
 <a id="wpm.models.Portfolio.clone"></a>
 
@@ -1309,6 +1328,9 @@ def calculate_lots_from_trades(trades: List[Trade]) -> Dict[Asset, List[Lot]]
 Calculate lots from trades using FIFO method.
 
 Uses LRU caching to avoid recalculating lots for the same set of trades.
+
+Sell trades must match against buy lots from the same broker. If a sell trade
+cannot find a matching buy lot from the same broker, a ValidationError is raised.
 
 **Arguments**:
 
@@ -2449,23 +2471,39 @@ This encapsulates broker grouping and position calculation logic.
 #### get\_total\_realized\_pnl
 
 ```python
-def get_total_realized_pnl(prices: Dict[Asset, Optional[float]]) -> float
+def get_total_realized_pnl() -> float
 ```
 
 Calculate total realized profit/loss for the portfolio.
 
 Derives from lots' realized P/L.
 
+**Returns**:
+
+  Total realized profit/loss in USD
+
+<a id="wpm.portfolio.SimplePortfolio.get_asset_realized_pnl"></a>
+
+#### get\_asset\_realized\_pnl
+
+```python
+def get_asset_realized_pnl(ticker: str,
+                           brokers: Optional[List[str]] = None) -> float
+```
+
+Calculate realized profit/loss for a specific asset position.
+
+Uses get_asset_lots() behind the scenes and sums realized P/L from all lots.
+
 **Arguments**:
 
-- `prices` - Dictionary mapping Asset to current price (None if unavailable).
-- `Note` - Realized P/L doesn't actually depend on current prices, but included
-  for consistency with other P/L methods.
+- `ticker` - Asset ticker symbol
+- `brokers` - Optional list of broker names to filter by.
   
 
 **Returns**:
 
-  Total realized profit/loss in USD
+  Realized profit/loss in USD for the specified asset
 
 <a id="wpm.portfolio.SimplePortfolio.get_asset_allocation"></a>
 
@@ -2829,23 +2867,39 @@ This encapsulates broker grouping and position calculation logic.
 #### get\_total\_realized\_pnl
 
 ```python
-def get_total_realized_pnl(prices: Dict[Asset, Optional[float]]) -> float
+def get_total_realized_pnl() -> float
 ```
 
 Calculate total realized profit/loss aggregated from sub-portfolios.
 
 Derives from lots' realized P/L.
 
+**Returns**:
+
+  Total realized profit/loss in USD
+
+<a id="wpm.portfolio.CompositePortfolio.get_asset_realized_pnl"></a>
+
+#### get\_asset\_realized\_pnl
+
+```python
+def get_asset_realized_pnl(ticker: str,
+                           brokers: Optional[List[str]] = None) -> float
+```
+
+Calculate realized profit/loss for a specific asset position.
+
+Aggregates realized P/L from all sub-portfolios.
+
 **Arguments**:
 
-- `prices` - Dictionary mapping Asset to current price (None if unavailable).
-- `Note` - Realized P/L doesn't actually depend on current prices, but included
-  for consistency with other P/L methods.
+- `ticker` - Asset ticker symbol
+- `brokers` - Optional list of broker names to filter by.
   
 
 **Returns**:
 
-  Total realized profit/loss in USD
+  Realized profit/loss in USD for the specified asset
 
 <a id="wpm.portfolio.CompositePortfolio.get_asset_allocation"></a>
 

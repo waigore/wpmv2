@@ -164,7 +164,8 @@
 - `calculate_lots_from_trades(trades)`: Calculate lots from trades using FIFO
   - Processes trades chronologically
   - Creates lots from buy trades
-  - Matches sell trades to lots using FIFO (earliest lots first)
+  - Matches sell trades to lots using FIFO (earliest lots first) with broker matching: sells only match against buys from the same broker
+  - Sell trades must match against buy lots from the same broker. If a sell trade cannot find a matching buy lot from the same broker, a ValidationError is raised.
   - Returns dictionary mapping Asset to list of Lot objects
   - Uses LRU caching (manual cache with OrderedDict, max size 128)
   - Cache key: hashable tuple of trade identifiers (date, asset, action, quantity, price)
