@@ -174,6 +174,54 @@ def get_price(retriever: PriceRetriever, ticker: str, asset_type: str) -> float:
 - Use optional methods with default implementations in base classes rather than checking for attribute existence.
 - Document any legitimate uses of `hasattr` with comments explaining why it's necessary.
 
+### 5. Segregate Cache Files Between Production and Testing Environments
+
+**Principle:** Cache files must be segregated between production and testing environments. Tests should never write to or read from production cache files.
+
+**Rationale:**
+- Tests should be isolated from production data to prevent contamination and ensure reproducible test results.
+- Production cache files should not be modified by test runs, which could affect real-world usage.
+- Test isolation ensures that tests can run safely in parallel or in CI/CD environments without affecting user data.
+- Prevents test failures due to stale or corrupted production cache data.
+- Allows tests to have predictable, controlled cache states for testing different scenarios.
+
+**Enforcement:**
+- Global test configuration must automatically redirect all cache operations to a test-specific directory.
+- All cache classes (PriceCache, CurrencyCache, HistoricalPriceCache, AssetMetadataCache) must use test cache paths when running in test environment.
+- Tests should not need to explicitly configure cache paths - this should be handled automatically by test infrastructure.
+- Production cache directory (`~/.wpm/`) must never be accessed during test execution.
+
+**Implementation:**
+- Use pytest session-scoped autouse fixtures to override `Config` class variables for all cache file paths.
+- Test cache directory should be a temporary directory that is cleaned up after test execution.
+- Cache classes should respect the overridden `Config` values, ensuring they use test cache paths when `cache_file` parameter is not explicitly provided.
+
+**Examples:**
+
+**Bad (test using production cache):**
+```python
+def test_get_price():
+    service = PriceService()  # Uses Config.CACHE_FILE (~/.wpm/price_cache.parquet)
+    price = service.get_price("GOOG", "Stock")  # Writes to production cache!
+```
+
+**Better (automatic test cache isolation):**
+```python
+# conftest.py provides automatic cache isolation
+def test_get_price():
+    service = PriceService()  # Automatically uses test cache directory
+    price = service.get_price("GOOG", "Stock")  # Writes to test cache only
+```
+
+**Better (explicit test cache for specific test needs):**
+```python
+def test_specific_cache_scenario():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cache_file = Path(temp_dir) / "custom_cache.parquet"
+        service = PriceService(cache_file=cache_file)  # Explicit override still works
+        # Test with specific cache state
+```
+
 ## Integration with Specifications
 
 All module specifications should reference this document and explicitly state how the module adheres to these principles:
@@ -195,6 +243,7 @@ When reviewing code, verify:
 - [ ] Dependencies are explicit and visible
 - [ ] `hasattr` is avoided unless absolutely necessary (with documented justification)
 - [ ] Interfaces are defined using abstract base classes, protocols, or explicit type checking
+- [ ] Tests use test-specific cache directories and never access production cache files
 
 ## References
 
