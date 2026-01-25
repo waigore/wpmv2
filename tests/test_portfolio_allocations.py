@@ -585,3 +585,621 @@ class TestHistoricalAllocations:
         position_value, allocation = result[0][asset1]
         assert position_value == 1500.0
         assert allocation == Decimal('100.00')
+
+
+class TestGetAllAllocationsFiltering:
+    """Tests for get_all_allocations filtering functionality."""
+
+    def test_get_all_allocations_backward_compatible(self):
+        """Test that get_all_allocations works without filters (backward compatible)."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 220.0}
+        allocations = portfolio.get_all_allocations(prices)
+
+        # Should work exactly as before - all assets included
+        assert len(allocations) == 2
+        assert asset1 in allocations
+        assert asset2 in allocations
+        total = sum(allocations.values())
+        assert total == Decimal('100.00')
+
+    def test_get_all_allocations_filter_by_asset_types(self):
+        """Test filtering by asset types only."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="BTC-USD", asset_type="Crypto")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=50000.0,
+                price_native=50000.0,
+                quantity=0.1,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 55000.0}
+        allocations = portfolio.get_all_allocations(prices, asset_types=["Stock"])
+
+        # Only Stock assets should be included
+        assert len(allocations) == 1
+        assert asset1 in allocations
+        assert asset2 not in allocations
+        # Allocation should sum to 100% of filtered assets
+        assert allocations[asset1] == Decimal('100.00')
+
+    def test_get_all_allocations_filter_by_tickers(self):
+        """Test filtering by tickers only."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 220.0}
+        allocations = portfolio.get_all_allocations(prices, asset_tickers=["GOOG"])
+
+        # Only GOOG should be included
+        assert len(allocations) == 1
+        assert asset1 in allocations
+        assert asset2 not in allocations
+        assert allocations[asset1] == Decimal('100.00')
+
+    def test_get_all_allocations_filter_by_both_or(self):
+        """Test filtering by both asset_types and tickers with OR logic."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        asset3 = Asset(ticker="BTC-USD", asset_type="Crypto")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 17),
+                asset=asset3,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=50000.0,
+                price_native=50000.0,
+                quantity=0.1,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 220.0, asset3: 55000.0}
+        # Filter: Crypto OR GOOG (should include asset3 and asset1, but not asset2)
+        allocations = portfolio.get_all_allocations(
+            prices, asset_types=["Crypto"], asset_tickers=["GOOG"]
+        )
+
+        # Should include Crypto (asset3) OR GOOG (asset1) - OR logic
+        assert len(allocations) == 2
+        assert asset1 in allocations  # Matches ticker
+        assert asset2 not in allocations  # Doesn't match either
+        assert asset3 in allocations  # Matches asset_type
+        # Allocations should sum to 100% of filtered assets
+        total = sum(allocations.values())
+        assert total == Decimal('100.00')
+
+    def test_get_all_allocations_filter_empty_result(self):
+        """Test filtering when all assets are filtered out."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        prices = {asset1: 160.0}
+        allocations = portfolio.get_all_allocations(prices, asset_types=["Crypto"])
+
+        # No Crypto assets, so should return empty dict
+        assert allocations == {}
+
+    def test_get_all_allocations_filter_asset_type_normalization(self):
+        """Test that asset type normalization works in filters."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        prices = {asset1: 160.0}
+        # Use lowercase "stock" - should be normalized
+        allocations = portfolio.get_all_allocations(prices, asset_types=["stock"])
+
+        assert len(allocations) == 1
+        assert asset1 in allocations
+
+
+class TestPositionsWithAllocationsFiltering:
+    """Tests for get_positions_with_allocations filtering functionality."""
+
+    def test_get_positions_with_allocations_filter_by_asset_types(self):
+        """Test filtering by asset types only."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="BTC-USD", asset_type="Crypto")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=50000.0,
+                price_native=50000.0,
+                quantity=0.1,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 55000.0}
+        result = get_positions_with_allocations(portfolio, prices, asset_types=["Stock"])
+
+        assert len(result) == 1
+        assert asset1 in result
+        assert asset2 not in result
+        position, allocation = result[asset1]
+        assert position.quantity == Decimal('10.0')
+        assert allocation == Decimal('100.00')  # Only one asset, so 100%
+
+    def test_get_positions_with_allocations_filter_by_tickers(self):
+        """Test filtering by tickers only."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 220.0}
+        result = get_positions_with_allocations(portfolio, prices, asset_tickers=["GOOG"])
+
+        assert len(result) == 1
+        assert asset1 in result
+        assert asset2 not in result
+        assert result[asset1][1] == Decimal('100.00')
+
+    def test_get_positions_with_allocations_filter_by_both_or(self):
+        """Test filtering by both asset_types and tickers with OR logic."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        asset3 = Asset(ticker="BTC-USD", asset_type="Crypto")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 17),
+                asset=asset3,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=50000.0,
+                price_native=50000.0,
+                quantity=0.1,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 220.0, asset3: 55000.0}
+        # Filter: Crypto OR GOOG
+        result = get_positions_with_allocations(
+            portfolio, prices, asset_types=["Crypto"], asset_tickers=["GOOG"]
+        )
+
+        # Should include Crypto (asset3) OR GOOG (asset1)
+        assert len(result) == 2
+        assert asset1 in result
+        assert asset2 not in result
+        assert asset3 in result
+        # Allocations should sum to 100% of filtered assets
+        total_allocation = sum(allocation for _, allocation in result.values())
+        assert total_allocation == Decimal('100.00')
+
+    def test_get_positions_with_allocations_filter_none(self):
+        """Test that no filters works as before (backward compatible)."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 16),
+                asset=asset2,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=200.0,
+                price_native=200.0,
+                quantity=5.0,
+            )
+        )
+
+        prices = {asset1: 160.0, asset2: 220.0}
+        result = get_positions_with_allocations(portfolio, prices)
+
+        # Should work exactly as before
+        assert len(result) == 2
+        assert asset1 in result
+        assert asset2 in result
+
+
+class TestHistoricalPositionsWithAllocationsFiltering:
+    """Tests for get_historical_positions_with_allocations filtering functionality."""
+
+    @patch('wpm.portfolio.get_historical_performance')
+    def test_get_historical_positions_with_allocations_filter_by_asset_types(
+        self, mock_get_perf
+    ):
+        """Test filtering by asset types."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="BTC-USD", asset_type="Crypto")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        from wpm.models import PortfolioHistoryPoint
+
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 16)
+
+        history_points = [
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 15),
+                total_market_value=1500.0,
+                asset_positions={"GOOG": 1500.0, "BTC-USD": 5000.0},
+                prices={"GOOG": 150.0, "BTC-USD": 50000.0},
+                quantities={"GOOG": 10.0, "BTC-USD": 0.1},
+            ),
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 16),
+                total_market_value=1600.0,
+                asset_positions={"GOOG": 1600.0, "BTC-USD": 5500.0},
+                prices={"GOOG": 160.0, "BTC-USD": 55000.0},
+                quantities={"GOOG": 10.0, "BTC-USD": 0.1},
+            ),
+        ]
+        mock_get_perf.return_value = history_points
+
+        price_service = MagicMock()
+        result = get_historical_positions_with_allocations(
+            portfolio, price_service, start_date, end_date, asset_types=["Stock"]
+        )
+
+        assert len(result) == 2
+        # Only Stock assets should be included
+        assert asset1 in result[0]
+        assert asset2 not in result[0]
+        # Allocations should sum to 100% of filtered assets for each date
+        for day_result in result:
+            total_allocation = sum(allocation for _, allocation in day_result.values())
+            assert total_allocation == Decimal('100.00')
+
+    @patch('wpm.portfolio.get_historical_performance')
+    def test_get_historical_positions_with_allocations_filter_by_tickers(
+        self, mock_get_perf
+    ):
+        """Test filtering by tickers."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+
+        from wpm.models import PortfolioHistoryPoint
+
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 16)
+
+        history_points = [
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 15),
+                total_market_value=1500.0,
+                asset_positions={"GOOG": 1500.0, "AAPL": 1000.0},
+                prices={"GOOG": 150.0, "AAPL": 200.0},
+                quantities={"GOOG": 10.0, "AAPL": 5.0},
+            ),
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 16),
+                total_market_value=2700.0,
+                asset_positions={"GOOG": 1600.0, "AAPL": 1100.0},
+                prices={"GOOG": 160.0, "AAPL": 220.0},
+                quantities={"GOOG": 10.0, "AAPL": 5.0},
+            ),
+        ]
+        mock_get_perf.return_value = history_points
+
+        price_service = MagicMock()
+        result = get_historical_positions_with_allocations(
+            portfolio, price_service, start_date, end_date, asset_tickers=["GOOG"]
+        )
+
+        assert len(result) == 2
+        # Only GOOG should be included
+        assert asset1 in result[0]
+        assert asset2 not in result[0]
+        # Allocations should sum to 100% for each date
+        for day_result in result:
+            total_allocation = sum(allocation for _, allocation in day_result.values())
+            assert total_allocation == Decimal('100.00')
+
+    @patch('wpm.portfolio.get_historical_performance')
+    def test_get_historical_positions_with_allocations_filter_by_both_or(
+        self, mock_get_perf
+    ):
+        """Test filtering by both asset_types and tickers with OR logic."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset1 = Asset(ticker="GOOG", asset_type="Stock")
+        asset2 = Asset(ticker="AAPL", asset_type="Stock")
+        asset3 = Asset(ticker="BTC-USD", asset_type="Crypto")
+
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset1,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+            )
+        )
+        # Add BTC-USD trade so it's in portfolio assets (even if sold later)
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset3,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=50000.0,
+                price_native=50000.0,
+                quantity=0.1,
+            )
+        )
+
+        from wpm.models import PortfolioHistoryPoint
+
+        start_date = date(2024, 1, 15)
+        end_date = date(2024, 1, 16)
+
+        history_points = [
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 15),
+                total_market_value=1500.0,
+                asset_positions={"GOOG": 1500.0, "AAPL": 1000.0, "BTC-USD": 5000.0},
+                prices={"GOOG": 150.0, "AAPL": 200.0, "BTC-USD": 50000.0},
+                quantities={"GOOG": 10.0, "AAPL": 5.0, "BTC-USD": 0.1},
+            ),
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 16),
+                total_market_value=2700.0,
+                asset_positions={"GOOG": 1600.0, "AAPL": 1100.0, "BTC-USD": 5500.0},
+                prices={"GOOG": 160.0, "AAPL": 220.0, "BTC-USD": 55000.0},
+                quantities={"GOOG": 10.0, "AAPL": 5.0, "BTC-USD": 0.1},
+            ),
+        ]
+        mock_get_perf.return_value = history_points
+
+        price_service = MagicMock()
+        # Filter: Crypto OR GOOG
+        result = get_historical_positions_with_allocations(
+            portfolio,
+            price_service,
+            start_date,
+            end_date,
+            asset_types=["Crypto"],
+            asset_tickers=["GOOG"],
+        )
+
+        assert len(result) == 2
+        # Should include Crypto (asset3) OR GOOG (asset1), but not AAPL (asset2)
+        assert asset1 in result[0]  # Matches ticker
+        assert asset2 not in result[0]  # Doesn't match either
+        assert asset3 in result[0]  # Matches asset_type
+        # Allocations should sum to 100% of filtered assets for each date
+        for day_result in result:
+            total_allocation = sum(allocation for _, allocation in day_result.values())
+            assert total_allocation == Decimal('100.00')

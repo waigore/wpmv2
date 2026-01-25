@@ -179,7 +179,11 @@ The library provides methods to calculate percentage allocations of asset positi
 
 - **`get_asset_allocation(asset, prices)`**: Returns the percentage allocation for a specific asset position. Calculated as (asset market value / total portfolio market value) * 100. Returns a Decimal rounded to 2 decimal places.
 
-- **`get_all_allocations(prices)`**: Returns percentage allocations for all asset positions in the portfolio. Returns a dictionary mapping Asset to Decimal percentage. All allocations should sum to 100.00% (within rounding tolerance).
+- **`get_all_allocations(prices, asset_types=None, asset_tickers=None)`**: Returns percentage allocations for all asset positions in the portfolio. Returns a dictionary mapping Asset to Decimal percentage. All allocations should sum to 100.00% (within rounding tolerance).
+  - Optional `asset_types` parameter (list of strings): Filter by asset types (e.g., ["Stock", "ETF", "Crypto"]). If provided, only assets matching these types are included.
+  - Optional `asset_tickers` parameter (list of strings): Filter by ticker symbols (e.g., ["GOOG", "AAPL"]). If provided, only assets with these tickers are included.
+  - Filter logic: OR logic - an asset is included if it matches any specified asset type OR any specified ticker. If both parameters are None, all assets are included (backward compatible).
+  - When filters are provided, allocations are calculated against the filtered asset list only (sum to 100% of filtered assets, not the entire portfolio).
 
 ### Historical Allocation Methods
 
@@ -187,9 +191,17 @@ The library provides methods to calculate percentage allocations of asset positi
 
 ### Utility Functions
 
-- **`get_positions_with_allocations(portfolio, prices)`**: Combines positions and allocations in a single dictionary. Returns `Dict[Asset, Tuple[Position, Decimal]]` mapping each asset to its position and allocation percentage.
+- **`get_positions_with_allocations(portfolio, prices, asset_types=None, asset_tickers=None)`**: Combines positions and allocations in a single dictionary. Returns `Dict[Asset, Tuple[Position, Decimal]]` mapping each asset to its position and allocation percentage.
+  - Optional `asset_types` parameter (list of strings): Filter by asset types using OR logic.
+  - Optional `asset_tickers` parameter (list of strings): Filter by ticker symbols using OR logic.
+  - Filter logic: OR logic - an asset is included if it matches any specified asset type OR any specified ticker. If both parameters are None, all assets are included (backward compatible).
+  - Allocations are calculated against the filtered asset list only (sum to 100% of filtered assets).
 
-- **`get_historical_positions_with_allocations(portfolio, price_service, start_date, end_date)`**: Combines historical positions and allocations. Returns a list of dictionaries, one per date, mapping Asset to tuple of (position_value, allocation_percentage).
+- **`get_historical_positions_with_allocations(portfolio, price_service, start_date, end_date, asset_types=None, asset_tickers=None)`**: Combines historical positions and allocations. Returns a list of dictionaries, one per date, mapping Asset to tuple of (position_value, allocation_percentage).
+  - Optional `asset_types` parameter (list of strings): Filter by asset types using OR logic.
+  - Optional `asset_tickers` parameter (list of strings): Filter by ticker symbols using OR logic.
+  - Filter logic: OR logic - an asset is included if it matches any specified asset type OR any specified ticker. If both parameters are None, all assets are included (backward compatible).
+  - Allocations are calculated against the filtered asset list only (sum to 100% of filtered assets) for each date in the range.
 
 ### Implementation Details
 

@@ -2536,7 +2536,9 @@ Uses Decimal for precision and rounds to 2 decimal places.
 
 ```python
 def get_all_allocations(
-        prices: Dict[Asset, Optional[float]]) -> Dict[Asset, Decimal]
+        prices: Dict[Asset, Optional[float]],
+        asset_types: Optional[List[str]] = None,
+        asset_tickers: Optional[List[str]] = None) -> Dict[Asset, Decimal]
 ```
 
 Get percentage allocations for all asset positions in the portfolio.
@@ -2544,14 +2546,87 @@ Get percentage allocations for all asset positions in the portfolio.
 The percentage for each asset is calculated as (asset market value / total portfolio market value) * 100.
 Uses Decimal for precision and rounds to 2 decimal places. All allocations should sum to 100.00.
 
+When filters are provided, allocations are calculated against the filtered asset list only
+(sum to 100% of filtered assets, not the entire portfolio).
+
+**Filter Logic**:
+
+The filtering uses OR logic between `asset_types` and `asset_tickers`. An asset is included
+if it matches any specified asset type OR any specified ticker. The behavior depends on which
+parameters are provided:
+
+1. **Both parameters are None** (default):
+- All assets in the portfolio are included
+- Allocations sum to 100% of the entire portfolio
+- This is the backward compatible behavior
+
+2. **Only `asset_types` is provided** (e.g., `asset_types=["Stock", "ETF"]`):
+- Only assets whose `asset_type` matches one of the specified types are included
+- Example: If portfolio has GOOG (Stock), BTC-USD (Crypto), and VOO (ETF), and
+`asset_types=["Stock", "ETF"]`:
+- Included: GOOG (Stock), VOO (ETF)
+- Excluded: BTC-USD (Crypto)
+- Allocations sum to 100% of the filtered assets only
+
+3. **Only `asset_tickers` is provided** (e.g., `asset_tickers=["GOOG", "AAPL"]`):
+- Only assets whose ticker matches one of the specified tickers are included
+- Example: If portfolio has GOOG, AAPL, MSFT, and `asset_tickers=["GOOG", "AAPL"]`:
+- Included: GOOG, AAPL
+- Excluded: MSFT
+- Allocations sum to 100% of the filtered assets only
+
+4. **Both parameters are provided** (e.g., `asset_types=["Crypto"]`, `asset_tickers=["GOOG"]`):
+- OR logic: An asset is included if it matches any specified asset type OR any specified ticker
+- Example: If portfolio has GOOG (Stock), AAPL (Stock), BTC-USD (Crypto), and filters are
+`asset_types=["Crypto"]`, `asset_tickers=["GOOG"]`:
+- Included: GOOG (matches ticker), BTC-USD (matches asset_type)
+- Excluded: AAPL (matches neither)
+- Allocations sum to 100% of the filtered assets only
+
+**Important Notes**:
+
+- Asset types are normalized using `validate_asset_type` for consistency
+(e.g., "stock" → "Stock", "crypto" → "Crypto")
+- When filters are provided, allocations are calculated against the filtered asset list only,
+not the entire portfolio
+- This means if you filter to only Crypto assets, their allocations will sum to 100% of
+the Crypto portion, not 100% of the entire portfolio
+- Empty filter results return an empty dictionary
+
+**Examples**:
+
+.. code-block:: python
+
+# Get allocations for all assets (no filtering)
+allocations = portfolio.get_all_allocations(prices)
+
+# Get allocations for only Stock and ETF assets
+allocations = portfolio.get_all_allocations(prices, asset_types=["Stock", "ETF"])
+
+# Get allocations for specific tickers
+allocations = portfolio.get_all_allocations(prices, asset_tickers=["GOOG", "AAPL"])
+
+# Get allocations for Crypto assets OR specific tickers (OR logic)
+allocations = portfolio.get_all_allocations(
+prices,
+asset_types=["Crypto"],
+asset_tickers=["GOOG", "VOO"]
+)
+# This includes: all Crypto assets + GOOG + VOO (even if GOOG/VOO are not Crypto)
+
 **Arguments**:
 
 - `prices` - Dictionary mapping Asset to current price (None if unavailable)
+- `asset_types` - Optional list of asset types to filter by (e.g., ["Stock", "ETF", "Crypto"]).
+  Uses OR logic - asset is included if it matches any specified type.
+- `asset_tickers` - Optional list of ticker symbols to filter by (e.g., ["GOOG", "AAPL"]).
+  Uses OR logic - asset is included if it matches any specified ticker.
   
 
 **Returns**:
 
   Dictionary mapping Asset to Decimal percentage allocation (2 decimal places)
+  When filters are provided, only includes filtered assets and allocations sum to 100% of filtered assets.
 
 <a id="wpm.portfolio.SimplePortfolio.get_all_trades"></a>
 
@@ -2933,7 +3008,9 @@ For composite portfolios, aggregates positions across all sub-portfolios.
 
 ```python
 def get_all_allocations(
-        prices: Dict[Asset, Optional[float]]) -> Dict[Asset, Decimal]
+        prices: Dict[Asset, Optional[float]],
+        asset_types: Optional[List[str]] = None,
+        asset_tickers: Optional[List[str]] = None) -> Dict[Asset, Decimal]
 ```
 
 Get percentage allocations for all asset positions in the portfolio.
@@ -2942,14 +3019,88 @@ The percentage for each asset is calculated as (asset market value / total portf
 Uses Decimal for precision and rounds to 2 decimal places. All allocations should sum to 100.00.
 For composite portfolios, aggregates positions across all sub-portfolios.
 
+When filters are provided, allocations are calculated against the filtered asset list only
+(sum to 100% of filtered assets, not the entire portfolio).
+
+**Filter Logic**:
+
+The filtering uses OR logic between `asset_types` and `asset_tickers`. An asset is included
+if it matches any specified asset type OR any specified ticker. The behavior depends on which
+parameters are provided:
+
+1. **Both parameters are None** (default):
+- All assets in the portfolio are included
+- Allocations sum to 100% of the entire portfolio
+- This is the backward compatible behavior
+
+2. **Only `asset_types` is provided** (e.g., `asset_types=["Stock", "ETF"]`):
+- Only assets whose `asset_type` matches one of the specified types are included
+- Example: If portfolio has GOOG (Stock), BTC-USD (Crypto), and VOO (ETF), and
+`asset_types=["Stock", "ETF"]`:
+- Included: GOOG (Stock), VOO (ETF)
+- Excluded: BTC-USD (Crypto)
+- Allocations sum to 100% of the filtered assets only
+
+3. **Only `asset_tickers` is provided** (e.g., `asset_tickers=["GOOG", "AAPL"]`):
+- Only assets whose ticker matches one of the specified tickers are included
+- Example: If portfolio has GOOG, AAPL, MSFT, and `asset_tickers=["GOOG", "AAPL"]`:
+- Included: GOOG, AAPL
+- Excluded: MSFT
+- Allocations sum to 100% of the filtered assets only
+
+4. **Both parameters are provided** (e.g., `asset_types=["Crypto"]`, `asset_tickers=["GOOG"]`):
+- OR logic: An asset is included if it matches any specified asset type OR any specified ticker
+- Example: If portfolio has GOOG (Stock), AAPL (Stock), BTC-USD (Crypto), and filters are
+`asset_types=["Crypto"]`, `asset_tickers=["GOOG"]`:
+- Included: GOOG (matches ticker), BTC-USD (matches asset_type)
+- Excluded: AAPL (matches neither)
+- Allocations sum to 100% of the filtered assets only
+
+**Important Notes**:
+
+- Asset types are normalized using `validate_asset_type` for consistency
+(e.g., "stock" → "Stock", "crypto" → "Crypto")
+- When filters are provided, allocations are calculated against the filtered asset list only,
+not the entire portfolio
+- This means if you filter to only Crypto assets, their allocations will sum to 100% of
+the Crypto portion, not 100% of the entire portfolio
+- Empty filter results return an empty dictionary
+- For composite portfolios, filtering is applied after aggregating positions across all sub-portfolios
+
+**Examples**:
+
+.. code-block:: python
+
+# Get allocations for all assets (no filtering)
+allocations = composite.get_all_allocations(prices)
+
+# Get allocations for only Stock and ETF assets
+allocations = composite.get_all_allocations(prices, asset_types=["Stock", "ETF"])
+
+# Get allocations for specific tickers
+allocations = composite.get_all_allocations(prices, asset_tickers=["GOOG", "AAPL"])
+
+# Get allocations for Crypto assets OR specific tickers (OR logic)
+allocations = composite.get_all_allocations(
+prices,
+asset_types=["Crypto"],
+asset_tickers=["GOOG", "VOO"]
+)
+# This includes: all Crypto assets + GOOG + VOO (even if GOOG/VOO are not Crypto)
+
 **Arguments**:
 
 - `prices` - Dictionary mapping Asset to current price (None if unavailable)
+- `asset_types` - Optional list of asset types to filter by (e.g., ["Stock", "ETF", "Crypto"]).
+  Uses OR logic - asset is included if it matches any specified type.
+- `asset_tickers` - Optional list of ticker symbols to filter by (e.g., ["GOOG", "AAPL"]).
+  Uses OR logic - asset is included if it matches any specified ticker.
   
 
 **Returns**:
 
   Dictionary mapping Asset to Decimal percentage allocation (2 decimal places)
+  When filters are provided, only includes filtered assets and allocations sum to 100% of filtered assets.
 
 <a id="wpm.portfolio.CompositePortfolio.get_all_trades"></a>
 
@@ -3227,25 +3378,87 @@ for efficiency.
 ```python
 def get_positions_with_allocations(
     portfolio: Portfolio,
-    prices: Dict[Asset,
-                 Optional[float]]) -> Dict[Asset, Tuple[Position, Decimal]]
+    prices: Dict[Asset, Optional[float]],
+    asset_types: Optional[List[str]] = None,
+    asset_tickers: Optional[List[str]] = None
+) -> Dict[Asset, Tuple[Position, Decimal]]
 ```
 
 Get positions and their percentage allocations combined in a single dictionary.
 
 This utility function combines results from `get_positions()` and `get_all_allocations()`
-for convenience.
+for convenience. When filters are provided, only filtered assets are included and allocations
+are calculated against the filtered asset list only (sum to 100% of filtered assets).
+
+**Filter Logic**:
+
+The filtering uses OR logic between `asset_types` and `asset_tickers`. An asset is included
+if it matches any specified asset type OR any specified ticker. The behavior depends on which
+parameters are provided:
+
+1. **Both parameters are None** (default):
+- All assets in the portfolio are included
+- Allocations sum to 100% of the entire portfolio
+- This is the backward compatible behavior
+
+2. **Only `asset_types` is provided** (e.g., `asset_types=["Stock", "ETF"]`):
+- Only assets whose `asset_type` matches one of the specified types are included
+- Allocations sum to 100% of the filtered assets only
+
+3. **Only `asset_tickers` is provided** (e.g., `asset_tickers=["GOOG", "AAPL"]`):
+- Only assets whose ticker matches one of the specified tickers are included
+- Allocations sum to 100% of the filtered assets only
+
+4. **Both parameters are provided** (e.g., `asset_types=["Crypto"]`, `asset_tickers=["GOOG"]`):
+- OR logic: An asset is included if it matches any specified asset type OR any specified ticker
+- Example: If portfolio has GOOG (Stock), AAPL (Stock), BTC-USD (Crypto), and filters are
+`asset_types=["Crypto"]`, `asset_tickers=["GOOG"]`:
+- Included: GOOG (matches ticker), BTC-USD (matches asset_type)
+- Excluded: AAPL (matches neither)
+- Allocations sum to 100% of the filtered assets only
+
+**Important Notes**:
+
+- Asset types are normalized using `validate_asset_type` for consistency
+- When filters are provided, allocations are calculated against the filtered asset list only,
+not the entire portfolio
+- Empty filter results return an empty dictionary
+
+**Examples**:
+
+.. code-block:: python
+
+# Get positions and allocations for all assets (no filtering)
+result = get_positions_with_allocations(portfolio, prices)
+
+# Get positions and allocations for only Stock and ETF assets
+result = get_positions_with_allocations(portfolio, prices, asset_types=["Stock", "ETF"])
+
+# Get positions and allocations for specific tickers
+result = get_positions_with_allocations(portfolio, prices, asset_tickers=["GOOG", "AAPL"])
+
+# Get positions and allocations for Crypto assets OR specific tickers (OR logic)
+result = get_positions_with_allocations(
+portfolio,
+prices,
+asset_types=["Crypto"],
+asset_tickers=["GOOG", "VOO"]
+)
 
 **Arguments**:
 
 - `portfolio` - Portfolio to analyze (SimplePortfolio or CompositePortfolio)
 - `prices` - Dictionary mapping Asset to current price (None if unavailable)
+- `asset_types` - Optional list of asset types to filter by (e.g., ["Stock", "ETF", "Crypto"]).
+  Uses OR logic - asset is included if it matches any specified type.
+- `asset_tickers` - Optional list of ticker symbols to filter by (e.g., ["GOOG", "AAPL"]).
+  Uses OR logic - asset is included if it matches any specified ticker.
   
 
 **Returns**:
 
   Dictionary mapping Asset to tuple of (Position, allocation_percentage)
-  Only includes assets that have both a position and an allocation
+  Only includes assets that have both a position and an allocation (and match filters if provided)
 
 <a id="wpm.portfolio.get_historical_positions_with_allocations"></a>
 
@@ -3253,8 +3466,13 @@ for convenience.
 
 ```python
 def get_historical_positions_with_allocations(
-        portfolio: Portfolio, price_service: "PriceService", start_date: date,
-        end_date: date) -> List[Dict[Asset, Tuple[float, Decimal]]]
+    portfolio: Portfolio,
+    price_service: "PriceService",
+    start_date: date,
+    end_date: date,
+    asset_types: Optional[List[str]] = None,
+    asset_tickers: Optional[List[str]] = None
+) -> List[Dict[Asset, Tuple[float, Decimal]]]
 ```
 
 Get historical positions and their percentage allocations combined.
@@ -3263,19 +3481,92 @@ This utility function combines results from `get_historical_performance()` and
 `get_historical_allocations()` for convenience. Returns position values (floats)
 and allocation percentages (Decimals) for each date in the range.
 
+When filters are provided, only filtered assets are included for each date and allocations
+are calculated against the filtered asset list only (sum to 100% of filtered assets for each date).
+
+**Filter Logic**:
+
+The filtering uses OR logic between `asset_types` and `asset_tickers`. An asset is included
+if it matches any specified asset type OR any specified ticker. The behavior depends on which
+parameters are provided:
+
+1. **Both parameters are None** (default):
+- All assets in the portfolio are included for each date
+- Allocations sum to 100% of the entire portfolio for each date
+- This is the backward compatible behavior
+
+2. **Only `asset_types` is provided** (e.g., `asset_types=["Stock", "ETF"]`):
+- Only assets whose `asset_type` matches one of the specified types are included
+- Filter is applied consistently across all dates in the range
+- Allocations sum to 100% of the filtered assets only for each date
+
+3. **Only `asset_tickers` is provided** (e.g., `asset_tickers=["GOOG", "AAPL"]`):
+- Only assets whose ticker matches one of the specified tickers are included
+- Filter is applied consistently across all dates in the range
+- Allocations sum to 100% of the filtered assets only for each date
+
+4. **Both parameters are provided** (e.g., `asset_types=["Crypto"]`, `asset_tickers=["GOOG"]`):
+- OR logic: An asset is included if it matches any specified asset type OR any specified ticker
+- Example: If portfolio has GOOG (Stock), AAPL (Stock), BTC-USD (Crypto), and filters are
+`asset_types=["Crypto"]`, `asset_tickers=["GOOG"]`:
+- Included: GOOG (matches ticker), BTC-USD (matches asset_type)
+- Excluded: AAPL (matches neither)
+- Filter is applied consistently across all dates in the range
+- Allocations sum to 100% of the filtered assets only for each date
+
+**Important Notes**:
+
+- Asset types are normalized using `validate_asset_type` for consistency
+- When filters are provided, allocations are calculated against the filtered asset list only,
+not the entire portfolio
+- Filter is applied consistently across all dates in the range
+- Empty filter results return an empty list of dictionaries
+
+**Examples**:
+
+.. code-block:: python
+
+# Get historical positions and allocations for all assets (no filtering)
+result = get_historical_positions_with_allocations(
+portfolio, price_service, start_date, end_date
+)
+
+# Get historical positions and allocations for only Stock and ETF assets
+result = get_historical_positions_with_allocations(
+portfolio, price_service, start_date, end_date,
+asset_types=["Stock", "ETF"]
+)
+
+# Get historical positions and allocations for specific tickers
+result = get_historical_positions_with_allocations(
+portfolio, price_service, start_date, end_date,
+asset_tickers=["GOOG", "AAPL"]
+)
+
+# Get historical positions and allocations for Crypto assets OR specific tickers (OR logic)
+result = get_historical_positions_with_allocations(
+portfolio, price_service, start_date, end_date,
+asset_types=["Crypto"],
+asset_tickers=["GOOG", "VOO"]
+)
+
 **Arguments**:
 
 - `portfolio` - Portfolio to analyze (SimplePortfolio or CompositePortfolio)
 - `price_service` - Price service for retrieving historical prices
 - `start_date` - Start date for tracking (inclusive)
 - `end_date` - End date for tracking (inclusive)
+- `asset_types` - Optional list of asset types to filter by (e.g., ["Stock", "ETF", "Crypto"]).
+  Uses OR logic - asset is included if it matches any specified type.
+- `asset_tickers` - Optional list of ticker symbols to filter by (e.g., ["GOOG", "AAPL"]).
+  Uses OR logic - asset is included if it matches any specified ticker.
   
 
 **Returns**:
 
   List of dictionaries, one per date, mapping Asset to tuple of
   (position_value, allocation_percentage)
-  Only includes assets that appear in both position values and allocations
+  Only includes assets that appear in both position values and allocations (and match filters if provided)
   
 
 **Raises**:
