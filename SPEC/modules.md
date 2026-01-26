@@ -689,7 +689,7 @@
 - Reference portfolio instances
 - Strategy implementations
 
-## wpm/cli.py
+## wpm/cli/ (Package)
 
 **Responsibilities:**
 - Provide command-line interface for portfolio management
@@ -697,18 +697,31 @@
 - Interactive command loop for portfolio analysis
 - Display portfolio information and metrics
 
+**Package Structure:**
+- `wpm/cli/__init__.py`: Package initialization and backward compatibility exports
+- `wpm/cli/main.py`: Main entry point and orchestration
+- `wpm/cli/args.py`: Command-line argument parsing
+- `wpm/cli/logging_config.py`: CLI-specific logging configuration
+- `wpm/cli/formatters.py`: Output formatting functions
+- `wpm/cli/interactive.py`: Interactive command loop
+- `wpm/cli/commands/`: Command handlers subpackage
+  - `wpm/cli/commands/portfolio.py`: Portfolio-related commands
+  - `wpm/cli/commands/asset.py`: Asset-related commands
+  - `wpm/cli/commands/breakdown.py`: Breakdown command
+  - `wpm/cli/commands/help.py`: Help command
+
 **Key Functions:**
-- `main()`: Main entry point for wpm CLI
-  - After importing CSV files and fetching prices, automatically creates a SPY buy-and-hold reference portfolio for baseline comparison
+- `main()` (in `wpm/cli/main.py`): Main entry point for wpm CLI
+  - After importing CSV files and fetching prices, automatically creates SPY and BTC-USD buy-and-hold reference portfolios for baseline comparison
   - If reference portfolio creation fails, logs a warning and continues without it
-- `run_interactive_mode(composite, price_service, reference_portfolio=None)`: Run interactive command loop
-  - `reference_portfolio` (Optional[Portfolio]): Optional reference portfolio for baseline comparison
-- `cmd_show_all(composite, price_service, up_to_date=None, reference_portfolio=None)`: Handle 'show all' command
+- `run_interactive_mode()` (in `wpm/cli/interactive.py`): Run interactive command loop
+  - `reference_portfolios` (Optional[Dict[str, Portfolio]]): Optional reference portfolios for baseline comparison
+- `cmd_show_all()` (in `wpm/cli/commands/portfolio.py`): Handle 'show all' command
   - `up_to_date` (Optional[date]): If provided and portfolio is historical, shows portfolio state up to this date with weekly performance summary
-  - `reference_portfolio` (Optional[Portfolio]): Optional reference portfolio for baseline comparison. When `up_to_date` is provided, displays reference portfolio P/L after weekly summary
-- `cmd_show_portfolio(composite, name, price_service, up_to_date=None)`: Handle 'show portfolio <name>' command
+  - `reference_portfolios` (Optional[Dict[str, Portfolio]]): Optional reference portfolios for baseline comparison. When `up_to_date` is provided, displays reference portfolio P/L after weekly summary
+- `cmd_show_portfolio()` (in `wpm/cli/commands/portfolio.py`): Handle 'show portfolio <name>' command
   - `up_to_date` (Optional[date]): If provided and portfolio is historical, shows portfolio state up to this date with weekly performance summary
-- `cmd_show_asset(composite, ticker, price_service, from_date=None)`: Handle 'show asset <ticker>' command
+- `cmd_show_asset()` (in `wpm/cli/commands/asset.py`): Handle 'show asset <ticker>' command
   - `ticker` (str, required): Asset ticker symbol to show
   - `price_service` (PriceService, required): Price service for retrieving prices
   - `from_date` (Optional[date]): Optional start date for historical portfolios. If provided and portfolio is historical, shows historical positions from this date onwards

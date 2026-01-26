@@ -6,8 +6,19 @@ The `wpm` command-line utility serves as an orchestrator for the WPM library. It
 
 ## File Location
 
-- `src/wpm/cli.py` - Main command-line utility module (located in package source)
-- Console script entry point: `wpm` (configured via `pyproject.toml`)
+- `src/wpm/cli/` - Command-line utility package (located in package source)
+  - `src/wpm/cli/__init__.py` - Package initialization and backward compatibility exports
+  - `src/wpm/cli/main.py` - Main entry point and orchestration
+  - `src/wpm/cli/args.py` - Argument parsing
+  - `src/wpm/cli/logging_config.py` - CLI-specific logging configuration
+  - `src/wpm/cli/formatters.py` - Output formatting functions
+  - `src/wpm/cli/interactive.py` - Interactive command loop
+  - `src/wpm/cli/commands/` - Command handlers subpackage
+    - `src/wpm/cli/commands/portfolio.py` - Portfolio-related commands
+    - `src/wpm/cli/commands/asset.py` - Asset-related commands
+    - `src/wpm/cli/commands/breakdown.py` - Breakdown command
+    - `src/wpm/cli/commands/help.py` - Help command
+- Console script entry point: `wpm` (configured via `pyproject.toml`, points to `wpm.cli:main`)
 
 ## Command Line Interface
 
@@ -489,11 +500,17 @@ Currently, the `help` command is mentioned in error messages but is not implemen
    - Position aggregation: Handled by `CompositePortfolio.get_positions()`
 
 3. **Module Responsibilities**:
-   - `wpm.cli` (formerly `wpmrun.py`): CLI parsing, user interaction, output formatting, orchestration
+   - `wpm.cli`: CLI package providing command-line interface
+     - `wpm.cli.main`: Main entry point and orchestration
+     - `wpm.cli.args`: Command-line argument parsing
+     - `wpm.cli.logging_config`: CLI-specific logging setup
+     - `wpm.cli.formatters`: Output formatting functions
+     - `wpm.cli.interactive`: Interactive command loop
+     - `wpm.cli.commands`: Command handlers (portfolio, asset, breakdown, help)
    - `wpm.importer`: CSV parsing and trade import
    - `wpm.portfolio`: Portfolio management and position aggregation
    - `wpm.pricing`: Price retrieval and caching
-   - `wpm.metrics`: Breakdown calculations
+   - `wpm.metrics`: Breakdown calculations and percentage return calculations
    - `wpm.models`: Data models (Asset, Trade, Position, Portfolio)
 
 ### Import Process Flow

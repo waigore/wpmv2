@@ -8,6 +8,9 @@
   * [breakdown\_by\_purchase\_period](#wpm.metrics.breakdown_by_purchase_period)
   * [breakdown\_by\_broker](#wpm.metrics.breakdown_by_broker)
   * [calculate\_market\_value](#wpm.metrics.calculate_market_value)
+  * [calculate\_unrealized\_pnl\_percentage](#wpm.metrics.calculate_unrealized_pnl_percentage)
+  * [calculate\_realized\_pnl\_percentage](#wpm.metrics.calculate_realized_pnl_percentage)
+  * [format\_weekly\_performance\_summary](#wpm.metrics.format_weekly_performance_summary)
 * [wpm.config](#wpm.config)
   * [Config](#wpm.config.Config)
     * [CURRENCY\_CACHE\_VALIDITY\_MINUTES](#wpm.config.Config.CURRENCY_CACHE_VALIDITY_MINUTES)
@@ -78,36 +81,45 @@
 * [wpm.cost\_basis](#wpm.cost_basis)
   * [calculate\_lots\_from\_trades](#wpm.cost_basis.calculate_lots_from_trades)
   * [calculate\_fifo\_cost\_basis](#wpm.cost_basis.calculate_fifo_cost_basis)
+* [wpm.cli.logging\_config](#wpm.cli.logging_config)
+  * [setup\_cli\_logging](#wpm.cli.logging_config.setup_cli_logging)
+* [wpm.cli.formatters](#wpm.cli.formatters)
+  * [format\_currency](#wpm.cli.formatters.format_currency)
+  * [format\_unrealized\_pnl](#wpm.cli.formatters.format_unrealized_pnl)
+  * [format\_quantity](#wpm.cli.formatters.format_quantity)
+  * [format\_position\_line](#wpm.cli.formatters.format_position_line)
+  * [format\_historical\_asset\_line](#wpm.cli.formatters.format_historical_asset_line)
+  * [format\_lot\_line](#wpm.cli.formatters.format_lot_line)
+  * [format\_market\_cap](#wpm.cli.formatters.format_market_cap)
+  * [format\_breakdown\_asset\_type](#wpm.cli.formatters.format_breakdown_asset_type)
+  * [format\_breakdown\_ticker](#wpm.cli.formatters.format_breakdown_ticker)
+  * [format\_breakdown\_purchase\_period](#wpm.cli.formatters.format_breakdown_purchase_period)
+  * [format\_breakdown\_broker](#wpm.cli.formatters.format_breakdown_broker)
 * [wpm.cli](#wpm.cli)
-  * [setup\_cli\_logging](#wpm.cli.setup_cli_logging)
-  * [parse\_args](#wpm.cli.parse_args)
-  * [fetch\_prices\_for\_portfolio](#wpm.cli.fetch_prices_for_portfolio)
-  * [format\_currency](#wpm.cli.format_currency)
-  * [format\_unrealized\_pnl](#wpm.cli.format_unrealized_pnl)
-  * [format\_quantity](#wpm.cli.format_quantity)
-  * [parse\_up\_to\_date](#wpm.cli.parse_up_to_date)
-  * [parse\_from\_date](#wpm.cli.parse_from_date)
-  * [parse\_brokers](#wpm.cli.parse_brokers)
-  * [format\_position\_line](#wpm.cli.format_position_line)
-  * [format\_historical\_asset\_line](#wpm.cli.format_historical_asset_line)
-  * [cmd\_list\_portfolios](#wpm.cli.cmd_list_portfolios)
-  * [cmd\_show\_portfolio](#wpm.cli.cmd_show_portfolio)
-  * [calculate\_unrealized\_pnl\_percentage](#wpm.cli.calculate_unrealized_pnl_percentage)
-  * [calculate\_realized\_pnl\_percentage](#wpm.cli.calculate_realized_pnl_percentage)
-  * [cmd\_show\_all](#wpm.cli.cmd_show_all)
-  * [cmd\_show\_asset](#wpm.cli.cmd_show_asset)
-  * [format\_breakdown\_asset\_type](#wpm.cli.format_breakdown_asset_type)
-  * [format\_breakdown\_ticker](#wpm.cli.format_breakdown_ticker)
-  * [format\_breakdown\_purchase\_period](#wpm.cli.format_breakdown_purchase_period)
-  * [format\_breakdown\_broker](#wpm.cli.format_breakdown_broker)
-  * [cmd\_breakdown](#wpm.cli.cmd_breakdown)
-  * [format\_lot\_line](#wpm.cli.format_lot_line)
-  * [cmd\_show\_lots](#wpm.cli.cmd_show_lots)
-  * [format\_market\_cap](#wpm.cli.format_market_cap)
-  * [cmd\_help](#wpm.cli.cmd_help)
-  * [cmd\_metadata](#wpm.cli.cmd_metadata)
-  * [run\_interactive\_mode](#wpm.cli.run_interactive_mode)
-  * [main](#wpm.cli.main)
+* [wpm.cli.interactive](#wpm.cli.interactive)
+  * [run\_interactive\_mode](#wpm.cli.interactive.run_interactive_mode)
+* [wpm.cli.args](#wpm.cli.args)
+  * [parse\_args](#wpm.cli.args.parse_args)
+  * [parse\_up\_to\_date](#wpm.cli.args.parse_up_to_date)
+  * [parse\_from\_date](#wpm.cli.args.parse_from_date)
+  * [parse\_brokers](#wpm.cli.args.parse_brokers)
+* [wpm.cli.commands.breakdown](#wpm.cli.commands.breakdown)
+  * [cmd\_breakdown](#wpm.cli.commands.breakdown.cmd_breakdown)
+* [wpm.cli.commands.asset](#wpm.cli.commands.asset)
+  * [cmd\_show\_asset](#wpm.cli.commands.asset.cmd_show_asset)
+  * [cmd\_metadata](#wpm.cli.commands.asset.cmd_metadata)
+  * [cmd\_show\_lots](#wpm.cli.commands.asset.cmd_show_lots)
+* [wpm.cli.commands](#wpm.cli.commands)
+* [wpm.cli.commands.help](#wpm.cli.commands.help)
+  * [cmd\_help](#wpm.cli.commands.help.cmd_help)
+* [wpm.cli.commands.portfolio](#wpm.cli.commands.portfolio)
+  * [fetch\_prices\_for\_portfolio](#wpm.cli.commands.portfolio.fetch_prices_for_portfolio)
+  * [cmd\_list\_portfolios](#wpm.cli.commands.portfolio.cmd_list_portfolios)
+  * [cmd\_show\_portfolio](#wpm.cli.commands.portfolio.cmd_show_portfolio)
+  * [cmd\_show\_all](#wpm.cli.commands.portfolio.cmd_show_all)
+* [wpm.cli.main](#wpm.cli.main)
+  * [main](#wpm.cli.main.main)
+* [wpm.cli.\_\_main\_\_](#wpm.cli.__main__)
 * [wpm.cache\_utils](#wpm.cache_utils)
   * [LRUCache](#wpm.cache_utils.LRUCache)
     * [\_\_init\_\_](#wpm.cache_utils.LRUCache.__init__)
@@ -386,6 +398,77 @@ Calculate current market value of portfolio.
 **Returns**:
 
   Total market value in USD
+
+<a id="wpm.metrics.calculate_unrealized_pnl_percentage"></a>
+
+#### calculate\_unrealized\_pnl\_percentage
+
+```python
+def calculate_unrealized_pnl_percentage(
+        portfolio: Portfolio,
+        price_map: Dict[Asset, Optional[float]],
+        target_date: Optional[date] = None) -> Optional[float]
+```
+
+Calculate unrealized P/L percentage return.
+
+Formula: (unrealized_pnl / cost_basis_of_remaining_lots) * 100
+
+Uses _calculate_percentage_return_from_lots which calculates percentage return
+from lots (unrealized P/L / cost basis).
+
+**Arguments**:
+
+- `portfolio` - Portfolio to calculate percentage for
+- `price_map` - Dictionary mapping Asset to current/historical price (None if unavailable)
+- `target_date` - Optional date to filter trades up to (for historical calculations)
+  
+
+**Returns**:
+
+  Percentage return as float, or None if cost basis is 0 or prices unavailable
+
+<a id="wpm.metrics.calculate_realized_pnl_percentage"></a>
+
+#### calculate\_realized\_pnl\_percentage
+
+```python
+def calculate_realized_pnl_percentage(
+        portfolio: Portfolio,
+        target_date: Optional[date] = None) -> Optional[float]
+```
+
+Calculate realized P/L percentage return.
+
+Formula: (realized_pnl / cost_basis_of_sold_lots) * 100
+
+**Arguments**:
+
+- `portfolio` - Portfolio to calculate percentage for
+- `target_date` - Optional date to filter trades up to (for historical calculations)
+  
+
+**Returns**:
+
+  Percentage return as float, or None if cost basis of sold lots is 0
+
+<a id="wpm.metrics.format_weekly_performance_summary"></a>
+
+#### format\_weekly\_performance\_summary
+
+```python
+def format_weekly_performance_summary(
+        history_points: List[PortfolioHistoryPoint]) -> None
+```
+
+Display weekly performance summary from history points.
+
+Groups history points by calendar week (Monday-Sunday) and displays
+weekly totals (date range and total_market_value).
+
+**Arguments**:
+
+- `history_points` - List of PortfolioHistoryPoint objects to summarize
 
 <a id="wpm.config"></a>
 
@@ -1390,16 +1473,13 @@ Now derives positions from lots internally for consistency.
 
   Dictionary mapping Asset to Position objects
 
-<a id="wpm.cli"></a>
+<a id="wpm.cli.logging_config"></a>
 
-# wpm.cli
+# wpm.cli.logging\_config
 
-Command-line utility for WPM (Wealth Portfolio Manager).
+CLI-specific logging configuration.
 
-This utility orchestrates CSV imports, creates composite portfolios,
-updates price caches, and provides an interactive command interface.
-
-<a id="wpm.cli.setup_cli_logging"></a>
+<a id="wpm.cli.logging_config.setup_cli_logging"></a>
 
 #### setup\_cli\_logging
 
@@ -1416,44 +1496,13 @@ a clean CLI interface while preserving logs for debugging.
 Library users are not affected and can still configure their own logging
 using wpm.utils.setup_logging().
 
-<a id="wpm.cli.parse_args"></a>
+<a id="wpm.cli.formatters"></a>
 
-#### parse\_args
+# wpm.cli.formatters
 
-```python
-def parse_args() -> argparse.Namespace
-```
+Formatting functions for CLI output.
 
-Parse and validate command-line arguments.
-
-**Returns**:
-
-  Parsed arguments namespace
-
-<a id="wpm.cli.fetch_prices_for_portfolio"></a>
-
-#### fetch\_prices\_for\_portfolio
-
-```python
-def fetch_prices_for_portfolio(portfolio: CompositePortfolio,
-                               price_service: PriceService) -> None
-```
-
-Fetch prices for all assets in portfolio via PriceService.
-
-For historical portfolios, uses historical prices.
-
-**Arguments**:
-
-- `portfolio` - Composite portfolio containing all assets
-- `price_service` - Price service for retrieving prices
-  
-
-**Raises**:
-
-- `SystemExit` - If price retrieval fails for any asset with no cache entry
-
-<a id="wpm.cli.format_currency"></a>
+<a id="wpm.cli.formatters.format_currency"></a>
 
 #### format\_currency
 
@@ -1472,7 +1521,7 @@ Format currency value with $ prefix and 2 decimal places.
 
   Formatted string (e.g., "$1,234.56")
 
-<a id="wpm.cli.format_unrealized_pnl"></a>
+<a id="wpm.cli.formatters.format_unrealized_pnl"></a>
 
 #### format\_unrealized\_pnl
 
@@ -1491,7 +1540,7 @@ Format unrealized P/L with + prefix for profit, - for loss.
 
   Formatted string with sign prefix (e.g., "+$1,234.56" or "-$1,234.56")
 
-<a id="wpm.cli.format_quantity"></a>
+<a id="wpm.cli.formatters.format_quantity"></a>
 
 #### format\_quantity
 
@@ -1513,64 +1562,7 @@ Handles Decimal and float values, rounding to 8 decimal places
 
   Formatted string (integer if whole number, decimal otherwise)
 
-<a id="wpm.cli.parse_up_to_date"></a>
-
-#### parse\_up\_to\_date
-
-```python
-def parse_up_to_date(args: List[str]) -> tuple[Optional[date], List[str]]
-```
-
-Parse --up-to date argument from command args.
-
-**Arguments**:
-
-- `args` - Command arguments list
-  
-
-**Returns**:
-
-  Tuple of (up_to_date or None, remaining args without --up-to flag and date)
-
-<a id="wpm.cli.parse_from_date"></a>
-
-#### parse\_from\_date
-
-```python
-def parse_from_date(args: List[str]) -> tuple[Optional[date], List[str]]
-```
-
-Parse --from date argument from command args.
-
-**Arguments**:
-
-- `args` - Command arguments list
-  
-
-**Returns**:
-
-  Tuple of (from_date or None, remaining args without --from flag and date)
-
-<a id="wpm.cli.parse_brokers"></a>
-
-#### parse\_brokers
-
-```python
-def parse_brokers(args: List[str]) -> tuple[Optional[List[str]], List[str]]
-```
-
-Parse --brokers argument from command args.
-
-**Arguments**:
-
-- `args` - Command arguments list
-  
-
-**Returns**:
-
-  Tuple of (brokers list or None, remaining args without --brokers flag and value)
-
-<a id="wpm.cli.format_position_line"></a>
+<a id="wpm.cli.formatters.format_position_line"></a>
 
 #### format\_position\_line
 
@@ -1597,7 +1589,7 @@ Format a position line for display.
 
   Formatted position line
 
-<a id="wpm.cli.format_historical_asset_line"></a>
+<a id="wpm.cli.formatters.format_historical_asset_line"></a>
 
 #### format\_historical\_asset\_line
 
@@ -1625,114 +1617,239 @@ Format a simplified line for historical asset positions.
 
   Formatted string: YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX% | Return: XX.XX%
 
-<a id="wpm.cli.cmd_list_portfolios"></a>
+<a id="wpm.cli.formatters.format_lot_line"></a>
 
-#### cmd\_list\_portfolios
+#### format\_lot\_line
 
 ```python
-def cmd_list_portfolios(composite: CompositePortfolio) -> None
+def format_lot_line(lot: Lot, current_price: Optional[float]) -> str
 ```
 
-Handle 'list portfolios' command.
+Format a lot line with matched sells for display.
 
 **Arguments**:
 
-- `composite` - Composite portfolio containing sub-portfolios
-
-<a id="wpm.cli.cmd_show_portfolio"></a>
-
-#### cmd\_show\_portfolio
-
-```python
-def cmd_show_portfolio(composite: CompositePortfolio,
-                       name: str,
-                       price_service: PriceService,
-                       up_to_date: Optional[date] = None) -> None
-```
-
-Handle 'show portfolio <name>' command.
-
-**Arguments**:
-
-- `composite` - Composite portfolio containing sub-portfolios
-- `name` - Name of sub-portfolio to show
-- `price_service` - Price service for retrieving current prices
-- `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
-
-<a id="wpm.cli.calculate_unrealized_pnl_percentage"></a>
-
-#### calculate\_unrealized\_pnl\_percentage
-
-```python
-def calculate_unrealized_pnl_percentage(
-        portfolio: Portfolio,
-        price_map: Dict[Asset, Optional[float]],
-        target_date: Optional[date] = None) -> Optional[float]
-```
-
-Calculate unrealized P/L percentage return.
-
-Formula: (unrealized_pnl / cost_basis_of_remaining_lots) * 100
-
-Uses _calculate_percentage_return_from_lots which calculates percentage return
-from lots (unrealized P/L / cost basis).
-
-**Arguments**:
-
-- `portfolio` - Portfolio to calculate percentage for
-- `price_map` - Dictionary mapping Asset to current/historical price (None if unavailable)
-- `target_date` - Optional date to filter trades up to (for historical calculations)
+- `lot` - Lot to format
+- `current_price` - Current price (None if unavailable)
   
 
 **Returns**:
 
-  Percentage return as float, or None if cost basis is 0 or prices unavailable
+  Multi-line formatted string (lot summary + matched sells if any)
 
-<a id="wpm.cli.calculate_realized_pnl_percentage"></a>
+<a id="wpm.cli.formatters.format_market_cap"></a>
 
-#### calculate\_realized\_pnl\_percentage
+#### format\_market\_cap
 
 ```python
-def calculate_realized_pnl_percentage(
-        portfolio: Portfolio,
-        target_date: Optional[date] = None) -> Optional[float]
+def format_market_cap(value: Optional[float]) -> str
 ```
 
-Calculate realized P/L percentage return.
-
-Formula: (realized_pnl / cost_basis_of_sold_lots) * 100
+Format market cap value for display.
 
 **Arguments**:
 
-- `portfolio` - Portfolio to calculate percentage for
-- `target_date` - Optional date to filter trades up to (for historical calculations)
+- `value` - Market cap value (can be None)
   
 
 **Returns**:
 
-  Percentage return as float, or None if cost basis of sold lots is 0
+  Formatted string (e.g., "$1.23B", "$1,234.56M", or "N/A")
 
-<a id="wpm.cli.cmd_show_all"></a>
+<a id="wpm.cli.formatters.format_breakdown_asset_type"></a>
 
-#### cmd\_show\_all
+#### format\_breakdown\_asset\_type
 
 ```python
-def cmd_show_all(composite: CompositePortfolio,
-                 price_service: PriceService,
-                 up_to_date: Optional[date] = None,
-                 reference_portfolios: Dict[str, Portfolio] = None) -> None
+def format_breakdown_asset_type(breakdown: Dict[str, Dict]) -> None
 ```
 
-Handle 'show all' command.
+Format breakdown by asset type for display.
+
+**Arguments**:
+
+- `breakdown` - Breakdown dictionary from breakdown_by_asset_type
+
+<a id="wpm.cli.formatters.format_breakdown_ticker"></a>
+
+#### format\_breakdown\_ticker
+
+```python
+def format_breakdown_ticker(breakdown: Dict[str, Position]) -> None
+```
+
+Format breakdown by ticker for display.
+
+**Arguments**:
+
+- `breakdown` - Breakdown dictionary from breakdown_by_ticker
+
+<a id="wpm.cli.formatters.format_breakdown_purchase_period"></a>
+
+#### format\_breakdown\_purchase\_period
+
+```python
+def format_breakdown_purchase_period(breakdown: Dict[str, Dict]) -> None
+```
+
+Format breakdown by purchase period for display.
+
+**Arguments**:
+
+- `breakdown` - Breakdown dictionary from breakdown_by_purchase_period
+
+<a id="wpm.cli.formatters.format_breakdown_broker"></a>
+
+#### format\_breakdown\_broker
+
+```python
+def format_breakdown_broker(breakdown: Dict[str, Dict]) -> None
+```
+
+Format breakdown by broker for display.
+
+**Arguments**:
+
+- `breakdown` - Breakdown dictionary from breakdown_by_broker
+
+<a id="wpm.cli"></a>
+
+# wpm.cli
+
+CLI module for WPM (Wealth Portfolio Manager).
+
+This package provides the command-line interface for WPM.
+
+<a id="wpm.cli.interactive"></a>
+
+# wpm.cli.interactive
+
+Interactive command loop for CLI.
+
+<a id="wpm.cli.interactive.run_interactive_mode"></a>
+
+#### run\_interactive\_mode
+
+```python
+def run_interactive_mode(
+        composite: CompositePortfolio,
+        price_service: PriceService,
+        reference_portfolios: Dict[str, Portfolio] = None) -> None
+```
+
+Run interactive command loop.
 
 **Arguments**:
 
 - `composite` - Composite portfolio
-- `price_service` - Price service for retrieving current prices
-- `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
+- `price_service` - Price service for retrieving prices
 - `reference_portfolios` - Dictionary mapping reference portfolio names to Portfolio objects
 
-<a id="wpm.cli.cmd_show_asset"></a>
+<a id="wpm.cli.args"></a>
+
+# wpm.cli.args
+
+Command-line argument parsing for CLI.
+
+<a id="wpm.cli.args.parse_args"></a>
+
+#### parse\_args
+
+```python
+def parse_args() -> argparse.Namespace
+```
+
+Parse and validate command-line arguments.
+
+**Returns**:
+
+  Parsed arguments namespace
+
+<a id="wpm.cli.args.parse_up_to_date"></a>
+
+#### parse\_up\_to\_date
+
+```python
+def parse_up_to_date(args: List[str]) -> tuple[Optional[date], List[str]]
+```
+
+Parse --up-to date argument from command args.
+
+**Arguments**:
+
+- `args` - Command arguments list
+  
+
+**Returns**:
+
+  Tuple of (up_to_date or None, remaining args without --up-to flag and date)
+
+<a id="wpm.cli.args.parse_from_date"></a>
+
+#### parse\_from\_date
+
+```python
+def parse_from_date(args: List[str]) -> tuple[Optional[date], List[str]]
+```
+
+Parse --from date argument from command args.
+
+**Arguments**:
+
+- `args` - Command arguments list
+  
+
+**Returns**:
+
+  Tuple of (from_date or None, remaining args without --from flag and date)
+
+<a id="wpm.cli.args.parse_brokers"></a>
+
+#### parse\_brokers
+
+```python
+def parse_brokers(args: List[str]) -> tuple[Optional[List[str]], List[str]]
+```
+
+Parse --brokers argument from command args.
+
+**Arguments**:
+
+- `args` - Command arguments list
+  
+
+**Returns**:
+
+  Tuple of (brokers list or None, remaining args without --brokers flag and value)
+
+<a id="wpm.cli.commands.breakdown"></a>
+
+# wpm.cli.commands.breakdown
+
+Breakdown command handler.
+
+<a id="wpm.cli.commands.breakdown.cmd_breakdown"></a>
+
+#### cmd\_breakdown
+
+```python
+def cmd_breakdown(composite: CompositePortfolio, args: List[str]) -> None
+```
+
+Handle 'breakdown [<name>] <by>' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio
+- `args` - Command arguments (optional portfolio name, required breakdown type)
+
+<a id="wpm.cli.commands.asset"></a>
+
+# wpm.cli.commands.asset
+
+Asset-related command handlers.
+
+<a id="wpm.cli.commands.asset.cmd_show_asset"></a>
 
 #### cmd\_show\_asset
 
@@ -1754,146 +1871,7 @@ Handle 'show asset <ticker>' command.
 - `from_date` - Optional start date for historical portfolios
 - `brokers` - Optional list of broker names to filter by
 
-<a id="wpm.cli.format_breakdown_asset_type"></a>
-
-#### format\_breakdown\_asset\_type
-
-```python
-def format_breakdown_asset_type(breakdown: Dict[str, Dict]) -> None
-```
-
-Format breakdown by asset type for display.
-
-**Arguments**:
-
-- `breakdown` - Breakdown dictionary from breakdown_by_asset_type
-
-<a id="wpm.cli.format_breakdown_ticker"></a>
-
-#### format\_breakdown\_ticker
-
-```python
-def format_breakdown_ticker(breakdown: Dict[str, Position]) -> None
-```
-
-Format breakdown by ticker for display.
-
-**Arguments**:
-
-- `breakdown` - Breakdown dictionary from breakdown_by_ticker
-
-<a id="wpm.cli.format_breakdown_purchase_period"></a>
-
-#### format\_breakdown\_purchase\_period
-
-```python
-def format_breakdown_purchase_period(breakdown: Dict[str, Dict]) -> None
-```
-
-Format breakdown by purchase period for display.
-
-**Arguments**:
-
-- `breakdown` - Breakdown dictionary from breakdown_by_purchase_period
-
-<a id="wpm.cli.format_breakdown_broker"></a>
-
-#### format\_breakdown\_broker
-
-```python
-def format_breakdown_broker(breakdown: Dict[str, Dict]) -> None
-```
-
-Format breakdown by broker for display.
-
-**Arguments**:
-
-- `breakdown` - Breakdown dictionary from breakdown_by_broker
-
-<a id="wpm.cli.cmd_breakdown"></a>
-
-#### cmd\_breakdown
-
-```python
-def cmd_breakdown(composite: CompositePortfolio, args: List[str]) -> None
-```
-
-Handle 'breakdown [<name>] <by>' command.
-
-**Arguments**:
-
-- `composite` - Composite portfolio
-- `args` - Command arguments (optional portfolio name, required breakdown type)
-
-<a id="wpm.cli.format_lot_line"></a>
-
-#### format\_lot\_line
-
-```python
-def format_lot_line(lot: Lot, current_price: Optional[float]) -> str
-```
-
-Format a lot line with matched sells for display.
-
-**Arguments**:
-
-- `lot` - Lot to format
-- `current_price` - Current price (None if unavailable)
-  
-
-**Returns**:
-
-  Multi-line formatted string (lot summary + matched sells if any)
-
-<a id="wpm.cli.cmd_show_lots"></a>
-
-#### cmd\_show\_lots
-
-```python
-def cmd_show_lots(composite: CompositePortfolio, ticker: str,
-                  price_service: PriceService) -> None
-```
-
-Handle 'lots <ticker>' command.
-
-**Arguments**:
-
-- `composite` - Composite portfolio containing all assets
-- `ticker` - Asset ticker symbol to show lots for
-- `price_service` - Price service for retrieving current prices
-
-<a id="wpm.cli.format_market_cap"></a>
-
-#### format\_market\_cap
-
-```python
-def format_market_cap(value: Optional[float]) -> str
-```
-
-Format market cap value for display.
-
-**Arguments**:
-
-- `value` - Market cap value (can be None)
-  
-
-**Returns**:
-
-  Formatted string (e.g., "$1.23B", "$1,234.56M", or "N/A")
-
-<a id="wpm.cli.cmd_help"></a>
-
-#### cmd\_help
-
-```python
-def cmd_help() -> None
-```
-
-Handle 'help' command.
-
-Displays a list of available commands and their usage.
-
-<a id="wpm.cli.cmd_metadata"></a>
+<a id="wpm.cli.commands.asset.cmd_metadata"></a>
 
 #### cmd\_metadata
 
@@ -1910,26 +1888,137 @@ Handle 'metadata <ticker>' command.
 - `ticker` - Asset ticker symbol to show metadata for
 - `asset_service` - Asset service for retrieving metadata
 
-<a id="wpm.cli.run_interactive_mode"></a>
+<a id="wpm.cli.commands.asset.cmd_show_lots"></a>
 
-#### run\_interactive\_mode
+#### cmd\_show\_lots
 
 ```python
-def run_interactive_mode(
-        composite: CompositePortfolio,
-        price_service: PriceService,
-        reference_portfolios: Dict[str, Portfolio] = None) -> None
+def cmd_show_lots(composite: CompositePortfolio, ticker: str,
+                  price_service: PriceService) -> None
 ```
 
-Run interactive command loop.
+Handle 'lots <ticker>' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio containing all assets
+- `ticker` - Asset ticker symbol to show lots for
+- `price_service` - Price service for retrieving current prices
+
+<a id="wpm.cli.commands"></a>
+
+# wpm.cli.commands
+
+CLI command handlers.
+
+<a id="wpm.cli.commands.help"></a>
+
+# wpm.cli.commands.help
+
+Help command handler.
+
+<a id="wpm.cli.commands.help.cmd_help"></a>
+
+#### cmd\_help
+
+```python
+def cmd_help() -> None
+```
+
+Handle 'help' command.
+
+Displays a list of available commands and their usage.
+
+<a id="wpm.cli.commands.portfolio"></a>
+
+# wpm.cli.commands.portfolio
+
+Portfolio-related command handlers.
+
+<a id="wpm.cli.commands.portfolio.fetch_prices_for_portfolio"></a>
+
+#### fetch\_prices\_for\_portfolio
+
+```python
+def fetch_prices_for_portfolio(portfolio: CompositePortfolio,
+                               price_service: PriceService) -> None
+```
+
+Fetch prices for all assets in portfolio via PriceService.
+
+For historical portfolios, uses historical prices.
+
+**Arguments**:
+
+- `portfolio` - Composite portfolio containing all assets
+- `price_service` - Price service for retrieving prices
+  
+
+**Raises**:
+
+- `SystemExit` - If price retrieval fails for any asset with no cache entry
+
+<a id="wpm.cli.commands.portfolio.cmd_list_portfolios"></a>
+
+#### cmd\_list\_portfolios
+
+```python
+def cmd_list_portfolios(composite: CompositePortfolio) -> None
+```
+
+Handle 'list portfolios' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio containing sub-portfolios
+
+<a id="wpm.cli.commands.portfolio.cmd_show_portfolio"></a>
+
+#### cmd\_show\_portfolio
+
+```python
+def cmd_show_portfolio(composite: CompositePortfolio,
+                       name: str,
+                       price_service: PriceService,
+                       up_to_date: Optional[date] = None) -> None
+```
+
+Handle 'show portfolio <name>' command.
+
+**Arguments**:
+
+- `composite` - Composite portfolio containing sub-portfolios
+- `name` - Name of sub-portfolio to show
+- `price_service` - Price service for retrieving current prices
+- `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
+
+<a id="wpm.cli.commands.portfolio.cmd_show_all"></a>
+
+#### cmd\_show\_all
+
+```python
+def cmd_show_all(composite: CompositePortfolio,
+                 price_service: PriceService,
+                 up_to_date: Optional[date] = None,
+                 reference_portfolios: Dict[str, Portfolio] = None) -> None
+```
+
+Handle 'show all' command.
 
 **Arguments**:
 
 - `composite` - Composite portfolio
-- `price_service` - Price service for retrieving prices
+- `price_service` - Price service for retrieving current prices
+- `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
 - `reference_portfolios` - Dictionary mapping reference portfolio names to Portfolio objects
 
 <a id="wpm.cli.main"></a>
+
+# wpm.cli.main
+
+Main entry point for WPM CLI.
+
+<a id="wpm.cli.main.main"></a>
 
 #### main
 
@@ -1938,6 +2027,12 @@ def main() -> None
 ```
 
 Main entry point for wpm CLI.
+
+<a id="wpm.cli.__main__"></a>
+
+# wpm.cli.\_\_main\_\_
+
+Entry point for running CLI as a module: python -m wpm.cli import
 
 <a id="wpm.cache_utils"></a>
 

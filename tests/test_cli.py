@@ -248,7 +248,7 @@ class TestCmdShowAsset:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+        with patch("wpm.cli.commands.asset.fetch_price_map") as mock_fetch_price_map:
             mock_fetch_price_map.return_value = {asset: 160.0}
 
             with patch("sys.stdout", new=StringIO()) as fake_out:
@@ -300,8 +300,8 @@ class TestCmdShowAsset:
             }
         }
 
-        with patch("wpm.cli.get_historical_performance") as mock_get_perf:
-            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+        with patch("wpm.cli.commands.asset.get_historical_performance") as mock_get_perf:
+            with patch("wpm.cli.commands.asset.get_historical_allocations") as mock_get_alloc:
                 # Mock history points for past 30 days
                 history_points = [
                     PortfolioHistoryPoint(
@@ -372,8 +372,8 @@ class TestCmdShowAsset:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.get_historical_performance") as mock_get_perf:
-            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+        with patch("wpm.cli.commands.asset.get_historical_performance") as mock_get_perf:
+            with patch("wpm.cli.commands.asset.get_historical_allocations") as mock_get_alloc:
                 from_date = date(2024, 1, 15)
                 history_points = [
                     PortfolioHistoryPoint(
@@ -420,8 +420,8 @@ class TestCmdShowAsset:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.get_historical_performance") as mock_get_perf:
-            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+        with patch("wpm.cli.commands.asset.get_historical_performance") as mock_get_perf:
+            with patch("wpm.cli.commands.asset.get_historical_allocations") as mock_get_alloc:
                 history_points = [
                     PortfolioHistoryPoint(
                         date=date(2024, 1, 15),
@@ -479,7 +479,7 @@ class TestCmdShowAsset:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+        with patch("wpm.cli.commands.asset.fetch_price_map") as mock_fetch_price_map:
             mock_fetch_price_map.return_value = {asset: 620.0}
 
             with patch("sys.stdout", new=StringIO()) as fake_out:
@@ -535,7 +535,7 @@ class TestCmdShowAsset:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+        with patch("wpm.cli.commands.asset.fetch_price_map") as mock_fetch_price_map:
             mock_fetch_price_map.return_value = {asset: 630.0}
 
             with patch("sys.stdout", new=StringIO()) as fake_out:
@@ -605,8 +605,8 @@ class TestCmdShowAsset:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.get_historical_performance") as mock_get_perf:
-            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+        with patch("wpm.cli.commands.asset.get_historical_performance") as mock_get_perf:
+            with patch("wpm.cli.commands.asset.get_historical_allocations") as mock_get_alloc:
                 # Mock history points filtered by broker
                 history_points = [
                     PortfolioHistoryPoint(
@@ -1059,7 +1059,7 @@ class TestCmdShowPortfolioWithAllocations:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+        with patch("wpm.cli.commands.portfolio.fetch_price_map") as mock_fetch_price_map:
             mock_fetch_price_map.return_value = {asset1: 160.0, asset2: 220.0}
 
             with patch("sys.stdout", new=StringIO()) as fake_out:
@@ -1094,7 +1094,7 @@ class TestCmdShowPortfolioWithAllocations:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+        with patch("wpm.cli.commands.portfolio.fetch_price_map") as mock_fetch_price_map:
             mock_fetch_price_map.return_value = {asset: None}
 
             with patch("sys.stdout", new=StringIO()) as fake_out:
@@ -1143,7 +1143,7 @@ class TestCmdShowAllWithAllocations:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+        with patch("wpm.cli.commands.portfolio.fetch_price_map") as mock_fetch_price_map:
             mock_fetch_price_map.return_value = {asset1: 160.0, asset2: 220.0}
 
             with patch("sys.stdout", new=StringIO()) as fake_out:
@@ -1180,7 +1180,7 @@ class TestCmdShowAssetWithAllocations:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+        with patch("wpm.cli.commands.asset.fetch_price_map") as mock_fetch_price_map:
             mock_fetch_price_map.return_value = {asset: 160.0}
 
             with patch("sys.stdout", new=StringIO()) as fake_out:
@@ -1210,8 +1210,8 @@ class TestCmdShowAssetWithAllocations:
 
         mock_price_service = Mock(spec=PriceService)
 
-        with patch("wpm.cli.get_historical_performance") as mock_get_perf:
-            with patch("wpm.cli.get_historical_allocations") as mock_get_alloc:
+        with patch("wpm.cli.commands.asset.get_historical_performance") as mock_get_perf:
+            with patch("wpm.cli.commands.asset.get_historical_allocations") as mock_get_alloc:
                 history_points = [
                     PortfolioHistoryPoint(
                         date=date(2024, 1, 30),
@@ -1665,7 +1665,7 @@ class TestReferencePortfolioInCLI:
         )
 
         # Mock fetch_price_map for reference portfolio
-        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+        with patch("wpm.cli.commands.asset.fetch_price_map") as mock_fetch_price_map:
             # First call for main portfolio (in get_historical_performance)
             # Subsequent calls for reference portfolios
             spy_ref_asset = Asset(ticker="SPY", asset_type="ETF")
@@ -1742,7 +1742,7 @@ class TestReferencePortfolioInCLI:
             name="SPY Reference Portfolio",
         )
 
-        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+        with patch("wpm.cli.commands.portfolio.fetch_price_map") as mock_fetch_price_map:
             def mock_fetch_price_map_side_effect(portfolio, price_service, target_date=None):
                 if portfolio == composite:
                     return {asset: 160.0}
@@ -1876,7 +1876,7 @@ class TestReferencePortfolioInCLI:
         
         reference_portfolios = {"SPY Reference Portfolio": reference_portfolio}
         
-        with patch("wpm.cli.fetch_price_map", side_effect=mock_fetch_price_map):
+        with patch("wpm.cli.commands.portfolio.fetch_price_map", side_effect=mock_fetch_price_map):
             with patch("sys.stdout", new=StringIO()) as fake_out:
                 # Should not crash, just skip reference portfolio display
                 cmd_show_all(
@@ -1953,7 +1953,7 @@ class TestTotalsSectionDisplay:
                 return {btc_asset: 46000.0}
             return {}
         
-        with patch("wpm.cli.fetch_price_map", side_effect=mock_fetch_price_map):
+        with patch("wpm.cli.commands.portfolio.fetch_price_map", side_effect=mock_fetch_price_map):
             with patch("sys.stdout", new=StringIO()) as fake_out:
                 _display_totals_section(
                     imported_portfolio=imported_portfolio,
@@ -1993,7 +1993,7 @@ class TestTotalsSectionDisplay:
         def mock_fetch_price_map(portfolio, price_service, target_date=None):
             return {asset: 160.0}
         
-        with patch("wpm.cli.fetch_price_map", side_effect=mock_fetch_price_map):
+        with patch("wpm.cli.commands.portfolio.fetch_price_map", side_effect=mock_fetch_price_map):
             with patch("sys.stdout", new=StringIO()) as fake_out:
                 _display_totals_section(
                     imported_portfolio=imported_portfolio,
@@ -2029,7 +2029,7 @@ class TestTotalsSectionDisplay:
         
         mock_fetch_price_map = Mock(return_value={asset: 160.0})
         
-        with patch("wpm.cli.fetch_price_map", mock_fetch_price_map):
+        with patch("wpm.cli.commands.portfolio.fetch_price_map", mock_fetch_price_map):
             with patch("sys.stdout", new=StringIO()) as fake_out:
                 _display_totals_section(
                     imported_portfolio=imported_portfolio,
