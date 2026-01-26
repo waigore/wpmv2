@@ -33,6 +33,7 @@ from wpm.models import (
 )
 from wpm.portfolio import (
     CompositePortfolio,
+    _calculate_percentage_return_from_lots,
     _position_from_lots,
     fetch_price_map,
     get_historical_allocations,
@@ -357,16 +358,18 @@ def _display_weekly_summary(history_points: List[PortfolioHistoryPoint]) -> None
         # Sort points within week by date
         week_points.sort(key=lambda p: p.date)
 
-        # Display week range and total market value
+        # Display week range and total market value with percentage return
         # Use the last day's value for the week (or average if preferred)
         # For simplicity, use the last day's value in the week
         last_point = week_points[-1]
         week_start_str = week_start.strftime("%Y-%m-%d")
         week_end_str = week_end.strftime("%Y-%m-%d")
 
+        # Format percentage return with 2 decimal places and + sign for positive returns
+        percentage_str = f"{last_point.percentage_return:+.2f}%"
         print(
             f"Week of {week_start_str} to {week_end_str}: "
-            f"{format_currency(last_point.total_market_value)}"
+            f"{format_currency(last_point.total_market_value)} ({percentage_str})"
         )
 
 
@@ -428,6 +431,7 @@ def format_historical_asset_line(
     ticker: str,
     asset_type: str,
     allocation: Optional[Decimal] = None,
+    percentage_return: Optional[float] = None,
 ) -> str:
     """Format a simplified line for historical asset positions.
 
@@ -436,9 +440,10 @@ def format_historical_asset_line(
         ticker: Asset ticker symbol
         asset_type: Asset type (e.g., "Stock", "ETF", "Crypto")
         allocation: Optional allocation percentage (Decimal, None if unavailable)
+        percentage_return: Optional percentage return for this asset (float, None if unavailable)
 
     Returns:
-        Formatted string: YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX%
+        Formatted string: YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX% | Return: XX.XX%
     """
     date_str = history_point.date.strftime("%Y-%m-%d")
     position_value = history_point.asset_positions.get(ticker, 0.0)
@@ -457,11 +462,16 @@ def format_historical_asset_line(
     if allocation is not None:
         allocation_str = f" | Allocation: {allocation:.2f}%"
 
+    # Format percentage return if available
+    return_str = ""
+    if percentage_return is not None:
+        return_str = f" | Return: {percentage_return:.2f}%"
+
     if price is not None:
         price_str = format_currency(price)
-        return f"{date_str}: {ticker} ({asset_type}): {quantity_str} = {position_value_str} @ {price_str}{allocation_str}"
+        return f"{date_str}: {ticker} ({asset_type}): {quantity_str} = {position_value_str} @ {price_str}{allocation_str}{return_str}"
 
-    return f"{date_str}: {ticker} ({asset_type}): {quantity_str} = {position_value_str} @ N/A{allocation_str}"
+    return f"{date_str}: {ticker} ({asset_type}): {quantity_str} = {position_value_str} @ N/A{allocation_str}{return_str}"
 
 
 def _format_broker_breakdown(broker_positions: Dict[str, Position]) -> None:
@@ -744,18 +754,41 @@ def cmd_show_asset(
         final_positions = composite.get_positions()
         ticker_to_asset: Dict[str, Asset] = {asset.ticker: asset for asset in final_positions.keys()}
 
+        # Get all trades once for lot calculation
+        all_trades = composite.get_all_trades()
+        if brokers is not None:
+            all_trades = [t for t in all_trades if t.broker in brokers]
+
         # Filter and display history points for this ticker
         for i, history_point in enumerate(history_points):
             position_value = history_point.asset_positions.get(ticker, 0.0)
             # Skip days where asset has no position
             if position_value > 0:
+                # Calculate asset-level percentage return for this date
+                filtered_trades = [t for t in all_trades if t.date <= history_point.date]
+                asset_price = history_point.prices.get(ticker)
+                prices_dict = {ticker: asset_price} if asset_price is not None else {}
+
+                # Calculate percentage return for this asset
+                asset_percentage_return = (
+                    _calculate_percentage_return_from_lots(
+                        filtered_trades, prices_dict, ticker_filter=ticker
+                    )
+                    if asset_price is not None
+                    else None
+                )
+
                 # Get allocation for this date if available
                 allocation = None
                 if i < len(allocations_list) and ticker in ticker_to_asset:
                     asset_obj = ticker_to_asset[ticker]
                     allocations = allocations_list[i]
                     allocation = allocations.get(asset_obj)
-                print(format_historical_asset_line(history_point, ticker, asset_type, allocation))
+                print(
+                    format_historical_asset_line(
+                        history_point, ticker, asset_type, allocation, asset_percentage_return
+                    )
+                )
         return
 
     # Handle current portfolios

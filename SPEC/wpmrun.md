@@ -96,12 +96,13 @@ See detailed description below in the Commands section.
 **Error Handling:**
 - If no portfolios exist, display: "No portfolios found."
 
-#### `show portfolio <name>`
+#### `show portfolio <name> [--up-to YYYY-MM-DD]`
 
 **Description:** Lists all assets in the specified sub-portfolio, including current market value.
 
 **Arguments:**
 - `<name>`: Name of the sub-portfolio (required)
+- `[--up-to YYYY-MM-DD]`: Optional date for historical portfolios. Shows weekly performance summary up to (and including) this date
 
 **Output Format:**
 - For each asset, display: `Ticker (Asset Type): Quantity @ Average Cost = Cost Basis | {Value Label} = Market Value @ Price | Allocation: XX.XX%`
@@ -149,10 +150,24 @@ See detailed description below in the Commands section.
 - If portfolio name not found, display: "Portfolio '<name>' not found."
 - If portfolio has no assets, display: "Portfolio '<name>' has no assets."
 - If price retrieval fails for an asset, display "N/A" for the value (price is not shown when value is N/A) and continue displaying other assets
+- If `--up-to` is used with non-historical portfolio: "Error: --up-to can only be used with historical portfolios."
+- If `--up-to` date is invalid or outside portfolio date range: Display appropriate error message
 
-#### `show all`
+**Weekly Performance Summary (when --up-to is specified):**
+- When `--up-to` is specified for historical portfolios, displays weekly performance summary instead of asset list
+- Uses `get_historical_performance()` to calculate history points from portfolio start_date to up_to_date
+- Groups history points by calendar week (Monday to Sunday)
+- Displays weekly totals: date range, total_market_value, and percentage return for each week
+- Format: `Week of YYYY-MM-DD to YYYY-MM-DD: $X,XXX.XX (X.XX%)`
+- Percentage return is calculated relative to the start_date's market value and shows the return from start_date to the end of each week
+- Shows portfolio's weekly overall performance progression with both absolute values and percentage returns
+
+#### `show all [--up-to YYYY-MM-DD]`
 
 **Description:** Lists all assets in the composite portfolio (aggregated across all sub-portfolios), including current market value.
+
+**Arguments:**
+- `[--up-to YYYY-MM-DD]`: Optional date for historical portfolios. Shows weekly performance summary up to (and including) this date
 
 **Output Format:**
 - Same format as `show portfolio`, but showing aggregated positions
@@ -187,6 +202,17 @@ See detailed description below in the Commands section.
 **Error Handling:**
 - If composite portfolio has no assets, display: "No assets found in composite portfolio."
 - If price retrieval fails for an asset type, logs a warning and displays "N/A" for the value (price is not shown when value is N/A) for all assets of that type, but continues processing other asset types
+- If `--up-to` is used with non-historical portfolio: "Error: --up-to can only be used with historical portfolios."
+- If `--up-to` date is invalid or outside portfolio date range: Display appropriate error message
+
+**Weekly Performance Summary (when --up-to is specified):**
+- When `--up-to` is specified for historical portfolios, displays weekly performance summary instead of asset list
+- Uses `get_historical_performance()` to calculate history points from portfolio start_date to up_to_date
+- Groups history points by calendar week (Monday to Sunday)
+- Displays weekly totals: date range, total_market_value, and percentage return for each week
+- Format: `Week of YYYY-MM-DD to YYYY-MM-DD: $X,XXX.XX (X.XX%)`
+- Percentage return is calculated relative to the start_date's market value and shows the return from start_date to the end of each week
+- Shows portfolio's weekly overall performance progression with both absolute values and percentage returns
 
 #### `show asset <ticker> [--from YYYY-MM-DD] [--brokers "broker1,broker2,..."]`
 
@@ -234,16 +260,21 @@ See detailed description below in the Commands section.
 - Without `--from`: Shows historical asset positions for the past 30 days (from portfolio.end_date backwards 30 days)
 - With `--from`: Shows historical asset positions from the specified date to portfolio.end_date
 - One line per day, showing the position on that date
-- Format: `YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX%`
+- Format: `YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX% | Return: XX.XX%`
 - Quantity is displayed from the history point (calculated in domain layer, not CLI)
 - Allocation percentage is calculated as: `(Asset Position Value / Total Portfolio Market Value) × 100` for each date
 - Allocation is rounded to 2 decimal places and displayed only when price is available
+- Percentage return is calculated using lot-based method: `(total_unrealized_pnl / total_cost_basis) × 100` for the asset on that date
+  - Unrealized P/L and cost basis are aggregated across all lots for the asset
+  - Only considers lots with remaining quantity (not fully sold)
+  - Returns 0.0 if total_cost_basis is 0
+  - Displayed only when price is available (None if price unavailable)
 - Only shows days where the asset has a position (position_value > 0)
 - Example:
   ```
-  2024-01-01: AAPL (Stock): 100.0 = $15,000.00 @ $150.00 | Allocation: 30.00%
-  2024-01-02: AAPL (Stock): 100.0 = $15,200.00 @ $152.00 | Allocation: 30.40%
-  2024-01-03: AAPL (Stock): 100.0 = $15,400.00 @ $154.00 | Allocation: 30.80%
+  2024-01-01: AAPL (Stock): 100.0 = $15,000.00 @ $150.00 | Allocation: 30.00% | Return: 0.00%
+  2024-01-02: AAPL (Stock): 100.0 = $15,200.00 @ $152.00 | Allocation: 30.40% | Return: 1.33%
+  2024-01-03: AAPL (Stock): 100.0 = $15,400.00 @ $154.00 | Allocation: 30.80% | Return: 2.67%
   ...
   ```
 - No summary section for historical portfolios (just daily position lines)

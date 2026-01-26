@@ -60,6 +60,7 @@
     * [asset\_positions](#wpm.models.PortfolioHistoryPoint.asset_positions)
     * [prices](#wpm.models.PortfolioHistoryPoint.prices)
     * [quantities](#wpm.models.PortfolioHistoryPoint.quantities)
+    * [percentage\_return](#wpm.models.PortfolioHistoryPoint.percentage_return)
     * [\_\_post\_init\_\_](#wpm.models.PortfolioHistoryPoint.__post_init__)
 * [wpm.asset](#wpm.asset)
   * [AssetMetadataCache](#wpm.asset.AssetMetadataCache)
@@ -1091,6 +1092,12 @@ Maps ticker to price on that date
 
 Maps ticker to quantity held on that date
 
+<a id="wpm.models.PortfolioHistoryPoint.percentage_return"></a>
+
+#### percentage\_return
+
+Percentage return from start_date to this date
+
 <a id="wpm.models.PortfolioHistoryPoint.__post_init__"></a>
 
 #### \_\_post\_init\_\_
@@ -1574,10 +1581,12 @@ Format a position line for display.
 #### format\_historical\_asset\_line
 
 ```python
-def format_historical_asset_line(history_point: PortfolioHistoryPoint,
-                                 ticker: str,
-                                 asset_type: str,
-                                 allocation: Optional[Decimal] = None) -> str
+def format_historical_asset_line(
+        history_point: PortfolioHistoryPoint,
+        ticker: str,
+        asset_type: str,
+        allocation: Optional[Decimal] = None,
+        percentage_return: Optional[float] = None) -> str
 ```
 
 Format a simplified line for historical asset positions.
@@ -1588,11 +1597,12 @@ Format a simplified line for historical asset positions.
 - `ticker` - Asset ticker symbol
 - `asset_type` - Asset type (e.g., "Stock", "ETF", "Crypto")
 - `allocation` - Optional allocation percentage (Decimal, None if unavailable)
+- `percentage_return` - Optional percentage return for this asset (float, None if unavailable)
   
 
 **Returns**:
 
-  Formatted string: YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX%
+  Formatted string: YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX% | Return: XX.XX%
 
 <a id="wpm.cli.cmd_list_portfolios"></a>
 
@@ -3300,6 +3310,8 @@ Get historical performance of a portfolio over a date range.
 Returns a list of history points, one for each day from start_date to end_date
 (inclusive). Each history point contains the total market value of the portfolio
 and asset positions (quantity * historical price) for each asset on that date.
+Each history point also includes the percentage return calculated as the ratio of
+unrealized P/L to cost basis aggregated across all asset lots.
 
 For assets that exist in the final portfolio but were purchased after the start date,
 history points before the asset purchase will show a position of 0.0. For composite
@@ -3308,6 +3320,11 @@ portfolios, asset positions from sub-portfolios with the same ticker are merged.
 This implementation calculates historical performance by filtering trades directly
 instead of creating portfolio snapshots, and fetches all prices upfront in batch
 for better performance.
+
+The percentage return is calculated as: (total_unrealized_pnl / total_cost_basis) * 100,
+where total_unrealized_pnl is the sum of unrealized P/L for all lots (using historical
+price on that date) and total_cost_basis is the sum of cost basis for all lots (for
+remaining quantities only). If total_cost_basis is 0, percentage_return is set to 0.0.
 
 **Arguments**:
 
@@ -3321,7 +3338,9 @@ for better performance.
 
 **Returns**:
 
-  List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
+  List of PortfolioHistoryPoint objects, one for each day from start_date to end_date.
+  Each history point includes percentage_return field representing the lot-based
+  return for that date (ratio of unrealized P/L to cost basis).
   
 
 **Raises**:

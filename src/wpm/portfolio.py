@@ -1503,6 +1503,62 @@ def _position_from_lots(lots: List[Lot]) -> Position:
     )
 
 
+def _calculate_percentage_return_from_lots(
+    filtered_trades: List[Trade],
+    prices_by_ticker: Dict[str, float],
+    ticker_filter: Optional[str] = None,
+) -> float:
+    """Calculate percentage return from lots (unrealized P/L / cost basis).
+
+    This helper function can be used for both portfolio-level and asset-level
+    percentage return calculations.
+
+    Args:
+        filtered_trades: List of trades filtered up to a specific date
+        prices_by_ticker: Dictionary mapping ticker to price for that date
+        ticker_filter: Optional ticker to filter by (for asset-level calculation).
+            If None, calculates for all assets (portfolio-level).
+
+    Returns:
+        Percentage return as float. Returns 0.0 if total_cost_basis is 0.
+    """
+    # Calculate lots from filtered trades
+    lots_by_asset = calculate_lots_from_trades(filtered_trades)
+
+    # Aggregate unrealized P/L and cost basis across all lots
+    total_unrealized_pnl = 0.0
+    total_cost_basis = 0.0
+
+    for asset, lots in lots_by_asset.items():
+        # Apply ticker filter if provided (for asset-level calculation)
+        if ticker_filter is not None and asset.ticker != ticker_filter:
+            continue
+
+        # Get historical price for this asset
+        ticker = asset.ticker
+        current_price = prices_by_ticker.get(ticker)
+        if current_price is None:
+            # Skip if price unavailable (don't include in calculation)
+            continue
+
+        for lot in lots:
+            # Only consider lots with remaining quantity
+            if lot.remaining_quantity > 0:
+                # Calculate unrealized P/L for this lot
+                unrealized_pnl = lot.get_unrealized_pnl(current_price)
+                total_unrealized_pnl += unrealized_pnl
+
+                # Calculate cost basis for remaining quantity
+                lot_cost_basis = float(lot.remaining_quantity) * lot.purchase_price
+                total_cost_basis += lot_cost_basis
+
+    # Calculate percentage return: (total_unrealized_pnl / total_cost_basis) * 100
+    if total_cost_basis == 0:
+        return 0.0
+    else:
+        return (total_unrealized_pnl / total_cost_basis) * 100
+
+
 def fetch_price_map(
     portfolio: Portfolio,
     price_service: "PriceService",
@@ -1677,6 +1733,8 @@ def get_historical_performance(
     Returns a list of history points, one for each day from start_date to end_date
     (inclusive). Each history point contains the total market value of the portfolio
     and asset positions (quantity * historical price) for each asset on that date.
+    Each history point also includes the percentage return calculated as the ratio of
+    unrealized P/L to cost basis aggregated across all asset lots.
 
     For assets that exist in the final portfolio but were purchased after the start date,
     history points before the asset purchase will show a position of 0.0. For composite
@@ -1685,6 +1743,11 @@ def get_historical_performance(
     This implementation calculates historical performance by filtering trades directly
     instead of creating portfolio snapshots, and fetches all prices upfront in batch
     for better performance.
+
+    The percentage return is calculated as: (total_unrealized_pnl / total_cost_basis) * 100,
+    where total_unrealized_pnl is the sum of unrealized P/L for all lots (using historical
+    price on that date) and total_cost_basis is the sum of cost basis for all lots (for
+    remaining quantities only). If total_cost_basis is 0, percentage_return is set to 0.0.
 
     Args:
         portfolio: Portfolio to analyze (SimplePortfolio or CompositePortfolio)
@@ -1695,7 +1758,9 @@ def get_historical_performance(
             from specified brokers are included in position calculations.
 
     Returns:
-        List of PortfolioHistoryPoint objects, one for each day from start_date to end_date
+        List of PortfolioHistoryPoint objects, one for each day from start_date to end_date.
+        Each history point includes percentage_return field representing the lot-based
+        return for that date (ratio of unrealized P/L to cost basis).
 
     Raises:
         PortfolioError: If date range is invalid or outside portfolio's date range
@@ -1868,6 +1933,11 @@ def get_historical_performance(
         # by Asset (ticker + asset_type). This is functionally equivalent to get_positions()
         # on a cloned CompositePortfolio.
 
+        # Calculate percentage return based on lots (unrealized P/L / cost basis)
+        percentage_return = _calculate_percentage_return_from_lots(
+            filtered_trades, prices_by_ticker, ticker_filter=None
+        )
+
         # Create history point
         history_point = PortfolioHistoryPoint(
             date=current_date,
@@ -1875,6 +1945,7 @@ def get_historical_performance(
             asset_positions=asset_positions.copy(),
             prices=asset_prices.copy(),
             quantities=quantities.copy(),
+            percentage_return=percentage_return,
         )
         history_points.append(history_point)
 

@@ -480,6 +480,7 @@ class TestHistoricalAllocations:
                 asset_positions={"GOOG": 1500.0, "AAPL": 0.0},
                 prices={"GOOG": 150.0},
                 quantities={"GOOG": 10.0, "AAPL": 0.0},
+                percentage_return=0.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 16),
@@ -487,6 +488,7 @@ class TestHistoricalAllocations:
                 asset_positions={"GOOG": 1500.0, "AAPL": 1000.0},
                 prices={"GOOG": 150.0, "AAPL": 200.0},
                 quantities={"GOOG": 10.0, "AAPL": 5.0},
+                percentage_return=0.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 17),
@@ -494,6 +496,7 @@ class TestHistoricalAllocations:
                 asset_positions={"GOOG": 1600.0, "AAPL": 1100.0},
                 prices={"GOOG": 160.0, "AAPL": 220.0},
                 quantities={"GOOG": 10.0, "AAPL": 5.0},
+                percentage_return=0.0,
             ),
         ]
         mock_get_perf.return_value = history_points
@@ -555,6 +558,7 @@ class TestHistoricalAllocations:
                 asset_positions={"GOOG": 1500.0, "AAPL": 0.0},
                 prices={"GOOG": 150.0},
                 quantities={"GOOG": 10.0, "AAPL": 0.0},
+                percentage_return=0.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 16),
@@ -562,6 +566,7 @@ class TestHistoricalAllocations:
                 asset_positions={"GOOG": 1600.0, "AAPL": 0.0},
                 prices={"GOOG": 160.0},
                 quantities={"GOOG": 10.0, "AAPL": 0.0},
+                percentage_return=0.0,
             ),
         ]
         mock_get_perf.return_value = history_points
@@ -1040,6 +1045,7 @@ class TestHistoricalPositionsWithAllocationsFiltering:
                 asset_positions={"GOOG": 1500.0, "BTC-USD": 5000.0},
                 prices={"GOOG": 150.0, "BTC-USD": 50000.0},
                 quantities={"GOOG": 10.0, "BTC-USD": 0.1},
+                percentage_return=0.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 16),
@@ -1047,6 +1053,7 @@ class TestHistoricalPositionsWithAllocationsFiltering:
                 asset_positions={"GOOG": 1600.0, "BTC-USD": 5500.0},
                 prices={"GOOG": 160.0, "BTC-USD": 55000.0},
                 quantities={"GOOG": 10.0, "BTC-USD": 0.1},
+                percentage_return=0.0,
             ),
         ]
         mock_get_perf.return_value = history_points
@@ -1099,6 +1106,7 @@ class TestHistoricalPositionsWithAllocationsFiltering:
                 asset_positions={"GOOG": 1500.0, "AAPL": 1000.0},
                 prices={"GOOG": 150.0, "AAPL": 200.0},
                 quantities={"GOOG": 10.0, "AAPL": 5.0},
+                percentage_return=0.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 16),
@@ -1106,6 +1114,7 @@ class TestHistoricalPositionsWithAllocationsFiltering:
                 asset_positions={"GOOG": 1600.0, "AAPL": 1100.0},
                 prices={"GOOG": 160.0, "AAPL": 220.0},
                 quantities={"GOOG": 10.0, "AAPL": 5.0},
+                percentage_return=0.0,
             ),
         ]
         mock_get_perf.return_value = history_points
@@ -1172,6 +1181,7 @@ class TestHistoricalPositionsWithAllocationsFiltering:
                 asset_positions={"GOOG": 1500.0, "AAPL": 1000.0, "BTC-USD": 5000.0},
                 prices={"GOOG": 150.0, "AAPL": 200.0, "BTC-USD": 50000.0},
                 quantities={"GOOG": 10.0, "AAPL": 5.0, "BTC-USD": 0.1},
+                percentage_return=0.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 16),
@@ -1179,6 +1189,7 @@ class TestHistoricalPositionsWithAllocationsFiltering:
                 asset_positions={"GOOG": 1600.0, "AAPL": 1100.0, "BTC-USD": 5500.0},
                 prices={"GOOG": 160.0, "AAPL": 220.0, "BTC-USD": 55000.0},
                 quantities={"GOOG": 10.0, "AAPL": 5.0, "BTC-USD": 0.1},
+                percentage_return=0.0,
             ),
         ]
         mock_get_perf.return_value = history_points

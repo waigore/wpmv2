@@ -1,11 +1,12 @@
 """Tests for CLI functionality."""
 
+import re
+import sys
 import pytest
 from datetime import date
 from decimal import Decimal
 from io import StringIO
 from unittest.mock import Mock, patch
-import sys
 
 from wpm.cli import (
     parse_up_to_date,
@@ -176,6 +177,7 @@ class TestFormatHistoricalAssetLine:
             asset_positions={"GOOG": 1000.0},
             prices={"GOOG": 100.0},
             quantities={"GOOG": 10.0},
+            percentage_return=0.0,
         )
         result = format_historical_asset_line(history_point, "GOOG", "Stock")
         assert "2024-01-15" in result
@@ -192,6 +194,7 @@ class TestFormatHistoricalAssetLine:
             asset_positions={"GOOG": 1000.0},
             prices={},
             quantities={"GOOG": 10.0},
+            percentage_return=0.0,
         )
         result = format_historical_asset_line(history_point, "GOOG", "Stock")
         assert "2024-01-15" in result
@@ -208,6 +211,7 @@ class TestFormatHistoricalAssetLine:
             asset_positions={"GOOG": 0.0},
             prices={"GOOG": 100.0},
             quantities={"GOOG": 0.0},
+            percentage_return=0.0,
         )
         result = format_historical_asset_line(history_point, "GOOG", "Stock")
         assert "2024-01-15" in result
@@ -300,6 +304,7 @@ class TestCmdShowAsset:
                         asset_positions={"GOOG": 1600.0},
                         prices={"GOOG": 160.0},
                         quantities={"GOOG": 10.0},
+                        percentage_return=0.0,
                     ),
                     PortfolioHistoryPoint(
                         date=date(2024, 1, 31),
@@ -307,6 +312,7 @@ class TestCmdShowAsset:
                         asset_positions={"GOOG": 1610.0},
                         prices={"GOOG": 161.0},
                         quantities={"GOOG": 10.0},
+                        percentage_return=0.0,
                     ),
                 ]
                 mock_get_perf.return_value = history_points
@@ -370,6 +376,7 @@ class TestCmdShowAsset:
                         asset_positions={"GOOG": 1550.0},
                         prices={"GOOG": 155.0},
                         quantities={"GOOG": 10.0},
+                        percentage_return=0.0,
                     ),
                 ]
                 mock_get_perf.return_value = history_points
@@ -416,6 +423,7 @@ class TestCmdShowAsset:
                         asset_positions={"GOOG": 1500.0},
                         prices={},  # Missing price
                         quantities={"GOOG": 10.0},
+                        percentage_return=0.0,
                     ),
                 ]
                 mock_get_perf.return_value = history_points
@@ -601,6 +609,7 @@ class TestCmdShowAsset:
                         asset_positions={"VOO": 1200.0},  # Only IBKR lots (2.0 * 600)
                         prices={"VOO": 600.0},
                         quantities={"VOO": 2.0},
+                        percentage_return=0.0,
                     ),
                 ]
                 mock_get_perf.return_value = history_points
@@ -632,6 +641,7 @@ class TestWeeklySummary:
                 asset_positions={"GOOG": 1000.0},
                 prices={"GOOG": 100.0},
                 quantities={"GOOG": 10.0},
+                percentage_return=0.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 16),  # Tuesday
@@ -639,6 +649,7 @@ class TestWeeklySummary:
                 asset_positions={"GOOG": 1050.0},
                 prices={"GOOG": 105.0},
                 quantities={"GOOG": 10.0},
+                percentage_return=5.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 17),  # Wednesday
@@ -646,6 +657,7 @@ class TestWeeklySummary:
                 asset_positions={"GOOG": 1100.0},
                 prices={"GOOG": 110.0},
                 quantities={"GOOG": 10.0},
+                percentage_return=10.0,
             ),
         ]
 
@@ -656,6 +668,7 @@ class TestWeeklySummary:
             assert "2024-01-15" in output  # Week start
             assert "2024-01-21" in output  # Week end (Sunday)
             assert "$1,100.00" in output  # Last value of the week
+            assert "(+10.00%)" in output  # Percentage return
 
     def test_display_weekly_summary_multiple_weeks(self):
         """Test displaying weekly summary for multiple weeks."""
@@ -668,6 +681,7 @@ class TestWeeklySummary:
                 asset_positions={"GOOG": 1000.0},
                 prices={"GOOG": 100.0},
                 quantities={"GOOG": 10.0},
+                percentage_return=0.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 20),  # Saturday, Week 1
@@ -675,6 +689,7 @@ class TestWeeklySummary:
                 asset_positions={"GOOG": 1050.0},
                 prices={"GOOG": 105.0},
                 quantities={"GOOG": 10.0},
+                percentage_return=5.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 22),  # Monday, Week 2
@@ -682,6 +697,7 @@ class TestWeeklySummary:
                 asset_positions={"GOOG": 1100.0},
                 prices={"GOOG": 110.0},
                 quantities={"GOOG": 10.0},
+                percentage_return=10.0,
             ),
             PortfolioHistoryPoint(
                 date=date(2024, 1, 28),  # Sunday, Week 2
@@ -689,6 +705,7 @@ class TestWeeklySummary:
                 asset_positions={"GOOG": 1200.0},
                 prices={"GOOG": 120.0},
                 quantities={"GOOG": 10.0},
+                percentage_return=20.0,
             ),
         ]
 
@@ -702,6 +719,36 @@ class TestWeeklySummary:
             assert "2024-01-21" in output  # Week 1 end
             assert "2024-01-22" in output  # Week 2 start
             assert "2024-01-28" in output  # Week 2 end
+            assert "(+5.00%)" in output  # Week 1 percentage return
+            assert "(+20.00%)" in output  # Week 2 percentage return
+
+    def test_display_weekly_summary_negative_return(self):
+        """Test displaying weekly summary with negative percentage return."""
+        history_points = [
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 15),  # Monday
+                total_market_value=1000.0,
+                asset_positions={"GOOG": 1000.0},
+                prices={"GOOG": 100.0},
+                quantities={"GOOG": 10.0},
+                percentage_return=0.0,
+            ),
+            PortfolioHistoryPoint(
+                date=date(2024, 1, 17),  # Wednesday
+                total_market_value=950.0,
+                asset_positions={"GOOG": 950.0},
+                prices={"GOOG": 95.0},
+                quantities={"GOOG": 10.0},
+                percentage_return=-5.0,
+            ),
+        ]
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            _display_weekly_summary(history_points)
+            output = fake_out.getvalue()
+            assert "Weekly Performance Summary:" in output
+            assert "$950.00" in output
+            assert "(-5.00%)" in output  # Negative return should show minus sign
 
     def test_display_weekly_summary_empty_list(self):
         """Test displaying weekly summary with empty list."""
@@ -943,6 +990,7 @@ class TestFormatHistoricalAssetLineWithAllocation:
             asset_positions={"GOOG": 1000.0},
             prices={"GOOG": 100.0},
             quantities={"GOOG": 10.0},
+            percentage_return=0.0,
         )
         allocation = Decimal('100.00')
         result = format_historical_asset_line(history_point, "GOOG", "Stock", allocation)
@@ -958,6 +1006,7 @@ class TestFormatHistoricalAssetLineWithAllocation:
             asset_positions={"GOOG": 1000.0},
             prices={"GOOG": 100.0},
             quantities={"GOOG": 10.0},
+            percentage_return=0.0,
         )
         result = format_historical_asset_line(history_point, "GOOG", "Stock", None)
         assert "2024-01-15" in result
@@ -1164,6 +1213,7 @@ class TestCmdShowAssetWithAllocations:
                         asset_positions={"GOOG": 1600.0},
                         prices={"GOOG": 160.0},
                         quantities={"GOOG": 10.0},
+                        percentage_return=0.0,
                     ),
                     PortfolioHistoryPoint(
                         date=date(2024, 1, 31),
@@ -1171,6 +1221,7 @@ class TestCmdShowAssetWithAllocations:
                         asset_positions={"GOOG": 1610.0},
                         prices={"GOOG": 161.0},
                         quantities={"GOOG": 10.0},
+                        percentage_return=0.0,
                     ),
                 ]
                 mock_get_perf.return_value = history_points
@@ -1187,8 +1238,143 @@ class TestCmdShowAssetWithAllocations:
                     assert "2024-01-30" in output
                     assert "2024-01-31" in output
                     assert "Allocation:" in output
+                    assert "Return:" in output
                     # Verify allocations are displayed for each date
                     assert output.count("Allocation:") == 2
+                    # Verify percentage return is displayed for each date
+                    assert output.count("Return:") == 2
+
+    def test_cmd_show_asset_historical_displays_percentage_return(self):
+        """Test that show asset displays percentage return for historical portfolio."""
+        portfolio = SimplePortfolio(name="Test", is_historical=True)
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        # Buy 1 share at $400 on 2024-01-01
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=400.0,
+                price_native=400.0,
+                quantity=1.0,
+            )
+        )
+        # Add another small buy on 2024-01-02 to extend portfolio end_date
+        # This creates a second lot but won't significantly affect the percentage return calculation
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 2),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=410.0,
+                price_native=410.0,
+                quantity=0.01,  # Small quantity to extend date range
+            )
+        )
+        composite = CompositePortfolio(name="Composite", is_historical=True)
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        # Mock historical prices: Day 1: $400, Day 2: $410
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date):
+            prices = {}
+            for ticker in tickers:
+                prices[ticker] = {
+                    date(2024, 1, 1): 400.0,
+                    date(2024, 1, 2): 410.0,
+                }
+            return prices
+
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_show_asset(composite, "VOO", mock_price_service, from_date=date(2024, 1, 1))
+            output = fake_out.getvalue()
+
+            # Verify dates are displayed
+            assert "2024-01-01" in output
+            assert "2024-01-02" in output
+
+            # Verify percentage return is displayed
+            assert "Return:" in output
+
+            # Day 1: price = $400, purchase = $400, return = 0%
+            assert "Return: 0.00%" in output or "Return: 0.0%" in output
+
+            # Day 2: price = $410
+            # Lot 1: purchase = $400, quantity = 1.0, unrealized P/L = (410-400)*1 = 10, cost basis = 400
+            # Lot 2: purchase = $410, quantity = 0.01, unrealized P/L = (410-410)*0.01 = 0, cost basis = 4.1
+            # Total unrealized P/L = 10, total cost basis = 404.1, return ≈ 2.48%
+            # Check that return is approximately 2.5% (allowing for formatting and small lot)
+            lines = output.split("\n")
+            for line in lines:
+                if "2024-01-02" in line and "Return:" in line:
+                    # Extract the return value
+                    match = re.search(r"Return: ([\d.]+)%", line)
+                    if match:
+                        return_value = float(match.group(1))
+                        # Expected: 10/404.1 * 100 ≈ 2.48%, but allow range around 2.5%
+                        assert 2.0 <= return_value <= 3.0  # Allow range for small lot impact
+                    break
+
+    def test_cmd_show_asset_historical_percentage_return_negative(self):
+        """Test that show asset displays negative percentage return correctly."""
+        portfolio = SimplePortfolio(name="Test", is_historical=True)
+        asset = Asset(ticker="VOO", asset_type="ETF")
+        portfolio.add_trade(
+            Trade(
+                date=date(2024, 1, 1),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=400.0,
+                price_native=400.0,
+                quantity=1.0,
+            )
+        )
+        composite = CompositePortfolio(name="Composite", is_historical=True)
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+
+        # Mock historical prices: Day 1: $400, Day 2: $380 (price dropped)
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date):
+            prices = {}
+            for ticker in tickers:
+                prices[ticker] = {
+                    date(2024, 1, 1): 400.0,
+                    date(2024, 1, 2): 380.0,
+                }
+            return prices
+
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_show_asset(composite, "VOO", mock_price_service, from_date=date(2024, 1, 1))
+            output = fake_out.getvalue()
+
+            # Verify percentage return is displayed
+            assert "Return:" in output
+
+            # Day 2: price = $380, purchase = $400, unrealized P/L = -20, cost basis = 400
+            # return = -20/400 * 100 = -5.0%
+            lines = output.split("\n")
+            for line in lines:
+                if "2024-01-02" in line and "Return:" in line:
+                    # Check for negative return
+                    assert "-" in line or "Return: -" in line
+                    import re
+                    match = re.search(r"Return: (-?[\d.]+)%", line)
+                    if match:
+                        return_value = float(match.group(1))
+                        assert abs(return_value - (-5.0)) < 0.1
+                    break
 
 
 class TestFormatMarketCap:

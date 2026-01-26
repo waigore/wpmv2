@@ -480,6 +480,7 @@ class PortfolioHistoryPoint:
     asset_positions: Dict[str, float]  # Maps ticker to position value (quantity * price)
     prices: Dict[str, float]  # Maps ticker to price on that date
     quantities: Dict[str, float]  # Maps ticker to quantity held on that date
+    percentage_return: float  # Percentage return from start_date to this date
 
     def __post_init__(self):
         """Validate history point fields after initialization."""
@@ -497,6 +498,9 @@ class PortfolioHistoryPoint:
 
         if not isinstance(self.quantities, dict):
             raise ValidationError("Quantities must be a dictionary")
+
+        if not isinstance(self.percentage_return, (int, float)):
+            raise ValidationError("Percentage return must be a number")
 
         for ticker, position_value in self.asset_positions.items():
             if not isinstance(ticker, str):

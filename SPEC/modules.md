@@ -118,14 +118,24 @@
     - `total_market_value`: Total market value of the portfolio on that date
     - `asset_positions`: Dictionary mapping ticker symbols to position values (quantity * historical price)
     - `prices`: Dictionary mapping ticker symbols to historical prices on that date
+    - `percentage_return`: Percentage return for this date, calculated as (total_unrealized_pnl / total_cost_basis) * 100, where unrealized P/L and cost basis are aggregated across all asset lots. If total_cost_basis is 0, percentage_return is 0.0
   - Fetches all prices upfront in batch using `price_service.get_historical_prices()` once per asset type for the entire date range
   - Filters trades directly instead of cloning portfolio snapshots for better performance
   - For assets that exist in the final portfolio but weren't purchased by a given date, position value is 0.0
   - For composite portfolios, asset positions from sub-portfolios with the same ticker are automatically merged (summed)
   - Prices dict includes prices for all tickers in asset_positions (same keys)
+  - Percentage return is calculated as the ratio of unrealized P/L to cost basis for all lots on each date, providing a lot-based performance metric
+  - Uses internal helper function `_calculate_percentage_return_from_lots()` for calculation
   - Raises PortfolioError if date range is invalid or outside portfolio's date range
   - Raises ValueError if historical prices cannot be retrieved for any required assets (per user requirement)
   - Daily frequency means one history point per calendar day, including weekends (markets may be closed but portfolio state is valid)
+- `_calculate_percentage_return_from_lots(filtered_trades, prices_by_ticker, ticker_filter=None)`: Internal helper function to calculate percentage return from lots
+  - `filtered_trades` (List[Trade], required): List of trades filtered up to a specific date
+  - `prices_by_ticker` (Dict[str, float], required): Dictionary mapping ticker to price for that date
+  - `ticker_filter` (str, optional): Optional ticker to filter by (for asset-level calculation). If None, calculates for all assets (portfolio-level)
+  - Returns percentage return as float. Returns 0.0 if total_cost_basis is 0
+  - Used by both `get_historical_performance()` (portfolio-level) and CLI `cmd_show_asset()` (asset-level) for consistent calculation
+  - Calculates lots from trades, aggregates unrealized P/L and cost basis, returns (total_unrealized_pnl / total_cost_basis) * 100
 
 **Artefacts:**
 - Portfolio class implementations
@@ -602,12 +612,15 @@
 - `parse_from_date(args)`: Parse --from date argument from command args
   - Returns tuple of (from_date or None, remaining args)
   - Parses `--from YYYY-MM-DD` format
-- `format_historical_asset_line(history_point, ticker, asset_type)`: Format a simplified line for historical asset positions
+- `format_historical_asset_line(history_point, ticker, asset_type, allocation=None, percentage_return=None)`: Format a simplified line for historical asset positions
   - `history_point` (PortfolioHistoryPoint, required): History point containing position and price data
   - `ticker` (str, required): Asset ticker symbol
   - `asset_type` (str, required): Asset type (e.g., "Stock", "ETF", "Crypto")
-  - Returns formatted string: `YYYY-MM-DD: Ticker (Asset Type) = Position Value @ Price`
-  - Uses data directly from PortfolioHistoryPoint (date, asset_positions, prices)
+  - `allocation` (Decimal, optional): Optional allocation percentage (None if unavailable)
+  - `percentage_return` (float, optional): Optional percentage return for this asset (None if unavailable)
+  - Returns formatted string: `YYYY-MM-DD: Ticker (Asset Type): Quantity = Position Value @ Price | Allocation: XX.XX% | Return: XX.XX%`
+  - Uses data directly from PortfolioHistoryPoint (date, asset_positions, prices, quantities)
+  - Allocation and percentage return are only displayed if provided (not None)
 
 **CLI Commands:**
 - `import [--end-date YYYY-MM-DD]`: Import CSV files and create composite portfolio
@@ -624,8 +637,10 @@
 - When `--up-to` is specified for historical portfolios, displays weekly performance summary
 - Uses `get_historical_performance()` to calculate history points from portfolio start_date to up_to_date
 - Groups history points by calendar week (Monday to Sunday)
-- Displays weekly totals: date range and total_market_value for each week
-- Shows portfolio's weekly overall performance progression
+- Displays weekly totals: date range, total_market_value, and percentage return for each week
+- Format: `Week of YYYY-MM-DD to YYYY-MM-DD: $X,XXX.XX (X.XX%)`
+- Percentage return is calculated relative to the start_date's market value and shows the return from start_date to the end of each week
+- Shows portfolio's weekly overall performance progression with both absolute values and percentage returns
 
 **Artefacts:**
 - Command-line interface for portfolio management
