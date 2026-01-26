@@ -231,7 +231,7 @@ Allocation is displayed in the format `| Allocation: XX.XX%` and is only shown w
 
 ### Reference Portfolio Integration
 
-The CLI automatically creates a SPY buy-and-hold reference portfolio when importing CSV files. This reference portfolio provides a baseline comparison by mirroring the composite portfolio's trade structure but investing all cost basis into SPY. When using the `show all --up-to YYYY-MM-DD` command with historical portfolios, the reference portfolio's P/L is displayed after the weekly performance summary for easy comparison. See [wpmrun.md](wpmrun.md) for detailed CLI command specifications.
+The CLI automatically creates SPY and BTC-USD buy-and-hold reference portfolios when importing CSV files. These reference portfolios provide baseline comparisons by mirroring the composite portfolio's trade structure but investing all cost basis into SPY and BTC-USD respectively. When using the `show all --up-to YYYY-MM-DD` command with historical portfolios, both reference portfolios' P/Ls are displayed after the weekly performance summary for easy comparison. See [wpmrun.md](wpmrun.md) for detailed CLI command specifications.
 
 **Historical Price Fetcher:**
 Reference portfolio creation uses a `HistoricalPriceFetcher` interface with a default implementation that provides fallback logic for weekends and holidays. When a crypto trade occurs on a weekend and is converted to a stock/ETF reference trade, the fetcher automatically looks back up to 1 week to find the previous trading day's price. 

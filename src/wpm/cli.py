@@ -712,15 +712,15 @@ def calculate_realized_pnl_percentage(
 
 def _display_totals_section(
     imported_portfolio: Portfolio,
-    reference_portfolio: Optional[Portfolio],
+    reference_portfolios: Dict[str, Portfolio],
     price_service: PriceService,
     target_date: Optional[date] = None,
 ) -> None:
-    """Display totals section with P/Ls and percentage returns for both portfolios.
+    """Display totals section with P/Ls and percentage returns for imported and reference portfolios.
     
     Args:
         imported_portfolio: The main imported portfolio
-        reference_portfolio: Optional reference portfolio (SPY buy-and-hold)
+        reference_portfolios: Dictionary mapping reference portfolio names to Portfolio objects
         price_service: Price service for fetching prices
         target_date: Optional date to calculate values against (for --up-to)
     """
@@ -794,8 +794,14 @@ def _display_totals_section(
             print("  Total Unrealized P/L: N/A")
             print("  Total Realized P/L: N/A")
     
-    # Calculate values for reference portfolio if available
-    if reference_portfolio is not None:
+    # Calculate values for reference portfolios if available
+    # Iterate in order: SPY first, then BTC-USD (if both exist)
+    ordered_names = ["SPY Reference Portfolio", "BTC-USD Reference Portfolio"]
+    for ref_name in ordered_names:
+        if ref_name not in reference_portfolios:
+            continue
+        
+        reference_portfolio = reference_portfolios[ref_name]
         try:
             reference_price_map = fetch_price_map(
                 reference_portfolio, price_service, target_date=target_date
@@ -824,7 +830,7 @@ def _display_totals_section(
             reference_realized_pct = calculate_realized_pnl_percentage(reference_portfolio, target_date)
             
             # Display reference portfolio totals
-            print("SPY Reference Portfolio:")
+            print(f"{ref_name}:")
             if reference_has_prices:
                 unrealized_str = format_unrealized_pnl(reference_unrealized_pnl)
                 if reference_unrealized_pct is not None:
@@ -839,16 +845,16 @@ def _display_totals_section(
             print(f"  Total Realized P/L: {realized_str}")
         except Exception as e:
             logger.warning(
-                f"Failed to calculate reference portfolio totals: {e}"
+                f"Failed to calculate {ref_name} totals: {e}"
             )
-            # Continue without displaying reference portfolio totals
+            # Continue without displaying this reference portfolio totals
 
 
 def cmd_show_all(
     composite: CompositePortfolio,
     price_service: PriceService,
     up_to_date: Optional[date] = None,
-    reference_portfolio: Optional[Portfolio] = None,
+    reference_portfolios: Dict[str, Portfolio] = None,
 ) -> None:
     """Handle 'show all' command.
 
@@ -856,8 +862,10 @@ def cmd_show_all(
         composite: Composite portfolio
         price_service: Price service for retrieving current prices
         up_to_date: Optional date for historical portfolios to show state up to this date with weekly summary
-        reference_portfolio: Optional reference portfolio for baseline comparison
+        reference_portfolios: Dictionary mapping reference portfolio names to Portfolio objects
     """
+    if reference_portfolios is None:
+        reference_portfolios = {}
     # Handle --up-to argument for historical portfolios
     if up_to_date is not None:
         if not composite.is_historical:
@@ -878,7 +886,7 @@ def cmd_show_all(
             # Display totals section with both portfolios
             _display_totals_section(
                 imported_portfolio=composite,
-                reference_portfolio=reference_portfolio,
+                reference_portfolios=reference_portfolios,
                 price_service=price_service,
                 target_date=up_to_date,
             )
@@ -918,7 +926,7 @@ def cmd_show_all(
     # Display totals section with both portfolios
     _display_totals_section(
         imported_portfolio=composite,
-        reference_portfolio=reference_portfolio,
+        reference_portfolios=reference_portfolios,
         price_service=price_service,
         target_date=None,  # Current date for non-historical
     )
@@ -1441,15 +1449,17 @@ def cmd_metadata(
 def run_interactive_mode(
     composite: CompositePortfolio,
     price_service: PriceService,
-    reference_portfolio: Optional[Portfolio] = None,
+    reference_portfolios: Dict[str, Portfolio] = None,
 ) -> None:
     """Run interactive command loop.
 
     Args:
         composite: Composite portfolio
         price_service: Price service for retrieving prices
-        reference_portfolio: Optional reference portfolio for baseline comparison
+        reference_portfolios: Dictionary mapping reference portfolio names to Portfolio objects
     """
+    if reference_portfolios is None:
+        reference_portfolios = {}
     print("Entering interactive mode. Type 'Quit' to exit.")
     logger.info("Entering interactive mode")
     
@@ -1488,7 +1498,7 @@ def run_interactive_mode(
                     if remaining_args:
                         print("Unknown arguments: 'show all' only accepts --up-to YYYY-MM-DD")
                     else:
-                        cmd_show_all(composite, price_service, up_to_date, reference_portfolio)
+                        cmd_show_all(composite, price_service, up_to_date, reference_portfolios)
                 elif len(args) >= 2 and args[0] == "portfolio":
                     # Parse --up-to argument if present
                     portfolio_name = args[1]
@@ -1584,30 +1594,50 @@ def main() -> None:
         price_service = PriceService()
         fetch_prices_for_portfolio(composite, price_service)
 
-        # Create SPY reference portfolio for baseline comparison
-        reference_portfolio: Optional[Portfolio] = None
+        # Create reference portfolios for baseline comparison
+        reference_portfolios: Dict[str, Portfolio] = {}
+        currency_service = CurrencyService()
+        
+        # Create SPY reference portfolio
         try:
             spy_asset = Asset(ticker="SPY", asset_type="ETF")
-            strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
-            currency_service = CurrencyService()
-            reference_portfolio = create_reference_portfolio(
+            spy_strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
+            spy_reference = create_reference_portfolio(
                 original_portfolio=composite,
-                strategy=strategy,
+                strategy=spy_strategy,
                 price_service=price_service,
                 currency_service=currency_service,
                 name="SPY Reference Portfolio",
             )
+            reference_portfolios["SPY Reference Portfolio"] = spy_reference
             logger.info("Successfully created SPY reference portfolio")
         except Exception as e:
             logger.warning(
                 f"Failed to create SPY reference portfolio: {e}. "
-                "Continuing without reference portfolio."
+                "Continuing without SPY reference portfolio."
             )
-            # Continue without reference portfolio - set to None
-            reference_portfolio = None
+        
+        # Create BTC-USD reference portfolio
+        try:
+            btc_asset = Asset(ticker="BTC-USD", asset_type="Crypto")
+            btc_strategy = BuyAndHoldStrategy(reference_asset=btc_asset)
+            btc_reference = create_reference_portfolio(
+                original_portfolio=composite,
+                strategy=btc_strategy,
+                price_service=price_service,
+                currency_service=currency_service,
+                name="BTC-USD Reference Portfolio",
+            )
+            reference_portfolios["BTC-USD Reference Portfolio"] = btc_reference
+            logger.info("Successfully created BTC-USD reference portfolio")
+        except Exception as e:
+            logger.warning(
+                f"Failed to create BTC-USD reference portfolio: {e}. "
+                "Continuing without BTC-USD reference portfolio."
+            )
 
         # Enter interactive mode
-        run_interactive_mode(composite, price_service, reference_portfolio)
+        run_interactive_mode(composite, price_service, reference_portfolios)
     else:
         print(f"Unknown command: {args.command}", file=sys.stderr)
         sys.exit(1)

@@ -1667,13 +1667,19 @@ class TestReferencePortfolioInCLI:
         # Mock fetch_price_map for reference portfolio
         with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
             # First call for main portfolio (in get_historical_performance)
-            # Second call for reference portfolio
+            # Subsequent calls for reference portfolios
             spy_ref_asset = Asset(ticker="SPY", asset_type="ETF")
-            mock_fetch_price_map.return_value = {spy_ref_asset: 410.0}
+            def mock_fetch_price_map_side_effect(portfolio, price_service, target_date=None):
+                if portfolio == reference_portfolio:
+                    return {spy_ref_asset: 410.0}
+                return {}
+            mock_fetch_price_map.side_effect = mock_fetch_price_map_side_effect
+            
+            reference_portfolios = {"SPY Reference Portfolio": reference_portfolio}
             
             with patch("sys.stdout", new=StringIO()) as fake_out:
                 cmd_show_all(
-                    composite, mock_price_service, date(2024, 1, 17), reference_portfolio
+                    composite, mock_price_service, date(2024, 1, 17), reference_portfolios
                 )
                 output = fake_out.getvalue()
                 assert "Weekly Performance Summary:" in output
@@ -1737,10 +1743,19 @@ class TestReferencePortfolioInCLI:
         )
 
         with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
-            mock_fetch_price_map.return_value = {asset: 160.0}
+            def mock_fetch_price_map_side_effect(portfolio, price_service, target_date=None):
+                if portfolio == composite:
+                    return {asset: 160.0}
+                elif portfolio == reference_portfolio:
+                    spy_ref_asset = Asset(ticker="SPY", asset_type="ETF")
+                    return {spy_ref_asset: 410.0}
+                return {}
+            mock_fetch_price_map.side_effect = mock_fetch_price_map_side_effect
+            
+            reference_portfolios = {"SPY Reference Portfolio": reference_portfolio}
             
             with patch("sys.stdout", new=StringIO()) as fake_out:
-                cmd_show_all(composite, mock_price_service, None, reference_portfolio)
+                cmd_show_all(composite, mock_price_service, None, reference_portfolios)
                 output = fake_out.getvalue()
                 # Should display totals section with both portfolios
                 assert "Totals:" in output
@@ -1749,8 +1764,8 @@ class TestReferencePortfolioInCLI:
                 assert "Total Unrealized P/L:" in output
                 assert "Total Realized P/L:" in output
 
-    def test_cmd_show_all_with_none_reference_portfolio(self):
-        """Test show all handles None reference portfolio gracefully."""
+    def test_cmd_show_all_with_empty_reference_portfolios(self):
+        """Test show all handles empty reference portfolios dict gracefully."""
         portfolio = SimplePortfolio(name="Test Portfolio", is_historical=True)
         asset = Asset(ticker="GOOG", asset_type="Stock")
         trade = Trade(
@@ -1785,11 +1800,12 @@ class TestReferencePortfolioInCLI:
         mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
-            cmd_show_all(composite, mock_price_service, date(2024, 1, 17), None)
+            cmd_show_all(composite, mock_price_service, date(2024, 1, 17), {})
             output = fake_out.getvalue()
             assert "Weekly Performance Summary:" in output
-            # Should not display reference portfolio P/L when None
+            # Should not display reference portfolio P/L when empty dict
             assert "SPY Reference Portfolio:" not in output
+            assert "BTC-USD Reference Portfolio:" not in output
 
     def test_cmd_show_all_reference_portfolio_handles_price_error(self):
         """Test show all handles price errors for reference portfolio gracefully."""
@@ -1853,15 +1869,18 @@ class TestReferencePortfolioInCLI:
             if call_count[0] <= 2:
                 # Return price map for imported portfolio
                 return {asset: 155.0}
-            else:
-                # Raise error for reference portfolio
-                raise Exception("Price error")
+            elif portfolio == reference_portfolio:
+                # Raise exception for reference portfolio
+                raise ValueError("Price unavailable")
+            return {}
+        
+        reference_portfolios = {"SPY Reference Portfolio": reference_portfolio}
         
         with patch("wpm.cli.fetch_price_map", side_effect=mock_fetch_price_map):
             with patch("sys.stdout", new=StringIO()) as fake_out:
                 # Should not crash, just skip reference portfolio display
                 cmd_show_all(
-                    composite, mock_price_service, date(2024, 1, 17), reference_portfolio
+                    composite, mock_price_service, date(2024, 1, 17), reference_portfolios
                 )
                 output = fake_out.getvalue()
                 assert "Weekly Performance Summary:" in output
@@ -1889,7 +1908,7 @@ class TestTotalsSectionDisplay:
         )
         imported_portfolio.add_trade(trade)
         
-        reference_portfolio = SimplePortfolio(name="SPY Reference Portfolio")
+        spy_reference_portfolio = SimplePortfolio(name="SPY Reference Portfolio")
         spy_asset = Asset(ticker="SPY", asset_type="ETF")
         spy_trade = Trade(
             date=date(2024, 1, 15),
@@ -1901,24 +1920,44 @@ class TestTotalsSectionDisplay:
             price_native=400.0,
             quantity=3.75,
         )
-        reference_portfolio.add_trade(spy_trade)
+        spy_reference_portfolio.add_trade(spy_trade)
+        
+        btc_reference_portfolio = SimplePortfolio(name="BTC-USD Reference Portfolio")
+        btc_asset = Asset(ticker="BTC-USD", asset_type="Crypto")
+        btc_trade = Trade(
+            date=date(2024, 1, 15),
+            asset=btc_asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=45000.0,
+            price_native=45000.0,
+            quantity=0.03333333,
+        )
+        btc_reference_portfolio.add_trade(btc_trade)
+        
+        reference_portfolios = {
+            "SPY Reference Portfolio": spy_reference_portfolio,
+            "BTC-USD Reference Portfolio": btc_reference_portfolio,
+        }
         
         mock_price_service = Mock(spec=PriceService)
         
         # Mock fetch_price_map to return prices
-        call_count = [0]
         def mock_fetch_price_map(portfolio, price_service, target_date=None):
-            call_count[0] += 1
             if portfolio == imported_portfolio:
                 return {asset: 160.0}
-            else:
+            elif portfolio == spy_reference_portfolio:
                 return {spy_asset: 410.0}
+            elif portfolio == btc_reference_portfolio:
+                return {btc_asset: 46000.0}
+            return {}
         
         with patch("wpm.cli.fetch_price_map", side_effect=mock_fetch_price_map):
             with patch("sys.stdout", new=StringIO()) as fake_out:
                 _display_totals_section(
                     imported_portfolio=imported_portfolio,
-                    reference_portfolio=reference_portfolio,
+                    reference_portfolios=reference_portfolios,
                     price_service=mock_price_service,
                     target_date=None,
                 )
@@ -1927,13 +1966,14 @@ class TestTotalsSectionDisplay:
                 assert "Totals:" in output
                 assert "Imported Portfolio:" in output
                 assert "SPY Reference Portfolio:" in output
+                assert "BTC-USD Reference Portfolio:" in output
                 assert "Total Unrealized P/L:" in output
                 assert "Total Realized P/L:" in output
                 # Check for percentage returns
                 assert "%" in output
 
     def test_display_totals_section_with_only_imported_portfolio(self):
-        """Test totals section displays only imported portfolio when reference is None."""
+        """Test totals section displays only imported portfolio when reference portfolios dict is empty."""
         imported_portfolio = SimplePortfolio(name="Test Portfolio")
         asset = Asset(ticker="GOOG", asset_type="Stock")
         trade = Trade(
@@ -1957,7 +1997,7 @@ class TestTotalsSectionDisplay:
             with patch("sys.stdout", new=StringIO()) as fake_out:
                 _display_totals_section(
                     imported_portfolio=imported_portfolio,
-                    reference_portfolio=None,
+                    reference_portfolios={},
                     price_service=mock_price_service,
                     target_date=None,
                 )
@@ -1966,6 +2006,7 @@ class TestTotalsSectionDisplay:
                 assert "Totals:" in output
                 assert "Imported Portfolio:" in output
                 assert "SPY Reference Portfolio:" not in output
+                assert "BTC-USD Reference Portfolio:" not in output
 
     def test_display_totals_section_with_target_date(self):
         """Test totals section calculates values against target_date."""
@@ -1992,7 +2033,7 @@ class TestTotalsSectionDisplay:
             with patch("sys.stdout", new=StringIO()) as fake_out:
                 _display_totals_section(
                     imported_portfolio=imported_portfolio,
-                    reference_portfolio=None,
+                    reference_portfolios={},
                     price_service=mock_price_service,
                     target_date=target_date,
                 )
@@ -2115,6 +2156,240 @@ class TestReferencePortfolioCreation:
                 currency_service=currency_service,
                 name="SPY Reference Portfolio",
             )
+
+    def test_btc_usd_reference_portfolio_creation_success(self):
+        """Test that BTC-USD reference portfolio can be created successfully."""
+        # Create a simple portfolio
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        # Create BTC-USD reference portfolio
+        btc_asset = Asset(ticker="BTC-USD", asset_type="Crypto")
+        strategy = BuyAndHoldStrategy(reference_asset=btc_asset)
+        currency_service = CurrencyService()
+        
+        mock_price_service = Mock(spec=PriceService)
+        mock_price_service.get_historical_price.return_value = 45000.0
+        
+        # Mock get_historical_prices for prefetch
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False, cached_prices_only=False):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    if ticker == "BTC-USD":
+                        prices[ticker][current] = 45000.0
+                current += timedelta(days=1)
+            return prices
+        
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+        
+        reference_portfolio = create_reference_portfolio(
+            original_portfolio=composite,
+            strategy=strategy,
+            price_service=mock_price_service,
+            currency_service=currency_service,
+            name="BTC-USD Reference Portfolio",
+        )
+        
+        # Verify reference portfolio was created
+        assert reference_portfolio is not None
+        assert reference_portfolio.name == "BTC-USD Reference Portfolio"
+        assert reference_portfolio.is_historical == composite.is_historical
+        
+        # Verify reference portfolio has trades
+        all_trades = reference_portfolio.get_all_trades()
+        assert len(all_trades) > 0
+        
+        # Verify all trades are for BTC-USD
+        for trade in all_trades:
+            assert trade.asset.ticker == "BTC-USD"
+            assert trade.asset.asset_type == "Crypto"
+
+    def test_both_reference_portfolios_creation_success(self):
+        """Test that both SPY and BTC-USD reference portfolios can be created successfully."""
+        # Create a simple portfolio
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        currency_service = CurrencyService()
+        mock_price_service = Mock(spec=PriceService)
+        
+        # Mock get_historical_price to return different prices for different assets
+        def mock_get_historical_price(ticker, asset_type, target_date, in_native_currency=False):
+            if ticker == "SPY":
+                return 400.0
+            elif ticker == "BTC-USD":
+                return 45000.0
+            return 0.0
+        
+        mock_price_service.get_historical_price.side_effect = mock_get_historical_price
+        
+        # Mock get_historical_prices for prefetch
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False, cached_prices_only=False):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    if ticker == "SPY":
+                        prices[ticker][current] = 400.0
+                    elif ticker == "BTC-USD":
+                        prices[ticker][current] = 45000.0
+                current += timedelta(days=1)
+            return prices
+        
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+        
+        # Create SPY reference portfolio
+        spy_asset = Asset(ticker="SPY", asset_type="ETF")
+        spy_strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
+        spy_reference = create_reference_portfolio(
+            original_portfolio=composite,
+            strategy=spy_strategy,
+            price_service=mock_price_service,
+            currency_service=currency_service,
+            name="SPY Reference Portfolio",
+        )
+        
+        # Create BTC-USD reference portfolio
+        btc_asset = Asset(ticker="BTC-USD", asset_type="Crypto")
+        btc_strategy = BuyAndHoldStrategy(reference_asset=btc_asset)
+        btc_reference = create_reference_portfolio(
+            original_portfolio=composite,
+            strategy=btc_strategy,
+            price_service=mock_price_service,
+            currency_service=currency_service,
+            name="BTC-USD Reference Portfolio",
+        )
+        
+        # Verify both reference portfolios were created
+        assert spy_reference is not None
+        assert spy_reference.name == "SPY Reference Portfolio"
+        assert btc_reference is not None
+        assert btc_reference.name == "BTC-USD Reference Portfolio"
+        
+        # Verify both have trades
+        spy_trades = spy_reference.get_all_trades()
+        btc_trades = btc_reference.get_all_trades()
+        assert len(spy_trades) > 0
+        assert len(btc_trades) > 0
+        
+        # Verify trades are for correct assets
+        for trade in spy_trades:
+            assert trade.asset.ticker == "SPY"
+        for trade in btc_trades:
+            assert trade.asset.ticker == "BTC-USD"
+
+    def test_partial_reference_portfolio_creation_failure(self):
+        """Test that if one reference portfolio fails, the other can still be created."""
+        # Create a simple portfolio
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        currency_service = CurrencyService()
+        
+        # Create SPY reference portfolio with working price service
+        spy_asset = Asset(ticker="SPY", asset_type="ETF")
+        spy_strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
+        
+        spy_price_service = Mock(spec=PriceService)
+        spy_price_service.get_historical_price.return_value = 400.0
+        
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False, cached_prices_only=False):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    if ticker == "SPY":
+                        prices[ticker][current] = 400.0
+                current += timedelta(days=1)
+            return prices
+        
+        spy_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+        
+        spy_reference = create_reference_portfolio(
+            original_portfolio=composite,
+            strategy=spy_strategy,
+            price_service=spy_price_service,
+            currency_service=currency_service,
+            name="SPY Reference Portfolio",
+        )
+        
+        # Verify SPY reference portfolio was created
+        assert spy_reference is not None
+        
+        # Try to create BTC-USD reference portfolio with failing price service
+        btc_asset = Asset(ticker="BTC-USD", asset_type="Crypto")
+        btc_strategy = BuyAndHoldStrategy(reference_asset=btc_asset)
+        
+        btc_price_service = Mock(spec=PriceService)
+        btc_price_service.get_historical_price.side_effect = ValueError("Price unavailable")
+        btc_price_service.get_historical_prices.side_effect = ValueError("Price unavailable")
+        
+        # Should raise ValueError when creating BTC-USD reference portfolio
+        with pytest.raises(ValueError, match="Price unavailable"):
+            create_reference_portfolio(
+                original_portfolio=composite,
+                strategy=btc_strategy,
+                price_service=btc_price_service,
+                currency_service=currency_service,
+                name="BTC-USD Reference Portfolio",
+            )
+        
+        # SPY reference portfolio should still be valid
+        assert spy_reference is not None
+        assert spy_reference.name == "SPY Reference Portfolio"
 
 
 class TestPercentageReturnCalculations:

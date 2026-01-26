@@ -36,9 +36,9 @@ wpm import [--end-date YYYY-MM-DD]
 - Each sub-portfolio is named based on the CSV filename (see Portfolio Naming below)
 - After import, fetches prices for all assets via PriceService (which manages cache internally)
   - For historical portfolios, uses historical prices from the end_date
-- After price fetching, automatically creates a SPY buy-and-hold reference portfolio for baseline comparison
-  - The reference portfolio mirrors the composite portfolio's trade structure but invests all cost basis into SPY
-  - If reference portfolio creation fails (e.g., price service unavailable), logs a warning and continues without it
+- After price fetching, automatically creates SPY and BTC-USD buy-and-hold reference portfolios for baseline comparison
+  - The reference portfolios mirror the composite portfolio's trade structure but invest all cost basis into SPY and BTC-USD respectively
+  - If a reference portfolio creation fails (e.g., price service unavailable), logs a warning and continues without that reference portfolio (other reference portfolios are still created if successful)
 - Enters interactive mode after successful import
 
 **Error Handling:**
@@ -189,7 +189,10 @@ See detailed description below in the Commands section.
   - **Imported Portfolio:**
     - Total Unrealized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, or "N/A" if no prices available)
     - Total Realized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, percentage shown if cost basis of sold lots > 0, otherwise "N/A")
-  - **SPY Reference Portfolio:** (if reference portfolio is available)
+  - **SPY Reference Portfolio:** (if SPY reference portfolio is available)
+    - Total Unrealized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, or "N/A" if no prices available)
+    - Total Realized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, percentage shown if cost basis of sold lots > 0, otherwise "N/A")
+  - **BTC-USD Reference Portfolio:** (if BTC-USD reference portfolio is available)
     - Total Unrealized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, or "N/A" if no prices available)
     - Total Realized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, percentage shown if cost basis of sold lots > 0, otherwise "N/A")
   - When `--up-to` is specified, all values are calculated against that date
@@ -210,6 +213,10 @@ See detailed description below in the Commands section.
   SPY Reference Portfolio:
     Total Unrealized P/L: +$2,000.00 (+1.45%)
     Total Realized P/L: +$100.00 (+0.50%)
+  
+  BTC-USD Reference Portfolio:
+    Total Unrealized P/L: +$3,000.00 (+2.18%)
+    Total Realized P/L: +$150.00 (+0.75%)
   ```
 
 **Error Handling:**

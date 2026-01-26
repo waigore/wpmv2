@@ -1720,7 +1720,7 @@ Formula: (realized_pnl / cost_basis_of_sold_lots) * 100
 def cmd_show_all(composite: CompositePortfolio,
                  price_service: PriceService,
                  up_to_date: Optional[date] = None,
-                 reference_portfolio: Optional[Portfolio] = None) -> None
+                 reference_portfolios: Dict[str, Portfolio] = None) -> None
 ```
 
 Handle 'show all' command.
@@ -1730,7 +1730,7 @@ Handle 'show all' command.
 - `composite` - Composite portfolio
 - `price_service` - Price service for retrieving current prices
 - `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
-- `reference_portfolio` - Optional reference portfolio for baseline comparison
+- `reference_portfolios` - Dictionary mapping reference portfolio names to Portfolio objects
 
 <a id="wpm.cli.cmd_show_asset"></a>
 
@@ -1918,7 +1918,7 @@ Handle 'metadata <ticker>' command.
 def run_interactive_mode(
         composite: CompositePortfolio,
         price_service: PriceService,
-        reference_portfolio: Optional[Portfolio] = None) -> None
+        reference_portfolios: Dict[str, Portfolio] = None) -> None
 ```
 
 Run interactive command loop.
@@ -1927,7 +1927,7 @@ Run interactive command loop.
 
 - `composite` - Composite portfolio
 - `price_service` - Price service for retrieving prices
-- `reference_portfolio` - Optional reference portfolio for baseline comparison
+- `reference_portfolios` - Dictionary mapping reference portfolio names to Portfolio objects
 
 <a id="wpm.cli.main"></a>
 
