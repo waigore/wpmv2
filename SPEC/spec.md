@@ -24,6 +24,11 @@ WPM is a Python library designed to manage and analyze financial portfolios. It 
 - `wpm/utils.py` - Utility functions for validation, logging setup, and helpers
 - `wpm/currency.py` - Currency conversion module using yfinance for forex rates
 - `wpm/asset.py` - Asset metadata retrieval and caching module
+- `wpm/reference/` - Reference portfolio creation package (baseline comparison portfolios)
+  - `wpm/reference/__init__.py` - Package initialization and public API exports
+  - `wpm/reference/strategy.py` - Abstract strategy interface and concrete implementations
+  - `wpm/reference/portfolio.py` - Reference portfolio creation functions
+  - `wpm/reference/fetcher.py` - Historical price fetcher interface and implementations
 - `wpm/docs/` - Generated markdown documentation (included in version control and package distribution)
 
 ## Module Requirements
@@ -49,6 +54,10 @@ The library consists of the following modules:
 - **wpm/currency.py**: Currency conversion using yfinance
 - **wpm/utils.py**: Utility functions for validation, logging, and trading hours
 - **wpm/asset.py**: Asset metadata retrieval and caching using price retrievers
+- **wpm/reference/**: Reference portfolio creation package for baseline comparison portfolios
+  - **strategy.py**: Abstract strategy interface and concrete implementations (e.g., BuyAndHoldStrategy)
+  - **portfolio.py**: Reference portfolio creation functions
+  - **fetcher.py**: Historical price fetcher interface and implementations with lookback fallback
 
 ## Data Models
 
@@ -219,6 +228,17 @@ The command-line interface displays allocation percentages alongside position in
 - `show asset <ticker>`: Shows allocation for the specified asset (both current and historical modes)
 
 Allocation is displayed in the format `| Allocation: XX.XX%` and is only shown when prices are available. For historical portfolios, allocation is shown for each date where the asset has a position. See [wpmrun.md](wpmrun.md) for detailed CLI command specifications.
+
+### Reference Portfolio Integration
+
+The CLI automatically creates a SPY buy-and-hold reference portfolio when importing CSV files. This reference portfolio provides a baseline comparison by mirroring the composite portfolio's trade structure but investing all cost basis into SPY. When using the `show all --up-to YYYY-MM-DD` command with historical portfolios, the reference portfolio's P/L is displayed after the weekly performance summary for easy comparison. See [wpmrun.md](wpmrun.md) for detailed CLI command specifications.
+
+**Historical Price Fetcher:**
+Reference portfolio creation uses a `HistoricalPriceFetcher` interface with a default implementation that provides fallback logic for weekends and holidays. When a crypto trade occurs on a weekend and is converted to a stock/ETF reference trade, the fetcher automatically looks back up to 1 week to find the previous trading day's price. 
+
+Before processing trades, the strategy's `prepare()` method is called, which requests the price fetcher to batch fetch all prices for the reference asset over the entire portfolio date range (from start_date - 7 days to end_date). This ensures prices are prefetched and cached for all trade dates upfront, avoiding slow per-day fetches for portfolios with long histories. The fetcher maintains an internal cache of prefetched prices for efficient lookup during trade processing.
+
+When requesting prices for weekends/holidays during lookback, the fetcher uses `cached_prices_only=True` to prevent the price retriever from being called (since stock prices cannot exist on non-trading days). This ensures reference portfolio creation succeeds even when original trades occur on non-trading days.
 
 ## Logging and Observability
 

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from wpm.asset import AssetService
+from wpm.currency import CurrencyService
 from wpm.importer import import_csv_files
 from wpm.metrics import (
     breakdown_by_asset_type,
@@ -31,6 +32,7 @@ from wpm.models import (
     Position,
     ValidationError,
 )
+from wpm.cost_basis import calculate_lots_from_trades
 from wpm.portfolio import (
     CompositePortfolio,
     _calculate_percentage_return_from_lots,
@@ -41,6 +43,8 @@ from wpm.portfolio import (
     SimplePortfolio,
 )
 from wpm.pricing import PriceService
+from wpm.reference.portfolio import create_reference_portfolio
+from wpm.reference.strategy import BuyAndHoldStrategy
 from wpm.utils import normalize_date
 
 logger = logging.getLogger(__name__)
@@ -599,10 +603,252 @@ def cmd_show_portfolio(
     print(f"Total Realized P/L: {format_unrealized_pnl(total_realized_pnl)}")
 
 
+def calculate_unrealized_pnl_percentage(
+    portfolio: Portfolio,
+    price_map: Dict[Asset, Optional[float]],
+    target_date: Optional[date] = None,
+) -> Optional[float]:
+    """Calculate unrealized P/L percentage return.
+    
+    Formula: (unrealized_pnl / cost_basis_of_remaining_lots) * 100
+    
+    Uses _calculate_percentage_return_from_lots which calculates percentage return
+    from lots (unrealized P/L / cost basis).
+    
+    Args:
+        portfolio: Portfolio to calculate percentage for
+        price_map: Dictionary mapping Asset to current/historical price (None if unavailable)
+        target_date: Optional date to filter trades up to (for historical calculations)
+    
+    Returns:
+        Percentage return as float, or None if cost basis is 0 or prices unavailable
+    """
+    # Get all trades from portfolio
+    all_trades = portfolio.get_all_trades()
+    
+    # Filter trades up to target_date if provided
+    if target_date is not None:
+        filtered_trades = [t for t in all_trades if t.date <= target_date]
+    else:
+        filtered_trades = all_trades
+    
+    if not filtered_trades:
+        return None
+    
+    # Convert price_map (Dict[Asset, Optional[float]]) to prices_by_ticker (Dict[str, float])
+    # Only include assets that have valid prices
+    prices_by_ticker: Dict[str, float] = {}
+    for asset, price in price_map.items():
+        if price is not None:
+            prices_by_ticker[asset.ticker] = price
+    
+    if not prices_by_ticker:
+        return None
+    
+    # Use existing function to calculate percentage return
+    try:
+        percentage = _calculate_percentage_return_from_lots(
+            filtered_trades, prices_by_ticker, ticker_filter=None
+        )
+        return percentage
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def calculate_realized_pnl_percentage(
+    portfolio: Portfolio,
+    target_date: Optional[date] = None,
+) -> Optional[float]:
+    """Calculate realized P/L percentage return.
+    
+    Formula: (realized_pnl / cost_basis_of_sold_lots) * 100
+    
+    Args:
+        portfolio: Portfolio to calculate percentage for
+        target_date: Optional date to filter trades up to (for historical calculations)
+    
+    Returns:
+        Percentage return as float, or None if cost basis of sold lots is 0
+    """
+    # Get all trades from portfolio
+    all_trades = portfolio.get_all_trades()
+    
+    # Filter trades up to target_date if provided
+    if target_date is not None:
+        filtered_trades = [t for t in all_trades if t.date <= target_date]
+    else:
+        filtered_trades = all_trades
+    
+    if not filtered_trades:
+        return None
+    
+    # Calculate lots from filtered trades
+    lots_by_asset = calculate_lots_from_trades(filtered_trades)
+    
+    # Calculate cost basis of sold lots and realized P/L
+    # Since we filtered trades by target_date, the lots already only contain matched_sells up to target_date
+    total_cost_basis_of_sold_lots = 0.0
+    total_realized_pnl = 0.0
+    
+    for asset, lots in lots_by_asset.items():
+        for lot in lots:
+            # Calculate cost basis of sold lots: sum(purchase_price * quantity_sold) for all matched_sells
+            # matched_sells are already filtered by target_date since we filtered trades before calculating lots
+            for sell_trade, quantity_sold in lot.matched_sells:
+                cost_basis_sold = float(quantity_sold) * lot.purchase_price
+                total_cost_basis_of_sold_lots += cost_basis_sold
+            
+            # Get realized P/L from this lot
+            # Since lots are calculated from filtered trades, get_realized_pnl() already returns filtered P/L
+            realized_pnl = lot.get_realized_pnl()
+            total_realized_pnl += realized_pnl
+    
+    # Calculate percentage return: (realized_pnl / cost_basis_of_sold_lots) * 100
+    if total_cost_basis_of_sold_lots == 0:
+        return None
+    
+    return (total_realized_pnl / total_cost_basis_of_sold_lots) * 100
+
+
+def _display_totals_section(
+    imported_portfolio: Portfolio,
+    reference_portfolio: Optional[Portfolio],
+    price_service: PriceService,
+    target_date: Optional[date] = None,
+) -> None:
+    """Display totals section with P/Ls and percentage returns for both portfolios.
+    
+    Args:
+        imported_portfolio: The main imported portfolio
+        reference_portfolio: Optional reference portfolio (SPY buy-and-hold)
+        price_service: Price service for fetching prices
+        target_date: Optional date to calculate values against (for --up-to)
+    """
+    print()  # Blank line separator
+    print("Totals:")
+    
+    # Calculate values for imported portfolio
+    try:
+        imported_price_map = fetch_price_map(imported_portfolio, price_service, target_date=target_date)
+        imported_unrealized_pnl = imported_portfolio.get_total_unrealized_pnl(imported_price_map)
+        
+        # Calculate realized P/L - if target_date is provided, calculate from filtered lots
+        if target_date is not None:
+            # Filter trades and calculate realized P/L from filtered lots
+            all_trades = imported_portfolio.get_all_trades()
+            filtered_trades = [t for t in all_trades if t.date <= target_date]
+            lots_by_asset = calculate_lots_from_trades(filtered_trades)
+            imported_realized_pnl = sum(
+                lot.get_realized_pnl() for lots in lots_by_asset.values() for lot in lots
+            )
+        else:
+            imported_realized_pnl = imported_portfolio.get_total_realized_pnl()
+        
+        imported_has_prices = any(price is not None for price in imported_price_map.values())
+        
+        imported_unrealized_pct = None
+        if imported_has_prices:
+            imported_unrealized_pct = calculate_unrealized_pnl_percentage(
+                imported_portfolio, imported_price_map, target_date
+            )
+        imported_realized_pct = calculate_realized_pnl_percentage(imported_portfolio, target_date)
+        
+        # Display imported portfolio totals
+        print("Imported Portfolio:")
+        if imported_has_prices:
+            unrealized_str = format_unrealized_pnl(imported_unrealized_pnl)
+            if imported_unrealized_pct is not None:
+                unrealized_str += f" ({imported_unrealized_pct:+.2f}%)"
+            print(f"  Total Unrealized P/L: {unrealized_str}")
+        else:
+            print("  Total Unrealized P/L: N/A")
+        
+        realized_str = format_unrealized_pnl(imported_realized_pnl)
+        if imported_realized_pct is not None:
+            realized_str += f" ({imported_realized_pct:+.2f}%)"
+        print(f"  Total Realized P/L: {realized_str}")
+    except Exception as e:
+        logger.warning(f"Failed to calculate imported portfolio totals: {e}")
+        # Still try to show realized P/L which doesn't depend on prices
+        try:
+            if target_date is not None:
+                all_trades = imported_portfolio.get_all_trades()
+                filtered_trades = [t for t in all_trades if t.date <= target_date]
+                lots_by_asset = calculate_lots_from_trades(filtered_trades)
+                imported_realized_pnl = sum(
+                    lot.get_realized_pnl() for lots in lots_by_asset.values() for lot in lots
+                )
+            else:
+                imported_realized_pnl = imported_portfolio.get_total_realized_pnl()
+            imported_realized_pct = calculate_realized_pnl_percentage(imported_portfolio, target_date)
+            
+            print("Imported Portfolio:")
+            print("  Total Unrealized P/L: N/A")
+            realized_str = format_unrealized_pnl(imported_realized_pnl)
+            if imported_realized_pct is not None:
+                realized_str += f" ({imported_realized_pct:+.2f}%)"
+            print(f"  Total Realized P/L: {realized_str}")
+        except Exception:
+            # If even realized P/L fails, just show N/A
+            print("Imported Portfolio:")
+            print("  Total Unrealized P/L: N/A")
+            print("  Total Realized P/L: N/A")
+    
+    # Calculate values for reference portfolio if available
+    if reference_portfolio is not None:
+        try:
+            reference_price_map = fetch_price_map(
+                reference_portfolio, price_service, target_date=target_date
+            )
+            reference_unrealized_pnl = reference_portfolio.get_total_unrealized_pnl(reference_price_map)
+            
+            # Calculate realized P/L - if target_date is provided, calculate from filtered lots
+            if target_date is not None:
+                # Filter trades and calculate realized P/L from filtered lots
+                all_trades = reference_portfolio.get_all_trades()
+                filtered_trades = [t for t in all_trades if t.date <= target_date]
+                lots_by_asset = calculate_lots_from_trades(filtered_trades)
+                reference_realized_pnl = sum(
+                    lot.get_realized_pnl() for lots in lots_by_asset.values() for lot in lots
+                )
+            else:
+                reference_realized_pnl = reference_portfolio.get_total_realized_pnl()
+            
+            reference_has_prices = any(price is not None for price in reference_price_map.values())
+            
+            reference_unrealized_pct = None
+            if reference_has_prices:
+                reference_unrealized_pct = calculate_unrealized_pnl_percentage(
+                    reference_portfolio, reference_price_map, target_date
+                )
+            reference_realized_pct = calculate_realized_pnl_percentage(reference_portfolio, target_date)
+            
+            # Display reference portfolio totals
+            print("SPY Reference Portfolio:")
+            if reference_has_prices:
+                unrealized_str = format_unrealized_pnl(reference_unrealized_pnl)
+                if reference_unrealized_pct is not None:
+                    unrealized_str += f" ({reference_unrealized_pct:+.2f}%)"
+                print(f"  Total Unrealized P/L: {unrealized_str}")
+            else:
+                print("  Total Unrealized P/L: N/A")
+            
+            realized_str = format_unrealized_pnl(reference_realized_pnl)
+            if reference_realized_pct is not None:
+                realized_str += f" ({reference_realized_pct:+.2f}%)"
+            print(f"  Total Realized P/L: {realized_str}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to calculate reference portfolio totals: {e}"
+            )
+            # Continue without displaying reference portfolio totals
+
+
 def cmd_show_all(
     composite: CompositePortfolio,
     price_service: PriceService,
     up_to_date: Optional[date] = None,
+    reference_portfolio: Optional[Portfolio] = None,
 ) -> None:
     """Handle 'show all' command.
 
@@ -610,6 +856,7 @@ def cmd_show_all(
         composite: Composite portfolio
         price_service: Price service for retrieving current prices
         up_to_date: Optional date for historical portfolios to show state up to this date with weekly summary
+        reference_portfolio: Optional reference portfolio for baseline comparison
     """
     # Handle --up-to argument for historical portfolios
     if up_to_date is not None:
@@ -627,6 +874,15 @@ def cmd_show_all(
                 composite, price_service, composite.start_date, up_to_date
             )
             _display_weekly_summary(history_points)
+            
+            # Display totals section with both portfolios
+            _display_totals_section(
+                imported_portfolio=composite,
+                reference_portfolio=reference_portfolio,
+                price_service=price_service,
+                target_date=up_to_date,
+            )
+            
             return
         except Exception as e:
             print(f"Error calculating historical performance: {e}")
@@ -659,23 +915,13 @@ def cmd_show_all(
         allocation = allocations.get(asset) if allocations else None
         print(format_position_line(position, price, composite.is_historical, composite.end_date, allocation))
 
-    # Display summary
-    print()  # Blank line before summary
-    total_cost_basis = composite.get_total_cost_basis()
-    total_market_value = composite.get_total_market_value(price_map)
-    total_unrealized_pnl = composite.get_total_unrealized_pnl(price_map)
-    total_realized_pnl = composite.get_total_realized_pnl()
-
-    # Check if we have any prices available
-    has_prices = any(price is not None for price in price_map.values())
-
-    print(f"Total Market Value: {format_currency(total_market_value) if has_prices else 'N/A'}")
-    print(f"Total Cost Basis: {format_currency(total_cost_basis)}")
-    if has_prices:
-        print(f"Total Unrealized P/L: {format_unrealized_pnl(total_unrealized_pnl)}")
-    else:
-        print("Total Unrealized P/L: N/A")
-    print(f"Total Realized P/L: {format_unrealized_pnl(total_realized_pnl)}")
+    # Display totals section with both portfolios
+    _display_totals_section(
+        imported_portfolio=composite,
+        reference_portfolio=reference_portfolio,
+        price_service=price_service,
+        target_date=None,  # Current date for non-historical
+    )
 
 
 def cmd_show_asset(
@@ -1193,13 +1439,16 @@ def cmd_metadata(
 
 
 def run_interactive_mode(
-    composite: CompositePortfolio, price_service: PriceService
+    composite: CompositePortfolio,
+    price_service: PriceService,
+    reference_portfolio: Optional[Portfolio] = None,
 ) -> None:
     """Run interactive command loop.
 
     Args:
         composite: Composite portfolio
         price_service: Price service for retrieving prices
+        reference_portfolio: Optional reference portfolio for baseline comparison
     """
     print("Entering interactive mode. Type 'Quit' to exit.")
     logger.info("Entering interactive mode")
@@ -1239,7 +1488,7 @@ def run_interactive_mode(
                     if remaining_args:
                         print("Unknown arguments: 'show all' only accepts --up-to YYYY-MM-DD")
                     else:
-                        cmd_show_all(composite, price_service, up_to_date)
+                        cmd_show_all(composite, price_service, up_to_date, reference_portfolio)
                 elif len(args) >= 2 and args[0] == "portfolio":
                     # Parse --up-to argument if present
                     portfolio_name = args[1]
@@ -1335,8 +1584,30 @@ def main() -> None:
         price_service = PriceService()
         fetch_prices_for_portfolio(composite, price_service)
 
+        # Create SPY reference portfolio for baseline comparison
+        reference_portfolio: Optional[Portfolio] = None
+        try:
+            spy_asset = Asset(ticker="SPY", asset_type="ETF")
+            strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
+            currency_service = CurrencyService()
+            reference_portfolio = create_reference_portfolio(
+                original_portfolio=composite,
+                strategy=strategy,
+                price_service=price_service,
+                currency_service=currency_service,
+                name="SPY Reference Portfolio",
+            )
+            logger.info("Successfully created SPY reference portfolio")
+        except Exception as e:
+            logger.warning(
+                f"Failed to create SPY reference portfolio: {e}. "
+                "Continuing without reference portfolio."
+            )
+            # Continue without reference portfolio - set to None
+            reference_portfolio = None
+
         # Enter interactive mode
-        run_interactive_mode(composite, price_service)
+        run_interactive_mode(composite, price_service, reference_portfolio)
     else:
         print(f"Unknown command: {args.command}", file=sys.stderr)
         sys.exit(1)

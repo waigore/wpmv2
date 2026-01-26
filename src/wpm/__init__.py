@@ -33,6 +33,11 @@ from wpm.metrics import (
 from wpm.models import Asset, Portfolio, Position, Trade
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
 from wpm.pricing import PriceRetriever, PriceService
+from wpm.reference import (
+    BuyAndHoldStrategy,
+    ReferenceStrategy,
+    create_reference_portfolio,
+)
 from wpm.utils import setup_logging
 
 __all__ = [
@@ -61,6 +66,10 @@ __all__ = [
     "breakdown_by_purchase_period",
     "breakdown_by_broker",
     "calculate_market_value",
+    # Reference portfolios
+    "ReferenceStrategy",
+    "BuyAndHoldStrategy",
+    "create_reference_portfolio",
     # Utils
     "setup_logging",
 ]

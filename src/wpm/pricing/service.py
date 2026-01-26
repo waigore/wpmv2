@@ -290,6 +290,7 @@ class PriceService:
         start_date: date,
         end_date: date,
         in_native_currency: bool = False,
+        cached_prices_only: bool = False,
     ) -> Dict[str, Dict[date, float]]:
         """Get historical prices for multiple assets over a date range.
 
@@ -301,12 +302,15 @@ class PriceService:
             start_date: Start date (inclusive)
             end_date: End date (inclusive)
             in_native_currency: If True, return prices in native currency; if False, return USD (default)
+            cached_prices_only: If True, only use cached prices and don't fall back to retriever.
+                If cache miss occurs, raises ValueError. Default False for backward compatibility.
 
         Returns:
             Dictionary mapping ticker to dictionary mapping date to price (in USD or native currency)
 
         Raises:
-            ValueError: If no price data can be obtained for any ticker
+            ValueError: If no price data can be obtained for any ticker, or if cached_prices_only=True
+                and cache miss occurs
         """
         logger.info(
             f"Historical price request for {len(tickers)} {asset_type} assets "
@@ -352,6 +356,14 @@ class PriceService:
 
         # Fetch missing prices in batch
         if uncached_tickers:
+            if cached_prices_only:
+                # Don't fetch from retriever, raise error if cache miss
+                failed_list = ", ".join(uncached_tickers)
+                raise ValueError(
+                    f"No cached prices available for tickers ({asset_type}): {failed_list}. "
+                    f"cached_prices_only=True requires all prices to be in cache."
+                )
+            
             self.rate_limiter.wait_if_needed()
 
             # For historical crypto prices, use YahooFinanceRetriever (yfinance supports longer ranges)

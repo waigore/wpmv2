@@ -192,3 +192,104 @@ class TestPriceServiceHistorical:
             assert isinstance(prices["GOOG"], dict)
             assert isinstance(prices["AAPL"], dict)
 
+    @patch("wpm.pricing.service.CurrencyService")
+    def test_get_historical_prices_cached_prices_only_false(self, mock_currency_service_class):
+        """Test get_historical_prices with cached_prices_only=False (default behavior)."""
+        mock_currency_service = Mock()
+        mock_currency_service.convert_to_usd.return_value = 150.0
+        mock_currency_service_class.return_value = mock_currency_service
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            historical_cache_file = Path(temp_dir) / "test_historical_cache.parquet"
+            service = PriceService(
+                cache_file=cache_file,
+                historical_cache_file=historical_cache_file,
+                currency_service=mock_currency_service
+            )
+            
+            mock_stock_retriever = Mock()
+            dates = pd.date_range(start=date(2024, 1, 15), end=date(2024, 1, 20), freq="D")
+            prices_df = pd.DataFrame({"price": [150.0] * 6}, index=dates)
+            prices_df.index.name = "date"
+            mock_stock_retriever.get_historical_prices.return_value = {"GOOG": prices_df}
+            mock_stock_retriever._detect_currency.return_value = "USD"
+            service._stock_retriever = mock_stock_retriever
+            
+            # Call with cached_prices_only=False (default)
+            prices = service.get_historical_prices(
+                ["GOOG"], "Stock", date(2024, 1, 15), date(2024, 1, 20),
+                cached_prices_only=False
+            )
+            
+            # Should call retriever (normal behavior)
+            assert mock_stock_retriever.get_historical_prices.call_count == 1
+            assert "GOOG" in prices
+
+    @patch("wpm.pricing.service.CurrencyService")
+    def test_get_historical_prices_cached_prices_only_true_with_cache(self, mock_currency_service_class):
+        """Test get_historical_prices with cached_prices_only=True when cache exists."""
+        mock_currency_service = Mock()
+        mock_currency_service.convert_to_usd.return_value = 150.0
+        mock_currency_service_class.return_value = mock_currency_service
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            historical_cache_file = Path(temp_dir) / "test_historical_cache.parquet"
+            service = PriceService(
+                cache_file=cache_file,
+                historical_cache_file=historical_cache_file,
+                currency_service=mock_currency_service
+            )
+            
+            # Pre-populate cache
+            dates = pd.date_range(start=date(2024, 1, 15), end=date(2024, 1, 20), freq="D")
+            prices_df = pd.DataFrame({"price": [150.0] * 6}, index=dates)
+            prices_df.index.name = "date"
+            service.historical_cache.set_cached_prices(
+                "GOOG", "Stock", prices_df, native_prices_df=prices_df, native_currency="USD"
+            )
+            
+            mock_stock_retriever = Mock()
+            service._stock_retriever = mock_stock_retriever
+            
+            # Call with cached_prices_only=True
+            prices = service.get_historical_prices(
+                ["GOOG"], "Stock", date(2024, 1, 15), date(2024, 1, 20),
+                cached_prices_only=True
+            )
+            
+            # Should NOT call retriever when cache exists
+            mock_stock_retriever.get_historical_prices.assert_not_called()
+            assert "GOOG" in prices
+            assert len(prices["GOOG"]) == 6
+
+    @patch("wpm.pricing.service.CurrencyService")
+    def test_get_historical_prices_cached_prices_only_true_without_cache(self, mock_currency_service_class):
+        """Test get_historical_prices with cached_prices_only=True when cache miss raises error."""
+        mock_currency_service = Mock()
+        mock_currency_service.convert_to_usd.return_value = 150.0
+        mock_currency_service_class.return_value = mock_currency_service
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "test_cache.parquet"
+            historical_cache_file = Path(temp_dir) / "test_historical_cache.parquet"
+            service = PriceService(
+                cache_file=cache_file,
+                historical_cache_file=historical_cache_file,
+                currency_service=mock_currency_service
+            )
+            
+            mock_stock_retriever = Mock()
+            service._stock_retriever = mock_stock_retriever
+            
+            # Call with cached_prices_only=True but no cache
+            with pytest.raises(ValueError, match="No cached prices available"):
+                service.get_historical_prices(
+                    ["GOOG"], "Stock", date(2024, 1, 15), date(2024, 1, 20),
+                    cached_prices_only=True
+                )
+            
+            # Should NOT call retriever when cached_prices_only=True
+            mock_stock_retriever.get_historical_prices.assert_not_called()
+

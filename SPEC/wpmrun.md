@@ -36,6 +36,9 @@ wpm import [--end-date YYYY-MM-DD]
 - Each sub-portfolio is named based on the CSV filename (see Portfolio Naming below)
 - After import, fetches prices for all assets via PriceService (which manages cache internally)
   - For historical portfolios, uses historical prices from the end_date
+- After price fetching, automatically creates a SPY buy-and-hold reference portfolio for baseline comparison
+  - The reference portfolio mirrors the composite portfolio's trade structure but invests all cost basis into SPY
+  - If reference portfolio creation fails (e.g., price service unavailable), logs a warning and continues without it
 - Enters interactive mode after successful import
 
 **Error Handling:**
@@ -167,7 +170,7 @@ See detailed description below in the Commands section.
 **Description:** Lists all assets in the composite portfolio (aggregated across all sub-portfolios), including current market value.
 
 **Arguments:**
-- `[--up-to YYYY-MM-DD]`: Optional date for historical portfolios. Shows weekly performance summary up to (and including) this date
+- `[--up-to YYYY-MM-DD]`: Optional date for historical portfolios. Shows weekly performance summary up to (and including) this date. When specified, totals section values are calculated against this date
 
 **Output Format:**
 - Same format as `show portfolio`, but showing aggregated positions
@@ -182,21 +185,31 @@ See detailed description below in the Commands section.
 - Allocation is rounded to 2 decimal places and displayed only when prices are available
 - All allocations should sum to 100.00% (within rounding tolerance)
 - If price retrieval fails for an asset type, logs a warning and displays "N/A" for the value (price and allocation are not shown when value is N/A) for all assets of that type, but continues processing other asset types
-- After all position lines, display a summary section with:
-  - Total Market Value: `<formatted_value>` (or "N/A" if no prices available)
-  - Total Cost Basis: `<formatted_value>` (always displayed, doesn't depend on prices)
-  - Total Unrealized P/L: `<formatted_value>` (with + prefix for profit, - for loss, or "N/A" if no prices available)
-  - Total Realized P/L: `<formatted_value>` (with + prefix for profit, - for loss, always displayed since realized P/L doesn't depend on prices)
+- After all position lines (or after weekly summary if `--up-to` is specified), display a Totals section with:
+  - **Imported Portfolio:**
+    - Total Unrealized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, or "N/A" if no prices available)
+    - Total Realized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, percentage shown if cost basis of sold lots > 0, otherwise "N/A")
+  - **SPY Reference Portfolio:** (if reference portfolio is available)
+    - Total Unrealized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, or "N/A" if no prices available)
+    - Total Realized P/L: `<formatted_value> (X.XX%)` (with + prefix for profit, - for loss, percentage shown if cost basis of sold lots > 0, otherwise "N/A")
+  - When `--up-to` is specified, all values are calculated against that date
+  - Percentage returns are calculated as:
+    - Unrealized P/L percentage: `(unrealized_pnl / cost_basis_of_remaining_lots) * 100`
+    - Realized P/L percentage: `(realized_pnl / cost_basis_of_sold_lots) * 100`
 - Example (current portfolio):
   ```
   AAPL (Stock): 100.0 @ $150.00 = $15,000.00 | Current Value = $16,000.00 @ $160.00 | Allocation: 11.11%
   BTC-USD (Crypto): 0.5 @ $45,000.00 = $22,500.00 | Current Value = $23,000.00 @ $46,000.00 | Allocation: 15.97%
   GOOG (Stock): 50.0 @ $2,000.00 = $100,000.00 | Current Value = $105,000.00 @ $2,100.00 | Allocation: 72.92%
 
-  Total Market Value: $144,000.00
-  Total Cost Basis: $137,500.00
-  Total Unrealized P/L: +$6,500.00
-  Total Realized P/L: +$500.00
+  Totals:
+  Imported Portfolio:
+    Total Unrealized P/L: +$6,500.00 (+4.73%)
+    Total Realized P/L: +$500.00 (+2.50%)
+  
+  SPY Reference Portfolio:
+    Total Unrealized P/L: +$2,000.00 (+1.45%)
+    Total Realized P/L: +$100.00 (+0.50%)
   ```
 
 **Error Handling:**

@@ -20,11 +20,17 @@ from wpm.cli import (
     format_position_line,
     format_market_cap,
     _display_weekly_summary,
+    calculate_unrealized_pnl_percentage,
+    calculate_realized_pnl_percentage,
+    _display_totals_section,
 )
 from wpm.models import Asset, PortfolioHistoryPoint, Trade
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
 from wpm.pricing import PriceService
+from wpm.reference.portfolio import create_reference_portfolio
+from wpm.reference.strategy import BuyAndHoldStrategy
+from wpm.currency import CurrencyService
 
 
 class TestParseUpToDate:
@@ -1591,4 +1597,726 @@ class TestCmdMetadata:
                 assert "Type: Stock" in output  # Default inference
                 # Verify get_metadata was called with inferred type
                 mock_asset_service.get_metadata.assert_called_once_with("TEST", "Stock")
+
+
+class TestReferencePortfolioInCLI:
+    """Tests for reference portfolio integration in CLI."""
+
+    def test_cmd_show_all_with_reference_portfolio_and_up_to(self):
+        """Test show all with --up-to displays reference portfolio P/L."""
+        # Create main portfolio
+        portfolio = SimplePortfolio(name="Test Portfolio", is_historical=True)
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        composite = CompositePortfolio(name="Composite", is_historical=True)
+        composite.add_sub_portfolio(portfolio)
+
+        # Create reference portfolio
+        spy_asset = Asset(ticker="SPY", asset_type="ETF")
+        strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
+        currency_service = CurrencyService()
+        
+        mock_price_service = Mock(spec=PriceService)
+        
+        # Mock historical prices for main portfolio
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False, cached_prices_only=False):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    if ticker == "GOOG":
+                        prices[ticker][current] = 155.0
+                    elif ticker == "SPY":
+                        prices[ticker][current] = 400.0
+                current += timedelta(days=1)
+            return prices
+        
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+        
+        # Mock get_historical_price for reference portfolio creation
+        def mock_get_historical_price(ticker, asset_type, target_date, in_native_currency):
+            if ticker == "SPY":
+                return 400.0
+            return None
+        
+        mock_price_service.get_historical_price.side_effect = mock_get_historical_price
+        
+        # Create reference portfolio
+        reference_portfolio = create_reference_portfolio(
+            original_portfolio=composite,
+            strategy=strategy,
+            price_service=mock_price_service,
+            currency_service=currency_service,
+            name="SPY Reference Portfolio",
+        )
+
+        # Mock fetch_price_map for reference portfolio
+        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+            # First call for main portfolio (in get_historical_performance)
+            # Second call for reference portfolio
+            spy_ref_asset = Asset(ticker="SPY", asset_type="ETF")
+            mock_fetch_price_map.return_value = {spy_ref_asset: 410.0}
+            
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_show_all(
+                    composite, mock_price_service, date(2024, 1, 17), reference_portfolio
+                )
+                output = fake_out.getvalue()
+                assert "Weekly Performance Summary:" in output
+                assert "Totals:" in output
+                assert "Imported Portfolio:" in output
+                assert "SPY Reference Portfolio:" in output
+                assert "Total Unrealized P/L:" in output
+                assert "Total Realized P/L:" in output
+                # Check for percentage returns
+                assert "%" in output
+
+    def test_cmd_show_all_with_reference_portfolio_no_up_to(self):
+        """Test show all without --up-to displays totals section with both portfolios."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        # Create reference portfolio
+        spy_asset = Asset(ticker="SPY", asset_type="ETF")
+        strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
+        currency_service = CurrencyService()
+        
+        mock_price_service = Mock(spec=PriceService)
+        mock_price_service.get_historical_price.return_value = 400.0
+        
+        # Mock get_historical_prices for prefetch (called by strategy.prepare())
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False, cached_prices_only=False):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    if ticker == "SPY":
+                        prices[ticker][current] = 400.0
+                current += timedelta(days=1)
+            return prices
+        
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+        
+        reference_portfolio = create_reference_portfolio(
+            original_portfolio=composite,
+            strategy=strategy,
+            price_service=mock_price_service,
+            currency_service=currency_service,
+            name="SPY Reference Portfolio",
+        )
+
+        with patch("wpm.cli.fetch_price_map") as mock_fetch_price_map:
+            mock_fetch_price_map.return_value = {asset: 160.0}
+            
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_show_all(composite, mock_price_service, None, reference_portfolio)
+                output = fake_out.getvalue()
+                # Should display totals section with both portfolios
+                assert "Totals:" in output
+                assert "Imported Portfolio:" in output
+                assert "SPY Reference Portfolio:" in output
+                assert "Total Unrealized P/L:" in output
+                assert "Total Realized P/L:" in output
+
+    def test_cmd_show_all_with_none_reference_portfolio(self):
+        """Test show all handles None reference portfolio gracefully."""
+        portfolio = SimplePortfolio(name="Test Portfolio", is_historical=True)
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        composite = CompositePortfolio(name="Composite", is_historical=True)
+        composite.add_sub_portfolio(portfolio)
+
+        mock_price_service = Mock(spec=PriceService)
+        
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    prices[ticker][current] = 155.0
+                current += timedelta(days=1)
+            return prices
+        
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_show_all(composite, mock_price_service, date(2024, 1, 17), None)
+            output = fake_out.getvalue()
+            assert "Weekly Performance Summary:" in output
+            # Should not display reference portfolio P/L when None
+            assert "SPY Reference Portfolio:" not in output
+
+    def test_cmd_show_all_reference_portfolio_handles_price_error(self):
+        """Test show all handles price errors for reference portfolio gracefully."""
+        portfolio = SimplePortfolio(name="Test Portfolio", is_historical=True)
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        composite = CompositePortfolio(name="Composite", is_historical=True)
+        composite.add_sub_portfolio(portfolio)
+
+        # Create reference portfolio
+        spy_asset = Asset(ticker="SPY", asset_type="ETF")
+        strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
+        currency_service = CurrencyService()
+        
+        mock_price_service = Mock(spec=PriceService)
+        
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False, cached_prices_only=False):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    if ticker == "SPY":
+                        prices[ticker][current] = 400.0
+                    else:
+                        prices[ticker][current] = 155.0
+                current += timedelta(days=1)
+            return prices
+        
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+        mock_price_service.get_historical_price.return_value = 400.0
+        
+        reference_portfolio = create_reference_portfolio(
+            original_portfolio=composite,
+            strategy=strategy,
+            price_service=mock_price_service,
+            currency_service=currency_service,
+            name="SPY Reference Portfolio",
+        )
+
+        # Mock fetch_price_map to raise exception for reference portfolio only
+        call_count = [0]
+        def mock_fetch_price_map(portfolio, price_service, target_date=None):
+            call_count[0] += 1
+            # First call is for imported portfolio in get_historical_performance (succeeds)
+            # Second call is for imported portfolio in _display_totals_section (should succeed)
+            # Third call is for reference portfolio in _display_totals_section (should fail)
+            if call_count[0] <= 2:
+                # Return price map for imported portfolio
+                return {asset: 155.0}
+            else:
+                # Raise error for reference portfolio
+                raise Exception("Price error")
+        
+        with patch("wpm.cli.fetch_price_map", side_effect=mock_fetch_price_map):
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                # Should not crash, just skip reference portfolio display
+                cmd_show_all(
+                    composite, mock_price_service, date(2024, 1, 17), reference_portfolio
+                )
+                output = fake_out.getvalue()
+                assert "Weekly Performance Summary:" in output
+                assert "Totals:" in output
+                assert "Imported Portfolio:" in output
+                # Reference portfolio may not be displayed if there's an error, but totals section should still appear
+
+
+class TestTotalsSectionDisplay:
+    """Tests for totals section display function."""
+
+    def test_display_totals_section_with_both_portfolios(self):
+        """Test totals section displays both imported and reference portfolios."""
+        imported_portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        imported_portfolio.add_trade(trade)
+        
+        reference_portfolio = SimplePortfolio(name="SPY Reference Portfolio")
+        spy_asset = Asset(ticker="SPY", asset_type="ETF")
+        spy_trade = Trade(
+            date=date(2024, 1, 15),
+            asset=spy_asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=400.0,
+            price_native=400.0,
+            quantity=3.75,
+        )
+        reference_portfolio.add_trade(spy_trade)
+        
+        mock_price_service = Mock(spec=PriceService)
+        
+        # Mock fetch_price_map to return prices
+        call_count = [0]
+        def mock_fetch_price_map(portfolio, price_service, target_date=None):
+            call_count[0] += 1
+            if portfolio == imported_portfolio:
+                return {asset: 160.0}
+            else:
+                return {spy_asset: 410.0}
+        
+        with patch("wpm.cli.fetch_price_map", side_effect=mock_fetch_price_map):
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                _display_totals_section(
+                    imported_portfolio=imported_portfolio,
+                    reference_portfolio=reference_portfolio,
+                    price_service=mock_price_service,
+                    target_date=None,
+                )
+                output = fake_out.getvalue()
+                
+                assert "Totals:" in output
+                assert "Imported Portfolio:" in output
+                assert "SPY Reference Portfolio:" in output
+                assert "Total Unrealized P/L:" in output
+                assert "Total Realized P/L:" in output
+                # Check for percentage returns
+                assert "%" in output
+
+    def test_display_totals_section_with_only_imported_portfolio(self):
+        """Test totals section displays only imported portfolio when reference is None."""
+        imported_portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        imported_portfolio.add_trade(trade)
+        
+        mock_price_service = Mock(spec=PriceService)
+        
+        def mock_fetch_price_map(portfolio, price_service, target_date=None):
+            return {asset: 160.0}
+        
+        with patch("wpm.cli.fetch_price_map", side_effect=mock_fetch_price_map):
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                _display_totals_section(
+                    imported_portfolio=imported_portfolio,
+                    reference_portfolio=None,
+                    price_service=mock_price_service,
+                    target_date=None,
+                )
+                output = fake_out.getvalue()
+                
+                assert "Totals:" in output
+                assert "Imported Portfolio:" in output
+                assert "SPY Reference Portfolio:" not in output
+
+    def test_display_totals_section_with_target_date(self):
+        """Test totals section calculates values against target_date."""
+        imported_portfolio = SimplePortfolio(name="Test Portfolio", is_historical=True)
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        imported_portfolio.add_trade(trade)
+        
+        mock_price_service = Mock(spec=PriceService)
+        target_date = date(2024, 1, 17)
+        
+        mock_fetch_price_map = Mock(return_value={asset: 160.0})
+        
+        with patch("wpm.cli.fetch_price_map", mock_fetch_price_map):
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                _display_totals_section(
+                    imported_portfolio=imported_portfolio,
+                    reference_portfolio=None,
+                    price_service=mock_price_service,
+                    target_date=target_date,
+                )
+                output = fake_out.getvalue()
+                
+                assert "Totals:" in output
+                assert "Imported Portfolio:" in output
+                # Verify fetch_price_map was called with target_date
+                mock_fetch_price_map.assert_called_once_with(
+                    imported_portfolio, mock_price_service, target_date=target_date
+                )
+
+
+class TestReferencePortfolioCreation:
+    """Tests for reference portfolio creation in CLI."""
+
+    def test_reference_portfolio_creation_success(self):
+        """Test that reference portfolio can be created successfully."""
+        # Create a simple portfolio
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        # Create reference portfolio
+        spy_asset = Asset(ticker="SPY", asset_type="ETF")
+        strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
+        currency_service = CurrencyService()
+        
+        mock_price_service = Mock(spec=PriceService)
+        mock_price_service.get_historical_price.return_value = 400.0
+        
+        # Mock get_historical_prices for prefetch
+        def mock_get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False, cached_prices_only=False):
+            from datetime import timedelta
+            prices = {}
+            current = start_date
+            while current <= end_date:
+                for ticker in tickers:
+                    if ticker not in prices:
+                        prices[ticker] = {}
+                    if ticker == "SPY":
+                        prices[ticker][current] = 400.0
+                current += timedelta(days=1)
+            return prices
+        
+        mock_price_service.get_historical_prices.side_effect = mock_get_historical_prices
+        
+        reference_portfolio = create_reference_portfolio(
+            original_portfolio=composite,
+            strategy=strategy,
+            price_service=mock_price_service,
+            currency_service=currency_service,
+            name="SPY Reference Portfolio",
+        )
+        
+        # Verify reference portfolio was created
+        assert reference_portfolio is not None
+        assert reference_portfolio.name == "SPY Reference Portfolio"
+        assert reference_portfolio.is_historical == composite.is_historical
+        
+        # Verify reference portfolio has trades
+        all_trades = reference_portfolio.get_all_trades()
+        assert len(all_trades) > 0
+        
+        # Verify all trades are for SPY
+        for trade in all_trades:
+            assert trade.asset.ticker == "SPY"
+            assert trade.asset.asset_type == "ETF"
+
+    def test_reference_portfolio_creation_handles_error(self):
+        """Test that reference portfolio creation error is handled gracefully."""
+        # Create a simple portfolio
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+
+        composite = CompositePortfolio(name="Composite")
+        composite.add_sub_portfolio(portfolio)
+
+        # Create reference portfolio with price service that fails
+        spy_asset = Asset(ticker="SPY", asset_type="ETF")
+        strategy = BuyAndHoldStrategy(reference_asset=spy_asset)
+        currency_service = CurrencyService()
+        
+        mock_price_service = Mock(spec=PriceService)
+        # Make price service raise error for both methods
+        # The fetcher will try get_historical_price first, then get_historical_prices for lookback
+        mock_price_service.get_historical_price.side_effect = ValueError("Price unavailable")
+        mock_price_service.get_historical_prices.side_effect = ValueError("Price unavailable")
+        
+        # Should raise ValueError when creating reference portfolio
+        with pytest.raises(ValueError, match="Price unavailable"):
+            create_reference_portfolio(
+                original_portfolio=composite,
+                strategy=strategy,
+                price_service=mock_price_service,
+                currency_service=currency_service,
+                name="SPY Reference Portfolio",
+            )
+
+
+class TestPercentageReturnCalculations:
+    """Tests for percentage return calculation helper functions."""
+
+    def test_calculate_unrealized_pnl_percentage_with_valid_prices(self):
+        """Test calculating unrealized P/L percentage with valid prices."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+        
+        # Price increased to $160, so unrealized P/L = (160 - 150) * 10 = $100
+        # Cost basis = 150 * 10 = $1500
+        # Percentage = (100 / 1500) * 100 = 6.67%
+        price_map = {asset: 160.0}
+        
+        percentage = calculate_unrealized_pnl_percentage(portfolio, price_map)
+        
+        assert percentage is not None
+        assert abs(percentage - 6.666666666666667) < 0.01
+
+    def test_calculate_unrealized_pnl_percentage_with_zero_cost_basis(self):
+        """Test calculating unrealized P/L percentage with zero cost basis returns None."""
+        portfolio = SimplePortfolio(name="Empty Portfolio")
+        price_map = {}
+        
+        percentage = calculate_unrealized_pnl_percentage(portfolio, price_map)
+        
+        assert percentage is None
+
+    def test_calculate_unrealized_pnl_percentage_with_missing_prices(self):
+        """Test calculating unrealized P/L percentage with missing prices returns None."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(trade)
+        
+        # No prices available
+        price_map = {asset: None}
+        
+        percentage = calculate_unrealized_pnl_percentage(portfolio, price_map)
+        
+        assert percentage is None
+
+    def test_calculate_unrealized_pnl_percentage_with_target_date(self):
+        """Test calculating unrealized P/L percentage with target_date filtering."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade1 = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        trade2 = Trade(
+            date=date(2024, 1, 20),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=155.0,
+            price_native=155.0,
+            quantity=5.0,
+        )
+        portfolio.add_trade(trade1)
+        portfolio.add_trade(trade2)
+        
+        # Price at target_date (2024-01-18) is $160
+        # Only first trade should be included
+        price_map = {asset: 160.0}
+        
+        percentage = calculate_unrealized_pnl_percentage(
+            portfolio, price_map, target_date=date(2024, 1, 18)
+        )
+        
+        assert percentage is not None
+        # Only first trade: (160 - 150) * 10 / (150 * 10) * 100 = 6.67%
+        assert abs(percentage - 6.666666666666667) < 0.01
+
+    def test_calculate_realized_pnl_percentage_with_sold_lots(self):
+        """Test calculating realized P/L percentage with sold lots."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        buy_trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        sell_trade = Trade(
+            date=date(2024, 1, 20),
+            asset=asset,
+            action="Sell",
+            broker="IBKR",
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=5.0,
+        )
+        portfolio.add_trade(buy_trade)
+        portfolio.add_trade(sell_trade)
+        
+        # Realized P/L = (160 - 150) * 5 = $50
+        # Cost basis of sold lots = 150 * 5 = $750
+        # Percentage = (50 / 750) * 100 = 6.67%
+        percentage = calculate_realized_pnl_percentage(portfolio)
+        
+        assert percentage is not None
+        assert abs(percentage - 6.666666666666667) < 0.01
+
+    def test_calculate_realized_pnl_percentage_with_zero_cost_basis(self):
+        """Test calculating realized P/L percentage with zero cost basis returns None."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        # Only buy, no sells
+        buy_trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        portfolio.add_trade(buy_trade)
+        
+        percentage = calculate_realized_pnl_percentage(portfolio)
+        
+        assert percentage is None
+
+    def test_calculate_realized_pnl_percentage_with_target_date(self):
+        """Test calculating realized P/L percentage with target_date filtering."""
+        portfolio = SimplePortfolio(name="Test Portfolio")
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        buy_trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        sell_trade1 = Trade(
+            date=date(2024, 1, 20),
+            asset=asset,
+            action="Sell",
+            broker="IBKR",
+            currency="USD",
+            price=160.0,
+            price_native=160.0,
+            quantity=3.0,
+        )
+        sell_trade2 = Trade(
+            date=date(2024, 1, 25),
+            asset=asset,
+            action="Sell",
+            broker="IBKR",
+            currency="USD",
+            price=165.0,
+            price_native=165.0,
+            quantity=2.0,
+        )
+        portfolio.add_trade(buy_trade)
+        portfolio.add_trade(sell_trade1)
+        portfolio.add_trade(sell_trade2)
+        
+        # With target_date = 2024-01-22, only first sell should be included
+        # Realized P/L = (160 - 150) * 3 = $30
+        # Cost basis of sold lots = 150 * 3 = $450
+        # Percentage = (30 / 450) * 100 = 6.67%
+        percentage = calculate_realized_pnl_percentage(portfolio, target_date=date(2024, 1, 22))
+        
+        assert percentage is not None
+        assert abs(percentage - 6.666666666666667) < 0.01
 

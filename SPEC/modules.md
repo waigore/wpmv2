@@ -435,11 +435,14 @@
   - Returns price for target_date (most recent available up to target_date)
   - Returns USD price by default, native currency price if `in_native_currency=True`
   - Uses historical cache and retrievers as needed
-- `get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False)`: Get historical prices for multiple assets over a date range
+- `get_historical_prices(tickers, asset_type, start_date, end_date, in_native_currency=False, cached_prices_only=False)`: Get historical prices for multiple assets over a date range
   - Returns prices for all dates in the range (start_date to end_date, inclusive) for each ticker
   - Return type: `Dict[str, Dict[date, float]]` mapping ticker to dictionary mapping date to price
   - Fetches all prices for the entire date range upfront using batch retrieval
   - Checks historical cache first, fetches missing data from retrievers in batch
+  - `cached_prices_only` (bool, default False): If True, only use cached prices and don't fall back to retriever.
+    If cache miss occurs, raises ValueError immediately. This prevents retriever from being called for
+    weekends/holidays when we know prices don't exist. Default False for backward compatibility.
   - **For crypto**: Uses `YahooFinanceRetriever` (yfinance) instead of `CoinGeckoRetriever` to support longer historical ranges
   - **For stocks/ETFs**: Uses `YahooFinanceRetriever` as before
   - Uses batch ticker fetching when multiple tickers are provided (single API call per asset type)
@@ -582,6 +585,110 @@
 - Configured logger instance
 - Validation utilities
 
+## wpm/reference/
+
+**Responsibilities:**
+- Define reference investment strategies for creating baseline comparison portfolios
+- Create reference portfolios from original portfolios using configurable strategies
+- Support extensible strategy pattern for future reference strategies (e.g., 60/40 stock/bond)
+- Provide historical price fetcher interface with fallback logic for weekends/holidays
+
+**Key Classes:**
+- `ReferenceStrategy`: Abstract base class for reference investment strategies
+- `BuyAndHoldStrategy`: Simple buy-and-hold strategy investing in a single asset (e.g., SPY)
+- `HistoricalPriceFetcher`: Abstract base class for historical price fetchers with fallback logic
+- `DefaultHistoricalPriceFetcher`: Default implementation with 1-week lookback fallback
+
+**Key Functions:**
+- `create_reference_portfolio(original_portfolio, strategy, price_service, currency_service, name=None, price_fetcher=None)`: Create a reference portfolio from an original portfolio using a strategy
+  - `original_portfolio` (Portfolio, required): Original portfolio (SimplePortfolio or CompositePortfolio)
+  - `strategy` (ReferenceStrategy, required): Reference strategy to apply (e.g., BuyAndHoldStrategy)
+  - `price_service` (PriceService, required): Service for fetching historical prices for reference assets
+  - `currency_service` (CurrencyService, required): Currency service for currency conversion.
+    Note: Currently not used by BuyAndHoldStrategy since it works in USD,
+    but required for interface consistency and may be needed for future strategies.
+  - `name` (str, optional): Name for reference portfolio (default: "{original_name} (Reference)")
+  - `price_fetcher` (HistoricalPriceFetcher, optional): Historical price fetcher with fallback logic.
+    If None, creates DefaultHistoricalPriceFetcher with 1-week lookback.
+  - Returns new Portfolio instance (SimplePortfolio or CompositePortfolio) with reference trades
+  - Preserves portfolio structure (Simple/Composite) and is_historical flag
+  - Works seamlessly with get_historical_performance() for comparison
+  - **Strategy Pre-Init Phase**: Before processing trades, calls `strategy.prepare(portfolio, price_fetcher)`
+    to allow strategy to prefetch prices via fetcher. This ensures prices are batch fetched for the
+    entire portfolio date range (from start_date - 7 days to end_date) before processing trades.
+
+**Strategy Pattern:**
+- `ReferenceStrategy.prepare(portfolio, price_fetcher) -> None`: Optional pre-init phase called before processing trades
+  - Default implementation does nothing (backward compatible)
+  - Allows strategy to prepare resources, prefetch prices, etc.
+  - Called by `create_reference_portfolio()` before processing trades
+- `ReferenceStrategy.generate_trades(original_trade, price_service, currency_service, price_fetcher=None)`: Abstract method to generate reference trade(s) from an original trade
+  - The strategy invests the full cost basis of the original trade into the reference asset(s)
+  - For Buy trades: invests full cost basis
+  - For Sell trades: sells same cost basis amount
+  - Returns List[Trade] (can be one or more trades)
+  - Preserves original trade metadata: date, broker, order_instruction, trade_type
+  - `price_fetcher` (HistoricalPriceFetcher, optional): If provided, use this instead of price_service.get_historical_price().
+    If None, use price_service.get_historical_price() (backward compatible).
+
+**BuyAndHoldStrategy:**
+- `__init__(reference_asset)`: Initialize with a reference asset (e.g., Asset(ticker="SPY", asset_type="ETF"))
+- `prepare(portfolio, price_fetcher) -> None`: Pre-fetch prices for reference asset over portfolio date range
+  - Calculates prefill range: `(start_date - 7 days)` to `end_date` (covers entire portfolio)
+  - Calls `price_fetcher.prefetch_prices()` to batch fetch all prices upfront
+  - Handles edge cases: None dates, empty portfolio
+- `generate_trades()`: Converts each original trade into a corresponding trade in the reference asset
+  - Uses original trade's total_value (cost basis in USD) to calculate quantity
+  - Fetches reference asset historical price on trade date using price_fetcher (if provided) or price_service
+  - If price_fetcher is provided, uses fetcher's internal cache first, then fallback logic
+  - Calculates quantity: cost_basis_usd / reference_price_usd
+  - Creates Trade object with reference asset, preserving original trade metadata
+
+**HistoricalPriceFetcher:**
+- Abstract interface for retrieving historical prices with fallback logic
+- `get_historical_price(asset, target_date) -> float`: Get historical price for asset on target_date
+  - Returns price in USD
+  - Raises ValueError if price cannot be retrieved
+- `prefetch_prices(asset, start_date, end_date) -> None`: Batch fetch prices for asset over date range
+  - All implementations must provide this method
+  - Should batch fetch prices and cache them for efficient lookup
+  - Called by strategy in `prepare()` phase before processing trades
+
+**DefaultHistoricalPriceFetcher:**
+- Default implementation with 1-week lookback fallback and internal cache
+- `__init__(price_service, lookback_days=7)`: Initialize with price service and lookback period
+  - Creates internal cache `_price_cache: Dict[date, float]` for batch-fetched prices
+  - Tracks cached asset via `_cache_asset: Optional[Asset]`
+- `prefetch_prices(asset, start_date, end_date) -> None`: Batch fetch prices and cache them
+  - Calls `price_service.get_historical_prices()` with `cached_prices_only=False` (normal fetch)
+  - Stores fetched prices in `_price_cache` as `Dict[date, float]`
+  - Sets `_cache_asset` to track which asset is cached
+  - Handles errors gracefully (logs warning, doesn't raise)
+- `get_historical_price(asset, target_date) -> float`: Get historical price with cache lookup and fallback
+  - First checks `_price_cache` if exists and `_cache_asset == asset`
+  - If cache hit, returns cached price (exact date or most recent <= target_date)
+  - If cache miss, calls `price_service.get_historical_price()` for exact date
+  - If exact date fails (e.g., weekend/holiday), uses lookback with `cached_prices_only=True`
+  - Lookback uses `price_service.get_historical_prices()` with `cached_prices_only=True` to prevent
+    retriever from being called for weekends/holidays (which cannot have prices)
+  - Finds most recent date <= target_date with valid price
+  - Raises ValueError if no price found within lookback period
+
+**Currency Handling:**
+- Original trade cost basis is already in USD (from trade.price field)
+- Reference trades work entirely in USD
+- Currency conversion is handled at the trade import level, not in reference portfolio creation
+
+**Integration:**
+- Reference portfolios are regular Portfolio objects
+- Work seamlessly with get_historical_performance() for easy comparison
+- Support both SimplePortfolio and CompositePortfolio structures
+- Preserve is_historical flag for historical portfolio support
+
+**Artefacts:**
+- Reference portfolio instances
+- Strategy implementations
+
 ## wpm/cli.py
 
 **Responsibilities:**
@@ -592,9 +699,13 @@
 
 **Key Functions:**
 - `main()`: Main entry point for wpm CLI
-- `run_interactive_mode(composite, price_service)`: Run interactive command loop
-- `cmd_show_all(composite, price_service, up_to_date=None)`: Handle 'show all' command
+  - After importing CSV files and fetching prices, automatically creates a SPY buy-and-hold reference portfolio for baseline comparison
+  - If reference portfolio creation fails, logs a warning and continues without it
+- `run_interactive_mode(composite, price_service, reference_portfolio=None)`: Run interactive command loop
+  - `reference_portfolio` (Optional[Portfolio]): Optional reference portfolio for baseline comparison
+- `cmd_show_all(composite, price_service, up_to_date=None, reference_portfolio=None)`: Handle 'show all' command
   - `up_to_date` (Optional[date]): If provided and portfolio is historical, shows portfolio state up to this date with weekly performance summary
+  - `reference_portfolio` (Optional[Portfolio]): Optional reference portfolio for baseline comparison. When `up_to_date` is provided, displays reference portfolio P/L after weekly summary
 - `cmd_show_portfolio(composite, name, price_service, up_to_date=None)`: Handle 'show portfolio <name>' command
   - `up_to_date` (Optional[date]): If provided and portfolio is historical, shows portfolio state up to this date with weekly performance summary
 - `cmd_show_asset(composite, ticker, price_service, from_date=None)`: Handle 'show asset <ticker>' command
@@ -625,8 +736,10 @@
 **CLI Commands:**
 - `import [--end-date YYYY-MM-DD]`: Import CSV files and create composite portfolio
   - `--end-date`: Optional end date for historical portfolio import
+  - After import, automatically creates a SPY buy-and-hold reference portfolio for baseline comparison
 - `show all [--up-to YYYY-MM-DD]`: Show all assets in composite portfolio
   - `--up-to`: Optional date for historical portfolios. Shows weekly performance summary up to (and including) this date
+  - When `--up-to` is specified and a reference portfolio exists, displays SPY Reference Portfolio P/L after the weekly summary
 - `show portfolio <name> [--up-to YYYY-MM-DD]`: Show specific portfolio
   - `--up-to`: Optional date for historical portfolios. Shows weekly performance summary up to (and including) this date
 - `list portfolios`: List all sub-portfolios
@@ -641,6 +754,12 @@
 - Format: `Week of YYYY-MM-DD to YYYY-MM-DD: $X,XXX.XX (X.XX%)`
 - Percentage return is calculated relative to the start_date's market value and shows the return from start_date to the end of each week
 - Shows portfolio's weekly overall performance progression with both absolute values and percentage returns
+- After the weekly summary, if a reference portfolio exists, displays SPY Reference Portfolio P/L:
+  - Blank line separator
+  - Label: "SPY Reference Portfolio:"
+  - "Total Unrealized P/L: {formatted_value}" (or "N/A" if prices unavailable)
+  - "Total Realized P/L: {formatted_value}"
+  - P/L values are calculated as of the `--up-to` date using historical prices
 
 **Artefacts:**
 - Command-line interface for portfolio management

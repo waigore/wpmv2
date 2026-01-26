@@ -92,6 +92,8 @@
   * [format\_historical\_asset\_line](#wpm.cli.format_historical_asset_line)
   * [cmd\_list\_portfolios](#wpm.cli.cmd_list_portfolios)
   * [cmd\_show\_portfolio](#wpm.cli.cmd_show_portfolio)
+  * [calculate\_unrealized\_pnl\_percentage](#wpm.cli.calculate_unrealized_pnl_percentage)
+  * [calculate\_realized\_pnl\_percentage](#wpm.cli.calculate_realized_pnl_percentage)
   * [cmd\_show\_all](#wpm.cli.cmd_show_all)
   * [cmd\_show\_asset](#wpm.cli.cmd_show_asset)
   * [format\_breakdown\_asset\_type](#wpm.cli.format_breakdown_asset_type)
@@ -235,6 +237,25 @@
     * [get\_prices](#wpm.pricing.base.PriceRetriever.get_prices)
     * [get\_historical\_prices](#wpm.pricing.base.PriceRetriever.get_historical_prices)
     * [get\_metadata](#wpm.pricing.base.PriceRetriever.get_metadata)
+* [wpm.reference](#wpm.reference)
+* [wpm.reference.strategy](#wpm.reference.strategy)
+  * [ReferenceStrategy](#wpm.reference.strategy.ReferenceStrategy)
+    * [prepare](#wpm.reference.strategy.ReferenceStrategy.prepare)
+    * [generate\_trades](#wpm.reference.strategy.ReferenceStrategy.generate_trades)
+  * [BuyAndHoldStrategy](#wpm.reference.strategy.BuyAndHoldStrategy)
+    * [\_\_init\_\_](#wpm.reference.strategy.BuyAndHoldStrategy.__init__)
+    * [prepare](#wpm.reference.strategy.BuyAndHoldStrategy.prepare)
+    * [generate\_trades](#wpm.reference.strategy.BuyAndHoldStrategy.generate_trades)
+* [wpm.reference.portfolio](#wpm.reference.portfolio)
+  * [create\_reference\_portfolio](#wpm.reference.portfolio.create_reference_portfolio)
+* [wpm.reference.fetcher](#wpm.reference.fetcher)
+  * [HistoricalPriceFetcher](#wpm.reference.fetcher.HistoricalPriceFetcher)
+    * [get\_historical\_price](#wpm.reference.fetcher.HistoricalPriceFetcher.get_historical_price)
+    * [prefetch\_prices](#wpm.reference.fetcher.HistoricalPriceFetcher.prefetch_prices)
+  * [DefaultHistoricalPriceFetcher](#wpm.reference.fetcher.DefaultHistoricalPriceFetcher)
+    * [\_\_init\_\_](#wpm.reference.fetcher.DefaultHistoricalPriceFetcher.__init__)
+    * [prefetch\_prices](#wpm.reference.fetcher.DefaultHistoricalPriceFetcher.prefetch_prices)
+    * [get\_historical\_price](#wpm.reference.fetcher.DefaultHistoricalPriceFetcher.get_historical_price)
 
 <a id="wpm"></a>
 
@@ -1638,6 +1659,59 @@ Handle 'show portfolio <name>' command.
 - `price_service` - Price service for retrieving current prices
 - `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
 
+<a id="wpm.cli.calculate_unrealized_pnl_percentage"></a>
+
+#### calculate\_unrealized\_pnl\_percentage
+
+```python
+def calculate_unrealized_pnl_percentage(
+        portfolio: Portfolio,
+        price_map: Dict[Asset, Optional[float]],
+        target_date: Optional[date] = None) -> Optional[float]
+```
+
+Calculate unrealized P/L percentage return.
+
+Formula: (unrealized_pnl / cost_basis_of_remaining_lots) * 100
+
+Uses _calculate_percentage_return_from_lots which calculates percentage return
+from lots (unrealized P/L / cost basis).
+
+**Arguments**:
+
+- `portfolio` - Portfolio to calculate percentage for
+- `price_map` - Dictionary mapping Asset to current/historical price (None if unavailable)
+- `target_date` - Optional date to filter trades up to (for historical calculations)
+  
+
+**Returns**:
+
+  Percentage return as float, or None if cost basis is 0 or prices unavailable
+
+<a id="wpm.cli.calculate_realized_pnl_percentage"></a>
+
+#### calculate\_realized\_pnl\_percentage
+
+```python
+def calculate_realized_pnl_percentage(
+        portfolio: Portfolio,
+        target_date: Optional[date] = None) -> Optional[float]
+```
+
+Calculate realized P/L percentage return.
+
+Formula: (realized_pnl / cost_basis_of_sold_lots) * 100
+
+**Arguments**:
+
+- `portfolio` - Portfolio to calculate percentage for
+- `target_date` - Optional date to filter trades up to (for historical calculations)
+  
+
+**Returns**:
+
+  Percentage return as float, or None if cost basis of sold lots is 0
+
 <a id="wpm.cli.cmd_show_all"></a>
 
 #### cmd\_show\_all
@@ -1645,7 +1719,8 @@ Handle 'show portfolio <name>' command.
 ```python
 def cmd_show_all(composite: CompositePortfolio,
                  price_service: PriceService,
-                 up_to_date: Optional[date] = None) -> None
+                 up_to_date: Optional[date] = None,
+                 reference_portfolio: Optional[Portfolio] = None) -> None
 ```
 
 Handle 'show all' command.
@@ -1655,6 +1730,7 @@ Handle 'show all' command.
 - `composite` - Composite portfolio
 - `price_service` - Price service for retrieving current prices
 - `up_to_date` - Optional date for historical portfolios to show state up to this date with weekly summary
+- `reference_portfolio` - Optional reference portfolio for baseline comparison
 
 <a id="wpm.cli.cmd_show_asset"></a>
 
@@ -1839,8 +1915,10 @@ Handle 'metadata <ticker>' command.
 #### run\_interactive\_mode
 
 ```python
-def run_interactive_mode(composite: CompositePortfolio,
-                         price_service: PriceService) -> None
+def run_interactive_mode(
+        composite: CompositePortfolio,
+        price_service: PriceService,
+        reference_portfolio: Optional[Portfolio] = None) -> None
 ```
 
 Run interactive command loop.
@@ -1849,6 +1927,7 @@ Run interactive command loop.
 
 - `composite` - Composite portfolio
 - `price_service` - Price service for retrieving prices
+- `reference_portfolio` - Optional reference portfolio for baseline comparison
 
 <a id="wpm.cli.main"></a>
 
@@ -3777,7 +3856,8 @@ def get_historical_prices(
         asset_type: str,
         start_date: date,
         end_date: date,
-        in_native_currency: bool = False) -> Dict[str, Dict[date, float]]
+        in_native_currency: bool = False,
+        cached_prices_only: bool = False) -> Dict[str, Dict[date, float]]
 ```
 
 Get historical prices for multiple assets over a date range.
@@ -3791,6 +3871,8 @@ Returns prices for all dates in the range (start_date to end_date, inclusive).
 - `start_date` - Start date (inclusive)
 - `end_date` - End date (inclusive)
 - `in_native_currency` - If True, return prices in native currency; if False, return USD (default)
+- `cached_prices_only` - If True, only use cached prices and don't fall back to retriever.
+  If cache miss occurs, raises ValueError. Default False for backward compatibility.
   
 
 **Returns**:
@@ -3800,7 +3882,8 @@ Returns prices for all dates in the range (start_date to end_date, inclusive).
 
 **Raises**:
 
-- `ValueError` - If no price data can be obtained for any ticker
+- `ValueError` - If no price data can be obtained for any ticker, or if cached_prices_only=True
+  and cache miss occurs
 
 <a id="wpm.pricing.coingecko"></a>
 
@@ -4600,4 +4683,405 @@ Get metadata for an asset.
 **Raises**:
 
 - `NotImplementedError` - If metadata_supported is False
+
+<a id="wpm.reference"></a>
+
+# wpm.reference
+
+Reference portfolio module for creating baseline comparison portfolios.
+
+<a id="wpm.reference.strategy"></a>
+
+# wpm.reference.strategy
+
+Reference investment strategies for creating baseline comparison portfolios.
+
+<a id="wpm.reference.strategy.ReferenceStrategy"></a>
+
+## ReferenceStrategy Objects
+
+```python
+class ReferenceStrategy(ABC)
+```
+
+Abstract base class for reference investment strategies.
+
+A reference strategy defines how to convert trades from an original portfolio
+into corresponding trades in a reference portfolio. The strategy invests the
+full cost basis of the original trade, but the result can be one or more trades
+depending on how the strategy is implemented.
+
+<a id="wpm.reference.strategy.ReferenceStrategy.prepare"></a>
+
+#### prepare
+
+```python
+def prepare(portfolio: Portfolio,
+            price_fetcher: "HistoricalPriceFetcher") -> None
+```
+
+Optional pre-init phase called before processing trades.
+
+Allows strategy to prepare resources, prefetch prices, etc.
+Default implementation does nothing (backward compatible).
+
+**Arguments**:
+
+- `portfolio` - Original portfolio to prepare for
+- `price_fetcher` - Historical price fetcher to use for prefetching
+
+<a id="wpm.reference.strategy.ReferenceStrategy.generate_trades"></a>
+
+#### generate\_trades
+
+```python
+@abstractmethod
+def generate_trades(
+        original_trade: Trade,
+        price_service: "PriceService",
+        currency_service: "CurrencyService",
+        price_fetcher: Optional["HistoricalPriceFetcher"] = None
+) -> List[Trade]
+```
+
+Generate reference trade(s) from an original trade.
+
+The strategy invests the full cost basis of the original trade into the
+reference asset(s). For Buy trades, this means investing the full cost basis.
+For Sell trades, this means selling the same cost basis amount.
+
+**Arguments**:
+
+- `original_trade` - The original trade to convert
+- `price_service` - Service to fetch historical prices for the reference asset
+- `currency_service` - Service for currency conversion (if needed)
+- `price_fetcher` - Optional historical price fetcher with fallback logic.
+  If provided, use this instead of price_service.get_historical_price().
+  If None, use price_service.get_historical_price() (backward compatible).
+  
+
+**Returns**:
+
+  List of reference trades (can be one or more). The trades should preserve
+  the original trade's date, broker, order_instruction, and trade_type.
+  
+
+**Raises**:
+
+- `ValueError` - If historical price cannot be retrieved for the reference asset
+  on the trade date, or if other required data is unavailable
+
+<a id="wpm.reference.strategy.BuyAndHoldStrategy"></a>
+
+## BuyAndHoldStrategy Objects
+
+```python
+class BuyAndHoldStrategy(ReferenceStrategy)
+```
+
+Simple buy-and-hold strategy investing in a single asset.
+
+This strategy converts each original trade into a corresponding trade in a
+single reference asset (e.g., SPY). The full cost basis of the original trade
+is invested in (or sold from) the reference asset.
+
+**Example**:
+
+  If the original trade is a Buy of $1000 worth of GOOG, and SPY is $400
+  on that date, this strategy creates a Buy of 2.5 shares of SPY.
+
+<a id="wpm.reference.strategy.BuyAndHoldStrategy.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(reference_asset: Asset)
+```
+
+Initialize buy-and-hold strategy with a reference asset.
+
+**Arguments**:
+
+- `reference_asset` - The asset to invest in (e.g., Asset(ticker="SPY", asset_type="ETF"))
+  
+
+**Raises**:
+
+- `ValueError` - If reference_asset is not a valid Asset object
+
+<a id="wpm.reference.strategy.BuyAndHoldStrategy.prepare"></a>
+
+#### prepare
+
+```python
+def prepare(portfolio: Portfolio,
+            price_fetcher: "HistoricalPriceFetcher") -> None
+```
+
+Pre-fetch prices for reference asset over portfolio date range.
+
+Requests the price fetcher to batch fetch all prices for the reference asset
+from (start_date - 7 days) to end_date to ensure prices are available for
+all trade dates, including weekends and holidays.
+
+**Arguments**:
+
+- `portfolio` - Original portfolio to prepare for
+- `price_fetcher` - Historical price fetcher to use for prefetching
+
+<a id="wpm.reference.strategy.BuyAndHoldStrategy.generate_trades"></a>
+
+#### generate\_trades
+
+```python
+def generate_trades(
+        original_trade: Trade,
+        price_service: "PriceService",
+        currency_service: "CurrencyService",
+        price_fetcher: Optional["HistoricalPriceFetcher"] = None
+) -> List[Trade]
+```
+
+Generate a reference trade from an original trade.
+
+For Buy trades: Invests the full cost basis (total_value) into the reference asset.
+For Sell trades: Sells the same cost basis amount from the reference asset.
+
+The original trade's cost basis is already in USD (from trade.price field),
+so we work entirely in USD for reference trades.
+
+**Arguments**:
+
+- `original_trade` - The original trade to convert
+- `price_service` - Service to fetch historical prices
+- `currency_service` - Service for currency conversion (not used in this strategy
+  since we work in USD, but required by interface)
+- `price_fetcher` - Optional historical price fetcher with fallback logic.
+  If provided, use this instead of price_service.get_historical_price().
+  If None, use price_service.get_historical_price() (backward compatible).
+  
+
+**Returns**:
+
+  List containing a single Trade object for the reference asset
+  
+
+**Raises**:
+
+- `ValueError` - If historical price cannot be retrieved for the reference asset
+  on the trade date
+
+<a id="wpm.reference.portfolio"></a>
+
+# wpm.reference.portfolio
+
+Reference portfolio creation functions.
+
+<a id="wpm.reference.portfolio.create_reference_portfolio"></a>
+
+#### create\_reference\_portfolio
+
+```python
+def create_reference_portfolio(
+        original_portfolio: Portfolio,
+        strategy: ReferenceStrategy,
+        price_service: "PriceService",
+        currency_service: CurrencyService,
+        name: Optional[str] = None,
+        price_fetcher: Optional[HistoricalPriceFetcher] = None) -> Portfolio
+```
+
+Create a reference portfolio from an original portfolio using a strategy.
+
+Iterates through all trades in the original portfolio and creates corresponding
+reference trades using the provided strategy. The reference portfolio preserves
+the structure (SimplePortfolio or CompositePortfolio) and is_historical flag
+of the original portfolio.
+
+Before processing trades, calls strategy.prepare() to allow the strategy to
+initialize resources (e.g., prefetch prices via the price fetcher). This ensures
+prices are available for all trade dates, including weekends and holidays.
+
+The created reference portfolio works seamlessly with get_historical_performance(),
+allowing easy comparison with the original portfolio.
+
+**Arguments**:
+
+- `original_portfolio` - Original portfolio (SimplePortfolio or CompositePortfolio)
+- `strategy` - Reference strategy to apply (e.g., BuyAndHoldStrategy)
+- `price_service` - Service for fetching historical prices for reference assets
+- `currency_service` - Currency service for currency conversion.
+- `Note` - Currently not used by BuyAndHoldStrategy since it works in USD,
+  but required for interface consistency and may be needed for future strategies.
+- `name` - Optional name for reference portfolio. If None, defaults to
+  "{original_name} (Reference)"
+- `price_fetcher` - Optional historical price fetcher with fallback logic.
+  If None, creates a DefaultHistoricalPriceFetcher with 1-week lookback.
+  
+
+**Returns**:
+
+  New Portfolio instance (SimplePortfolio or CompositePortfolio) with reference trades.
+  The portfolio type and is_historical flag match the original portfolio.
+  
+
+**Raises**:
+
+- `ValueError` - If historical prices cannot be retrieved for reference assets,
+  or if other required data is unavailable
+- `PortfolioError` - If portfolio structure is invalid
+
+<a id="wpm.reference.fetcher"></a>
+
+# wpm.reference.fetcher
+
+Historical price fetcher interface and implementations for reference portfolios.
+
+<a id="wpm.reference.fetcher.HistoricalPriceFetcher"></a>
+
+## HistoricalPriceFetcher Objects
+
+```python
+class HistoricalPriceFetcher(ABC)
+```
+
+Abstract base class for historical price fetchers.
+
+Provides an interface for retrieving historical prices with fallback logic
+to handle cases where prices may not be available on the exact target date
+(e.g., weekends, holidays).
+
+<a id="wpm.reference.fetcher.HistoricalPriceFetcher.get_historical_price"></a>
+
+#### get\_historical\_price
+
+```python
+@abstractmethod
+def get_historical_price(asset: Asset, target_date: date) -> float
+```
+
+Get historical price for asset on target_date with fallback logic.
+
+**Arguments**:
+
+- `asset` - Asset to get price for
+- `target_date` - Target date for price retrieval
+  
+
+**Returns**:
+
+  Historical price in USD
+  
+
+**Raises**:
+
+- `ValueError` - If price cannot be retrieved for the asset on or before target_date
+
+<a id="wpm.reference.fetcher.HistoricalPriceFetcher.prefetch_prices"></a>
+
+#### prefetch\_prices
+
+```python
+@abstractmethod
+def prefetch_prices(asset: Asset, start_date: date, end_date: date) -> None
+```
+
+Batch fetch prices for asset over date range and cache them.
+
+This method should be called before processing trades to avoid
+slow per-day fetches for portfolios with long histories. All implementations
+must provide this method to enable efficient batch fetching of prices.
+
+**Arguments**:
+
+- `asset` - Asset to prefetch prices for
+- `start_date` - Start date for prefetch range (inclusive)
+- `end_date` - End date for prefetch range (inclusive)
+
+<a id="wpm.reference.fetcher.DefaultHistoricalPriceFetcher"></a>
+
+## DefaultHistoricalPriceFetcher Objects
+
+```python
+class DefaultHistoricalPriceFetcher(HistoricalPriceFetcher)
+```
+
+Default historical price fetcher with lookback fallback.
+
+First attempts to get the price for the exact target_date. If that fails
+(e.g., weekend/holiday), expands the date range backward by lookback_days
+to find the previous trading day with a valid price.
+
+**Example**:
+
+  If target_date is Saturday 2025-05-17 and lookback_days=7:
+  1. Try to get price for 2025-05-17 (fails - market closed)
+  2. Expand range to 2025-05-10 to 2025-05-17
+  3. Find most recent date <= 2025-05-17 with valid price (e.g., 2025-05-16)
+  4. Return price from 2025-05-16
+
+<a id="wpm.reference.fetcher.DefaultHistoricalPriceFetcher.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(price_service: "PriceService", lookback_days: int = 7)
+```
+
+Initialize default historical price fetcher.
+
+**Arguments**:
+
+- `price_service` - Price service for retrieving historical prices
+- `lookback_days` - Number of days to look back when exact date fails (default: 7)
+
+<a id="wpm.reference.fetcher.DefaultHistoricalPriceFetcher.prefetch_prices"></a>
+
+#### prefetch\_prices
+
+```python
+def prefetch_prices(asset: Asset, start_date: date, end_date: date) -> None
+```
+
+Batch fetch prices for asset over date range and cache them.
+
+Fetches all prices for the asset in the specified date range and stores
+them in an internal cache for efficient lookup during trade processing.
+
+**Arguments**:
+
+- `asset` - Asset to prefetch prices for
+- `start_date` - Start date for prefetch range (inclusive)
+- `end_date` - End date for prefetch range (inclusive)
+
+<a id="wpm.reference.fetcher.DefaultHistoricalPriceFetcher.get_historical_price"></a>
+
+#### get\_historical\_price
+
+```python
+def get_historical_price(asset: Asset, target_date: date) -> float
+```
+
+Get historical price for asset on target_date with lookback fallback.
+
+First checks internal cache if available. If cache hit, returns cached price
+(exact date or most recent <= target_date). If cache miss, falls back to
+price service. When using lookback, uses cached_prices_only=True to prevent
+retriever from being called for weekends/holidays.
+
+**Arguments**:
+
+- `asset` - Asset to get price for
+- `target_date` - Target date for price retrieval
+  
+
+**Returns**:
+
+  Historical price in USD (from target_date or most recent available date)
+  
+
+**Raises**:
+
+- `ValueError` - If price cannot be retrieved for the asset within lookback_days
+  of target_date
 
