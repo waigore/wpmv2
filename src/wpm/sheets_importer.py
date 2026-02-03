@@ -11,10 +11,20 @@ from typing import List, Optional
 
 import pandas as pd
 
+from wpm.config import Config
 from wpm.currency import CurrencyService
 from wpm.importer import parse_trade_row, validate_csv_structure
 from wpm.models import Trade, ValidationError
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
+
+try:
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+    HAS_GOOGLE_SHEETS = True
+except ImportError:
+    HAS_GOOGLE_SHEETS = False
+    service_account = None
+    build = None
 
 logger = logging.getLogger(__name__)
 
@@ -39,20 +49,15 @@ def get_sheets_service(credentials_path: Optional[str] = None):
         ValidationError: If credentials not configured or file not found
         ImportError: If google-api-python-client not installed
     """
-    try:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-    except ImportError as e:
+    if not HAS_GOOGLE_SHEETS:
         raise ImportError(
             "Google Sheets support requires 'google-api-python-client' and "
             "'google-auth'. Install with: pip install google-api-python-client google-auth"
-        ) from e
+        )
 
     # Get credentials path
     creds_path = credentials_path
     if creds_path is None:
-        from wpm.config import Config
-
         creds_path = Config.GOOGLE_SHEETS_CREDENTIALS_PATH
 
     if not creds_path:
@@ -88,20 +93,15 @@ def get_drive_service(credentials_path: Optional[str] = None):
         ValidationError: If credentials not configured or file not found
         ImportError: If google-api-python-client not installed
     """
-    try:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-    except ImportError as e:
+    if not HAS_GOOGLE_SHEETS:
         raise ImportError(
             "Google Sheets support requires 'google-api-python-client' and "
             "'google-auth'. Install with: pip install google-api-python-client google-auth"
-        ) from e
+        )
 
     # Get credentials path
     creds_path = credentials_path
     if creds_path is None:
-        from wpm.config import Config
-
         creds_path = Config.GOOGLE_SHEETS_CREDENTIALS_PATH
 
     if not creds_path:
