@@ -33,4 +33,10 @@ class Config:
     # Sensitive configuration (loaded from .env file via os.getenv)
     COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")  # Optional - None if not set
     COINGECKO_API_IS_DEMO = os.getenv("COINGECKO_API_IS_DEMO", "false").lower() in ("true", "1", "yes")  # Optional - defaults to False
+    
+    # Google Sheets Configuration (loaded from .env)
+    # These are optional - only validated when import-sheets command is used
+    GOOGLE_SHEETS_CREDENTIALS_PATH = os.getenv("GOOGLE_SHEETS_CREDENTIALS_PATH")
+    GOOGLE_SHEETS_DRIVE_PATH = os.getenv("GOOGLE_SHEETS_DRIVE_PATH")
+    GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
 

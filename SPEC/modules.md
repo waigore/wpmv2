@@ -161,6 +161,77 @@
 - Imported Trade objects
 - Validation error reports
 
+## wpm/sheets_importer.py
+
+**Responsibilities:**
+- Import trade data from Google Sheets (parallel functionality to CSV imports)
+- Authenticate with Google Sheets API using service account credentials
+- Resolve Google Drive paths to spreadsheet IDs
+- Fetch sheet data and convert to DataFrames
+- Import all sheets from a workbook as sub-portfolios with fail-fast behavior
+- Support historical portfolio imports with end_date filtering
+
+**Key Functions:**
+- `get_sheets_service(credentials_path=None)`: Create authenticated Google Sheets API service
+  - `credentials_path`: Path to service account JSON key file. If None, uses `Config.GOOGLE_SHEETS_CREDENTIALS_PATH`
+  - Returns Google Sheets API service instance
+  - Raises `ValidationError` if credentials not configured or file not found
+  - Raises `ImportError` if google-api-python-client not installed
+
+- `get_drive_service(credentials_path=None)`: Create authenticated Google Drive API service
+  - `credentials_path`: Path to service account JSON key file. If None, uses `Config.GOOGLE_SHEETS_CREDENTIALS_PATH`
+  - Returns Google Drive API service instance
+  - Used for resolving Drive paths to spreadsheet IDs
+
+- `resolve_spreadsheet_id(drive_path=None, spreadsheet_id=None, credentials_path=None)`: Resolve spreadsheet identifier to spreadsheet ID
+  - Priority: drive_path takes precedence over spreadsheet_id
+  - `drive_path`: Google Drive path like "Folder/Subfolder/Filename"
+  - `spreadsheet_id`: Direct spreadsheet ID from URL
+  - Uses Drive API to traverse folders and locate spreadsheet when drive_path is provided
+  - Returns spreadsheet ID string
+  - Raises `ValidationError` if neither path nor ID provided, path not found, or multiple matches
+
+- `sheet_to_dataframe(service, spreadsheet_id, sheet_name)`: Fetch sheet data via Sheets API and convert to DataFrame
+  - Fetches all columns (A:Z) from the specified sheet tab
+  - First row is used as headers, remaining rows as data
+  - Returns DataFrame with sheet data
+  - Raises `ValidationError` if sheet empty or not found
+
+- `import_trades_from_sheet(spreadsheet_id, sheet_name, credentials_path=None, currency_service=None, end_date=None)`: Import trades from a single sheet tab
+  - Fetches sheet data, validates structure using `validate_csv_structure()`, parses trades using `parse_trade_row()`
+  - `end_date`: If provided, only imports trades on or before this date
+  - Returns List of Trade objects
+  - Raises `ValidationError` on structure errors or parsing failures
+  - Logs validation errors but continues processing valid rows
+
+- `list_sheet_names(spreadsheet_id, credentials_path=None)`: Return all sheet (tab) names in spreadsheet
+  - Uses Sheets API to fetch spreadsheet metadata
+  - Returns list of sheet names
+  - Raises `ValidationError` if API call fails
+
+- `import_sheets_workbook(spreadsheet_id, credentials_path=None, end_date=None)`: Import ALL sheets as sub-portfolios, aggregate into CompositePortfolio
+  - **Fail-Fast Behavior**: ALL sheets are imported (no filtering option). If ANY sheet fails validation or parsing, the ENTIRE operation fails. No partial portfolios are created on error.
+  - Pre-validates all sheets before importing any data
+  - Creates one SimplePortfolio per sheet, aggregates into CompositePortfolio
+  - `end_date`: If provided, only imports trades on or before this date, and marks portfolios as historical (`is_historical=True`)
+  - Returns CompositePortfolio containing all imported sheets as sub-portfolios
+  - Raises `ValidationError` if any sheet fails validation or parsing
+
+**Configuration (via wpm/config.py):**
+- `GOOGLE_SHEETS_CREDENTIALS_PATH`: Path to service account JSON key file (required for sheets import)
+- `GOOGLE_SHEETS_DRIVE_PATH`: Google Drive path to spreadsheet (optional, alternative to spreadsheet ID)
+- `GOOGLE_SHEETS_SPREADSHEET_ID`: Direct spreadsheet ID from URL (optional, alternative to Drive path)
+
+**Dependencies:**
+- `google-api-python-client`: Google API client library
+- `google-auth`: Google authentication library
+- `pandas`: DataFrame handling
+
+**Artefacts:**
+- Imported Trade objects from Google Sheets
+- CompositePortfolio with sub-portfolios per sheet
+- Validation error reports
+
 ## wpm/cost_basis.py
 
 **Responsibilities:**
