@@ -60,8 +60,8 @@ def sample_sheet_df():
 # Tests for get_sheets_service()
 # =============================================================================
 
-@patch('googleapiclient.discovery.build')
-@patch('google.oauth2.service_account.Credentials')
+@patch('wpm.sheets_importer.build')
+@patch('wpm.sheets_importer.service_account.Credentials')
 def test_get_sheets_service_with_credentials_path(mock_creds_class, mock_build, mock_credentials_path):
     """Test get_sheets_service with explicit credentials path."""
     mock_credentials = Mock()
@@ -76,9 +76,9 @@ def test_get_sheets_service_with_credentials_path(mock_creds_class, mock_build, 
     assert result == mock_service
 
 
-@patch('googleapiclient.discovery.build')
-@patch('google.oauth2.service_account.Credentials')
-@patch('wpm.config.Config')
+@patch('wpm.sheets_importer.build')
+@patch('wpm.sheets_importer.service_account.Credentials')
+@patch('wpm.sheets_importer.Config')
 def test_get_sheets_service_with_config(mock_config_class, mock_creds_class, mock_build, mock_credentials_path):
     """Test get_sheets_service uses Config.GOOGLE_SHEETS_CREDENTIALS_PATH when path not provided."""
     mock_config_class.GOOGLE_SHEETS_CREDENTIALS_PATH = mock_credentials_path
@@ -94,7 +94,7 @@ def test_get_sheets_service_with_config(mock_config_class, mock_creds_class, moc
     assert result == mock_service
 
 
-@patch('wpm.config.Config')
+@patch('wpm.sheets_importer.Config')
 def test_get_sheets_service_missing_config(mock_config_class):
     """Test get_sheets_service raises ValidationError when credentials not configured."""
     mock_config_class.GOOGLE_SHEETS_CREDENTIALS_PATH = None
@@ -109,7 +109,7 @@ def test_get_sheets_service_missing_file():
         get_sheets_service(credentials_path="/nonexistent/path/credentials.json")
 
 
-@patch.dict('sys.modules', {'google.oauth2': None, 'googleapiclient.discovery': None})
+@patch('wpm.sheets_importer.HAS_GOOGLE_SHEETS', False)
 def test_get_sheets_service_import_error():
     """Test get_sheets_service raises ImportError when Google API libraries not installed."""
     with pytest.raises(ImportError, match="google-api-python-client"):
@@ -120,8 +120,8 @@ def test_get_sheets_service_import_error():
 # Tests for get_drive_service()
 # =============================================================================
 
-@patch('googleapiclient.discovery.build')
-@patch('google.oauth2.service_account.Credentials')
+@patch('wpm.sheets_importer.build')
+@patch('wpm.sheets_importer.service_account.Credentials')
 def test_get_drive_service_with_credentials_path(mock_creds_class, mock_build, mock_credentials_path):
     """Test get_drive_service with explicit credentials path."""
     mock_credentials = Mock()
@@ -136,9 +136,9 @@ def test_get_drive_service_with_credentials_path(mock_creds_class, mock_build, m
     assert result == mock_service
 
 
-@patch('googleapiclient.discovery.build')
-@patch('google.oauth2.service_account.Credentials')
-@patch('wpm.config.Config')
+@patch('wpm.sheets_importer.build')
+@patch('wpm.sheets_importer.service_account.Credentials')
+@patch('wpm.sheets_importer.Config')
 def test_get_drive_service_with_config(mock_config_class, mock_creds_class, mock_build, mock_credentials_path):
     """Test get_drive_service uses Config.GOOGLE_SHEETS_CREDENTIALS_PATH when path not provided."""
     mock_config_class.GOOGLE_SHEETS_CREDENTIALS_PATH = mock_credentials_path
@@ -154,7 +154,7 @@ def test_get_drive_service_with_config(mock_config_class, mock_creds_class, mock
     assert result == mock_service
 
 
-@patch('wpm.config.Config')
+@patch('wpm.sheets_importer.Config')
 def test_get_drive_service_missing_config(mock_config_class):
     """Test get_drive_service raises ValidationError when credentials not configured."""
     mock_config_class.GOOGLE_SHEETS_CREDENTIALS_PATH = None
@@ -169,7 +169,7 @@ def test_get_drive_service_missing_file():
         get_drive_service(credentials_path="/nonexistent/path/credentials.json")
 
 
-@patch.dict('sys.modules', {'google.oauth2': None, 'googleapiclient.discovery': None})
+@patch('wpm.sheets_importer.HAS_GOOGLE_SHEETS', False)
 def test_get_drive_service_import_error():
     """Test get_drive_service raises ImportError when Google API libraries not installed."""
     with pytest.raises(ImportError, match="google-api-python-client"):
