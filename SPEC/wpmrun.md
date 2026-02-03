@@ -22,13 +22,13 @@ The `wpm` command-line utility serves as an orchestrator for the WPM library. It
 
 ## Command Line Interface
 
-### Initial Command
+### Initial Commands
 
-The utility accepts one command-line argument with an optional parameter:
+The utility accepts one of two commands with optional parameters:
 
-```
-wpm import [--end-date YYYY-MM-DD]
-```
+#### `wpm import [--end-date YYYY-MM-DD]`
+
+Import trade data from CSV files.
 
 **Note:** The `wpm` command is available after installing the package (via console script entry point defined in `pyproject.toml`). Alternatively, it can be run as a Python module: `python -m wpm.cli import`
 
@@ -57,6 +57,49 @@ wpm import [--end-date YYYY-MM-DD]
 - If CSV import fails for any file, display an error message and exit immediately with error code 1 (do not continue processing other files)
 - If price retrieval fails for any asset and no price data exists in cache, display an error message and exit immediately with error code 1
 - If price data exists in cache but is stale (invalid), log a warning but continue processing using the stale cache data
+
+#### `wpm import-sheets [--end-date YYYY-MM-DD]`
+
+Import trade data from Google Sheets.
+
+**Prerequisites:**
+- Google Sheets API credentials must be configured (service account JSON key file)
+- Environment variables must be set in `.env` file:
+  - `GOOGLE_SHEETS_CREDENTIALS_PATH`: Path to service account JSON key file (required)
+  - `GOOGLE_SHEETS_DRIVE_PATH`: Google Drive path to spreadsheet (e.g., "Folder/Subfolder/SpreadsheetName") (optional, alternative to spreadsheet ID)
+  - `GOOGLE_SHEETS_SPREADSHEET_ID`: Direct spreadsheet ID from URL (optional, alternative to Drive path)
+
+**Parameters:**
+- `--end-date YYYY-MM-DD` (optional): End date for historical portfolio import. If provided:
+  - Only trades with date <= end_date are included
+  - All created portfolios will have `is_historical=True`
+  - Historical prices will be fetched for calculations
+  - Clear messaging is displayed indicating historical import mode
+
+**Behavior:**
+- Authenticates with Google Sheets API using service account credentials
+- Resolves the spreadsheet identifier (Drive path takes precedence over spreadsheet ID)
+- Lists all sheet tabs in the spreadsheet
+- Imports each sheet as a separate sub-portfolio (fail-fast: any error stops entire import)
+- Validates sheet structure (same column requirements as CSV import)
+- Creates a composite portfolio containing all imported sheets as sub-portfolios
+- Each sub-portfolio is named after the sheet tab name
+- After import, fetches prices for all assets via PriceService (same as CSV import)
+- After price fetching, automatically creates SPY and BTC-USD buy-and-hold reference portfolios for baseline comparison
+- Enters interactive mode after successful import
+
+**Fail-Fast Behavior:**
+- ALL sheets in the spreadsheet are imported (no filtering option)
+- If ANY sheet fails to import (validation error, parsing error, etc.), the ENTIRE operation fails
+- No partial portfolios are created on error
+
+**Error Handling:**
+- If `GOOGLE_SHEETS_CREDENTIALS_PATH` is not configured: Display error message and exit with code 1
+- If neither `GOOGLE_SHEETS_DRIVE_PATH` nor `GOOGLE_SHEETS_SPREADSHEET_ID` is configured: Display error message and exit with code 1
+- If credentials file not found: Display error message and exit with code 1
+- If Drive path resolution fails (folder not found, spreadsheet not found, multiple matches): Display error message and exit with code 1
+- If any sheet fails validation or parsing: Display error message and exit with code 1 (fail-fast)
+- If price retrieval fails for any asset and no price data exists in cache: Display error message and exit immediately with error code 1
 
 ### Portfolio Naming
 

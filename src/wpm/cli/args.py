@@ -18,8 +18,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "command",
-        choices=["import"],
-        help="Command to execute (currently only 'import' is supported)",
+        choices=["import", "import-sheets"],
+        help="Command to execute ('import' for CSV files, 'import-sheets' for Google Sheets)",
     )
     parser.add_argument(
         "--end-date",
