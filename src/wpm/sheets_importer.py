@@ -7,15 +7,17 @@ but sources data from Google Sheets instead of files.
 import logging
 from datetime import date
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Set
 
 import pandas as pd
 
 from wpm.config import Config
 from wpm.currency import CurrencyService
-from wpm.importer import parse_trade_row, validate_csv_structure
+from wpm.importer import adjust_trade_for_splits, parse_trade_row, validate_csv_structure
 from wpm.models import Trade, ValidationError
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
+from wpm.pricing.splits import SplitService
+from wpm.utils import validate_asset_type
 
 try:
     from google.oauth2 import service_account
@@ -293,6 +295,7 @@ def import_trades_from_sheet(
     credentials_path: Optional[str] = None,
     currency_service: Optional[CurrencyService] = None,
     end_date: Optional[date] = None,
+    split_service: Optional[SplitService] = None,
 ) -> List[Trade]:
     """Import trades from a single sheet tab.
 
@@ -302,6 +305,8 @@ def import_trades_from_sheet(
         credentials_path: Path to service account JSON key file (optional)
         currency_service: CurrencyService for FX conversion (optional)
         end_date: If provided, only import trades on or before this date
+        split_service: Optional SplitService instance for adjusting trades for stock splits.
+                      If provided, trades will be adjusted for splits that occurred after the trade date.
 
     Returns:
         List of Trade objects
@@ -329,6 +334,30 @@ def import_trades_from_sheet(
     if currency_service is None:
         currency_service = CurrencyService()
 
+    # Batch optimization: one get_splits for Stock/ETF; include all tickers for adjust_trade_for_splits
+    ticker_splits: Optional[Dict[str, pd.Series]] = None
+    if split_service is not None:
+        unique_all: Set[str] = set()
+        unique_stock_etf: Set[str] = set()
+        for idx, row in df.iterrows():
+            try:
+                ticker = str(row["Asset Name/Ticker"]).strip()
+                asset_type_str = str(row["Asset Type"]).strip()
+                asset_type = validate_asset_type(asset_type_str)
+                unique_all.add(ticker)
+                if asset_type in ("Stock", "ETF"):
+                    unique_stock_etf.add(ticker)
+            except Exception:
+                pass
+
+        ticker_splits = {}
+        if unique_stock_etf:
+            logger.debug(f"Prefetching split data for {len(unique_stock_etf)} unique tickers")
+            ticker_splits = split_service.get_splits(list(unique_stock_etf))
+        for t in unique_all:
+            if t not in ticker_splits:
+                ticker_splits[t] = pd.Series(dtype=float)
+
     trades: List[Trade] = []
     errors: List[str] = []
 
@@ -340,6 +369,10 @@ def import_trades_from_sheet(
             if end_date is not None and trade.date > end_date:
                 logger.debug(f"Skipping trade on {trade.date} (after end_date {end_date})")
                 continue
+
+            # Adjust for splits if split_service provided (ticker_splits includes all tickers)
+            if split_service is not None:
+                adjust_trade_for_splits(trade, ticker_splits, current_date=end_date)
 
             trades.append(trade)
         except ValidationError as e:
@@ -442,6 +475,7 @@ def import_sheets_workbook(
     is_historical = end_date is not None
     composite = CompositePortfolio("Composite", is_historical=is_historical)
     currency_service = CurrencyService()
+    split_service = SplitService()
 
     for sheet_name in sheet_names:
         logger.info(f"Processing sheet: {sheet_name}")
@@ -452,6 +486,7 @@ def import_sheets_workbook(
             credentials_path=credentials_path,
             currency_service=currency_service,
             end_date=end_date,
+            split_service=split_service,
         )
 
         # Create portfolio for this sheet

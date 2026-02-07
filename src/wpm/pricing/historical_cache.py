@@ -278,6 +278,55 @@ class HistoricalPriceCache:
             f"Cached {len(new_entries)} historical prices for {ticker} ({asset_type})"
         )
 
+    def remove_cached_prices(
+        self, ticker: str, asset_type: str, start_date: date, end_date: date
+    ) -> None:
+        """Remove cached prices for a date range.
+        
+        Used to invalidate cache when splits occur or prices need to be refreshed.
+        
+        Args:
+            ticker: Asset ticker
+            asset_type: Asset type
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+        """
+        cache = self._load_cache()
+        if cache.empty:
+            logger.debug(f"No cache entries to remove for {ticker} ({asset_type})")
+            return
+        
+        before_count = len(cache)
+        
+        # Convert cache dates to date type for comparison
+        cache_date = pd.to_datetime(cache["date"]).dt.date
+        
+        # Remove entries matching ticker, asset_type, and date range
+        cache = cache[
+            ~(
+                (cache["ticker"] == ticker)
+                & (cache["asset_type"] == asset_type)
+                & (cache_date >= start_date)
+                & (cache_date <= end_date)
+            )
+        ]
+        
+        after_count = len(cache)
+        self._cache = cache
+        self._save_cache()
+        
+        cleared_count = before_count - after_count
+        if cleared_count > 0:
+            logger.info(
+                f"Removed {cleared_count} cached prices for {ticker} ({asset_type}) "
+                f"from {start_date} to {end_date}"
+            )
+        else:
+            logger.debug(
+                f"No cached prices to remove for {ticker} ({asset_type}) "
+                f"from {start_date} to {end_date}"
+            )
+
     def clear_asset(self, ticker: str, asset_type: str) -> None:
         """Clear all cached prices for a specific asset.
 

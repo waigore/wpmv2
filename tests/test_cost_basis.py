@@ -420,3 +420,70 @@ class TestFIFOCostBasis:
         assert len(fidelity_lot.matched_sells) == 1
         assert fidelity_lot.matched_sells[0][0].broker == "Fidelity"
 
+    def test_lot_calculation_with_split_adjustment(self):
+        """Test lot calculation uses adjusted values from trades."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        
+        # Buy trade with 2:1 split adjustment
+        buy_trade = Trade(
+            date=date(2020, 1, 1),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=Decimal('10.0'),
+            split_adjustment_factor=Decimal('2.0'),  # 2:1 split
+        )
+        
+        lots_by_asset = calculate_lots_from_trades([buy_trade])
+        assert asset in lots_by_asset
+        lot = lots_by_asset[asset][0]
+        
+        # Lot should use adjusted values
+        assert lot.original_quantity == Decimal('20.0')  # 10 * 2
+        assert lot.remaining_quantity == Decimal('20.0')
+        assert lot.purchase_price == 75.0  # 150 / 2
+        assert lot.cost_basis == 1500.0  # 20 * 75 = 1500 (same as original 10 * 150)
+
+    def test_fifo_matching_with_split_adjusted_trades(self):
+        """Test FIFO matching works correctly with split-adjusted trades."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        
+        # Buy before split (adjusted)
+        buy_trade = Trade(
+            date=date(2020, 1, 1),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=Decimal('10.0'),
+            split_adjustment_factor=Decimal('2.0'),
+        )
+        
+        # Sell after split (adjusted)
+        sell_trade = Trade(
+            date=date(2021, 1, 1),
+            asset=asset,
+            action="Sell",
+            broker="IBKR",
+            currency="USD",
+            price=100.0,
+            price_native=100.0,
+            quantity=Decimal('5.0'),
+            split_adjustment_factor=Decimal('2.0'),
+        )
+        
+        lots_by_asset = calculate_lots_from_trades([buy_trade, sell_trade])
+        lot = lots_by_asset[asset][0]
+        
+        # Buy: 10 * 2 = 20 shares @ $75
+        # Sell: 5 * 2 = 10 shares
+        # Remaining: 20 - 10 = 10 shares
+        assert lot.remaining_quantity == Decimal('10.0')
+        assert len(lot.matched_sells) == 1
+        assert lot.matched_sells[0][1] == Decimal('10.0')  # Adjusted quantity sold
+

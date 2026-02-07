@@ -66,6 +66,7 @@ class Trade:
     price: float = field(default=0.0)  # Price in USD (accounting currency)
     price_native: float = field(default=0.0)  # Price in native currency
     quantity: Decimal = field(default_factory=lambda: Decimal('0'))
+    split_adjustment_factor: Decimal = field(default_factory=lambda: Decimal('1.0'))  # Cumulative split adjustment factor
 
     def __post_init__(self):
         """Validate trade fields after initialization."""
@@ -123,9 +124,50 @@ class Trade:
         if self.quantity <= 0:
             raise ValidationError("Quantity must be a positive number greater than 0")
 
+        # Convert split_adjustment_factor to Decimal if needed
+        if isinstance(self.split_adjustment_factor, (int, float)):
+            factor_decimal = Decimal(str(self.split_adjustment_factor))
+            object.__setattr__(self, "split_adjustment_factor", factor_decimal)
+        elif not isinstance(self.split_adjustment_factor, Decimal):
+            raise ValidationError("Split adjustment factor must be a Decimal, int, or float")
+
+        if self.split_adjustment_factor <= 0:
+            raise ValidationError("Split adjustment factor must be a positive number greater than 0")
+
+    @property
+    def adjusted_quantity(self) -> Decimal:
+        """Get quantity adjusted for stock splits.
+
+        Returns:
+            Decimal representing the adjusted quantity (original quantity * split_adjustment_factor)
+        """
+        return self.quantity * self.split_adjustment_factor
+
+    @property
+    def adjusted_price(self) -> float:
+        """Get price adjusted for stock splits.
+
+        Returns:
+            float representing the adjusted price (original price / split_adjustment_factor)
+        """
+        return self.price / float(self.split_adjustment_factor)
+
+    @property
+    def adjusted_price_native(self) -> float:
+        """Get native price adjusted for stock splits.
+
+        Returns:
+            float representing the adjusted native price (original price_native / split_adjustment_factor)
+        """
+        return self.price_native / float(self.split_adjustment_factor)
+
     @property
     def total_value(self) -> float:
-        """Calculate total value of the trade (price * quantity)."""
+        """Calculate total value of the trade (price * quantity).
+
+        Note: Uses original values to preserve cost basis accuracy.
+        Adjusted values maintain the same total: adjusted_quantity * adjusted_price = quantity * price
+        """
         return float(self.quantity) * self.price
 
     def is_buy(self) -> bool:

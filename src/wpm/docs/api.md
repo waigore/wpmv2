@@ -19,6 +19,7 @@
 * [wpm.importer](#wpm.importer)
   * [validate\_csv\_structure](#wpm.importer.validate_csv_structure)
   * [parse\_trade\_row](#wpm.importer.parse_trade_row)
+  * [adjust\_trade\_for\_splits](#wpm.importer.adjust_trade_for_splits)
   * [import\_trades\_from\_csv](#wpm.importer.import_trades_from_csv)
   * [extract\_portfolio\_name](#wpm.importer.extract_portfolio_name)
   * [import\_csv\_files](#wpm.importer.import_csv_files)
@@ -31,7 +32,11 @@
   * [Trade](#wpm.models.Trade)
     * [price](#wpm.models.Trade.price)
     * [price\_native](#wpm.models.Trade.price_native)
+    * [split\_adjustment\_factor](#wpm.models.Trade.split_adjustment_factor)
     * [\_\_post\_init\_\_](#wpm.models.Trade.__post_init__)
+    * [adjusted\_quantity](#wpm.models.Trade.adjusted_quantity)
+    * [adjusted\_price](#wpm.models.Trade.adjusted_price)
+    * [adjusted\_price\_native](#wpm.models.Trade.adjusted_price_native)
     * [total\_value](#wpm.models.Trade.total_value)
     * [is\_buy](#wpm.models.Trade.is_buy)
     * [is\_sell](#wpm.models.Trade.is_sell)
@@ -78,6 +83,14 @@
     * [get\_metadata\_batch](#wpm.asset.AssetService.get_metadata_batch)
     * [update\_metadata](#wpm.asset.AssetService.update_metadata)
     * [update\_metadata\_batch](#wpm.asset.AssetService.update_metadata_batch)
+* [wpm.sheets\_importer](#wpm.sheets_importer)
+  * [get\_sheets\_service](#wpm.sheets_importer.get_sheets_service)
+  * [get\_drive\_service](#wpm.sheets_importer.get_drive_service)
+  * [resolve\_spreadsheet\_id](#wpm.sheets_importer.resolve_spreadsheet_id)
+  * [sheet\_to\_dataframe](#wpm.sheets_importer.sheet_to_dataframe)
+  * [import\_trades\_from\_sheet](#wpm.sheets_importer.import_trades_from_sheet)
+  * [list\_sheet\_names](#wpm.sheets_importer.list_sheet_names)
+  * [import\_sheets\_workbook](#wpm.sheets_importer.import_sheets_workbook)
 * [wpm.cost\_basis](#wpm.cost_basis)
   * [calculate\_lots\_from\_trades](#wpm.cost_basis.calculate_lots_from_trades)
   * [calculate\_fifo\_cost\_basis](#wpm.cost_basis.calculate_fifo_cost_basis)
@@ -240,8 +253,16 @@
     * [get\_cached\_prices](#wpm.pricing.historical_cache.HistoricalPriceCache.get_cached_prices)
     * [get\_cached\_price](#wpm.pricing.historical_cache.HistoricalPriceCache.get_cached_price)
     * [set\_cached\_prices](#wpm.pricing.historical_cache.HistoricalPriceCache.set_cached_prices)
+    * [remove\_cached\_prices](#wpm.pricing.historical_cache.HistoricalPriceCache.remove_cached_prices)
     * [clear\_asset](#wpm.pricing.historical_cache.HistoricalPriceCache.clear_asset)
     * [clear\_all](#wpm.pricing.historical_cache.HistoricalPriceCache.clear_all)
+* [wpm.pricing.splits](#wpm.pricing.splits)
+  * [compute\_cumulative\_split\_factor\_from\_splits](#wpm.pricing.splits.compute_cumulative_split_factor_from_splits)
+  * [SplitService](#wpm.pricing.splits.SplitService)
+    * [\_\_init\_\_](#wpm.pricing.splits.SplitService.__init__)
+    * [get\_splits](#wpm.pricing.splits.SplitService.get_splits)
+    * [get\_cumulative\_split\_factor](#wpm.pricing.splits.SplitService.get_cumulative_split_factor)
+    * [clear\_cache](#wpm.pricing.splits.SplitService.clear_cache)
 * [wpm.pricing.base](#wpm.pricing.base)
   * [PriceRetriever](#wpm.pricing.base.PriceRetriever)
     * [metadata\_supported](#wpm.pricing.base.PriceRetriever.metadata_supported)
@@ -564,14 +585,52 @@ Maps "Equity" asset type to "Stock" as per spec requirement.
 
 - `ValidationError` - If row data is invalid
 
+<a id="wpm.importer.adjust_trade_for_splits"></a>
+
+#### adjust\_trade\_for\_splits
+
+```python
+def adjust_trade_for_splits(trade: Trade,
+                            ticker_splits: Dict[str, pd.Series],
+                            current_date: Optional[date] = None) -> Trade
+```
+
+Adjust trade for stock splits by calculating and setting split adjustment factor.
+
+Caller must supply pre-fetched ticker_splits and ensure the trade's ticker
+is present; otherwise ValidationError is raised.
+
+For stocks and ETFs, calculates cumulative split factor from splits that occurred
+after the trade date. For crypto assets, sets factor to 1.0 (no adjustment).
+
+**Arguments**:
+
+- `trade` - Trade object to adjust
+- `ticker_splits` - Required dict of ticker -> splits Series (from e.g. SplitService.get_splits).
+  Must contain an entry for the trade's ticker.
+- `current_date` - Optional end date for split calculation (default: today).
+  For historical portfolios, use the portfolio's end_date.
+  
+
+**Returns**:
+
+  Trade object with updated split_adjustment_factor (modified in-place)
+  
+
+**Raises**:
+
+- `ValidationError` - If ticker_splits is None or if the trade's ticker is not in ticker_splits.
+
 <a id="wpm.importer.import_trades_from_csv"></a>
 
 #### import\_trades\_from\_csv
 
 ```python
-def import_trades_from_csv(file_path: str,
-                           currency_service: CurrencyService = None,
-                           end_date: Optional[date] = None) -> List[Trade]
+def import_trades_from_csv(
+        file_path: str,
+        currency_service: CurrencyService = None,
+        end_date: Optional[date] = None,
+        split_service: Optional[SplitService] = None) -> List[Trade]
 ```
 
 Import trades from CSV file.
@@ -581,6 +640,8 @@ Import trades from CSV file.
 - `file_path` - Path to CSV file
 - `currency_service` - CurrencyService instance for currency conversion (default: creates new instance)
 - `end_date` - Optional end date (inclusive). If provided, only trades with date <= end_date are included
+- `split_service` - Optional SplitService instance for adjusting trades for stock splits.
+  If provided, trades will be adjusted for splits that occurred after the trade date.
   
 
 **Returns**:
@@ -725,6 +786,12 @@ Price in USD (accounting currency)
 
 Price in native currency
 
+<a id="wpm.models.Trade.split_adjustment_factor"></a>
+
+#### split\_adjustment\_factor
+
+Cumulative split adjustment factor
+
 <a id="wpm.models.Trade.__post_init__"></a>
 
 #### \_\_post\_init\_\_
@@ -734,6 +801,51 @@ def __post_init__()
 ```
 
 Validate trade fields after initialization.
+
+<a id="wpm.models.Trade.adjusted_quantity"></a>
+
+#### adjusted\_quantity
+
+```python
+@property
+def adjusted_quantity() -> Decimal
+```
+
+Get quantity adjusted for stock splits.
+
+**Returns**:
+
+  Decimal representing the adjusted quantity (original quantity * split_adjustment_factor)
+
+<a id="wpm.models.Trade.adjusted_price"></a>
+
+#### adjusted\_price
+
+```python
+@property
+def adjusted_price() -> float
+```
+
+Get price adjusted for stock splits.
+
+**Returns**:
+
+  float representing the adjusted price (original price / split_adjustment_factor)
+
+<a id="wpm.models.Trade.adjusted_price_native"></a>
+
+#### adjusted\_price\_native
+
+```python
+@property
+def adjusted_price_native() -> float
+```
+
+Get native price adjusted for stock splits.
+
+**Returns**:
+
+  float representing the adjusted native price (original price_native / split_adjustment_factor)
 
 <a id="wpm.models.Trade.total_value"></a>
 
@@ -745,6 +857,9 @@ def total_value() -> float
 ```
 
 Calculate total value of the trade (price * quantity).
+
+Note: Uses original values to preserve cost basis accuracy.
+Adjusted values maintain the same total: adjusted_quantity * adjusted_price = quantity * price
 
 <a id="wpm.models.Trade.is_buy"></a>
 
@@ -1421,6 +1536,239 @@ Update cache for multiple tickers in batch.
 
 - `metadata_dict` - Dictionary mapping (ticker, asset_type) tuple to info_dict
 - `Format` - {(ticker, asset_type): info_dict, ...}
+
+<a id="wpm.sheets_importer"></a>
+
+# wpm.sheets\_importer
+
+Google Sheets import functionality for WPM.
+
+This module provides parallel import functionality to CSV imports,
+but sources data from Google Sheets instead of files.
+
+<a id="wpm.sheets_importer.get_sheets_service"></a>
+
+#### get\_sheets\_service
+
+```python
+def get_sheets_service(credentials_path: Optional[str] = None)
+```
+
+Create authenticated Google Sheets API service.
+
+**Arguments**:
+
+- `credentials_path` - Path to service account JSON key file.
+  If None, uses GOOGLE_SHEETS_CREDENTIALS_PATH from Config.
+  
+
+**Returns**:
+
+  Google Sheets API service instance
+  
+
+**Raises**:
+
+- `ValidationError` - If credentials not configured or file not found
+- `ImportError` - If google-api-python-client not installed
+
+<a id="wpm.sheets_importer.get_drive_service"></a>
+
+#### get\_drive\_service
+
+```python
+def get_drive_service(credentials_path: Optional[str] = None)
+```
+
+Create authenticated Google Drive API service.
+
+**Arguments**:
+
+- `credentials_path` - Path to service account JSON key file.
+  If None, uses GOOGLE_SHEETS_CREDENTIALS_PATH from Config.
+  
+
+**Returns**:
+
+  Google Drive API service instance
+  
+
+**Raises**:
+
+- `ValidationError` - If credentials not configured or file not found
+- `ImportError` - If google-api-python-client not installed
+
+<a id="wpm.sheets_importer.resolve_spreadsheet_id"></a>
+
+#### resolve\_spreadsheet\_id
+
+```python
+def resolve_spreadsheet_id(drive_path: Optional[str] = None,
+                           spreadsheet_id: Optional[str] = None,
+                           credentials_path: Optional[str] = None) -> str
+```
+
+Resolve spreadsheet identifier to spreadsheet ID.
+
+Priority:
+1. If drive_path provided: resolve via Drive API
+2. Else if spreadsheet_id provided: return as-is
+3. Else: raise ValidationError
+
+Drive Path Resolution Algorithm:
+1. Parse path components (split by "/")
+2. Use Drive API to traverse folders:
+- Start from root (root)
+- For each folder name: query mimeType='application/vnd.google-apps.folder'
+and name='{folder}' and '{parent_id}' in parents
+- Track folder ID
+3. Final component: query mimeType='application/vnd.google-apps.spreadsheet'
+and name='{filename}' and '{parent_id}' in parents
+4. Return spreadsheet ID
+
+**Arguments**:
+
+- `drive_path` - Google Drive path like "Folder/Subfolder/Filename"
+- `spreadsheet_id` - Direct spreadsheet ID from URL
+- `credentials_path` - Path to service account JSON key file
+  
+
+**Returns**:
+
+  Spreadsheet ID string
+  
+
+**Raises**:
+
+- `ValidationError` - If neither path nor ID provided, path not found,
+  multiple matches, or not a spreadsheet
+
+<a id="wpm.sheets_importer.sheet_to_dataframe"></a>
+
+#### sheet\_to\_dataframe
+
+```python
+def sheet_to_dataframe(service, spreadsheet_id: str,
+                       sheet_name: str) -> pd.DataFrame
+```
+
+Fetch sheet data via Sheets API and convert to DataFrame.
+
+**Arguments**:
+
+- `service` - Google Sheets API service instance
+- `spreadsheet_id` - The spreadsheet ID
+- `sheet_name` - Name of the sheet tab to fetch
+  
+
+**Returns**:
+
+  DataFrame with sheet data (first row as headers)
+  
+
+**Raises**:
+
+- `ValidationError` - If sheet empty or not found
+
+<a id="wpm.sheets_importer.import_trades_from_sheet"></a>
+
+#### import\_trades\_from\_sheet
+
+```python
+def import_trades_from_sheet(
+        spreadsheet_id: str,
+        sheet_name: str,
+        credentials_path: Optional[str] = None,
+        currency_service: Optional[CurrencyService] = None,
+        end_date: Optional[date] = None,
+        split_service: Optional[SplitService] = None) -> List[Trade]
+```
+
+Import trades from a single sheet tab.
+
+**Arguments**:
+
+- `spreadsheet_id` - Google Sheets spreadsheet ID
+- `sheet_name` - Name of the sheet tab containing trades
+- `credentials_path` - Path to service account JSON key file (optional)
+- `currency_service` - CurrencyService for FX conversion (optional)
+- `end_date` - If provided, only import trades on or before this date
+- `split_service` - Optional SplitService instance for adjusting trades for stock splits.
+  If provided, trades will be adjusted for splits that occurred after the trade date.
+  
+
+**Returns**:
+
+  List of Trade objects
+  
+
+**Raises**:
+
+- `ValidationError` - On structure errors or parsing failures
+- `ImportError` - If Google API libraries not installed
+
+<a id="wpm.sheets_importer.list_sheet_names"></a>
+
+#### list\_sheet\_names
+
+```python
+def list_sheet_names(spreadsheet_id: str,
+                     credentials_path: Optional[str] = None) -> List[str]
+```
+
+Return all sheet (tab) names in spreadsheet.
+
+**Arguments**:
+
+- `spreadsheet_id` - Google Sheets spreadsheet ID
+- `credentials_path` - Path to service account JSON key file (optional)
+  
+
+**Returns**:
+
+  List of sheet names (tabs) in the workbook
+  
+
+**Raises**:
+
+- `ValidationError` - If API call fails
+
+<a id="wpm.sheets_importer.import_sheets_workbook"></a>
+
+#### import\_sheets\_workbook
+
+```python
+def import_sheets_workbook(
+        spreadsheet_id: str,
+        credentials_path: Optional[str] = None,
+        end_date: Optional[date] = None) -> CompositePortfolio
+```
+
+Import ALL sheets as sub-portfolios, aggregate into CompositePortfolio.
+
+Fail-Fast Behavior:
+- ALL sheets in the spreadsheet are imported (no filtering option)
+- If ANY sheet fails to import (validation error, parsing error, etc.),
+the ENTIRE operation fails
+- No partial portfolios are created on error
+
+**Arguments**:
+
+- `spreadsheet_id` - Google Sheets spreadsheet ID
+- `credentials_path` - Path to service account JSON key file (optional)
+- `end_date` - If provided, only import trades on or before this date,
+  and mark portfolios as historical
+  
+
+**Returns**:
+
+  CompositePortfolio containing all imported sheets as sub-portfolios
+  
+
+**Raises**:
+
+- `ValidationError` - If any sheet fails validation or parsing
+- `ImportError` - If Google API libraries not installed
 
 <a id="wpm.cost_basis"></a>
 
@@ -3472,11 +3820,13 @@ Creates a clone of the portfolio for each date from start_date to end_date
 
 ```python
 def get_historical_performance(
-        portfolio: Portfolio,
-        price_service: "PriceService",
-        start_date: date,
-        end_date: date,
-        brokers: Optional[List[str]] = None) -> List[PortfolioHistoryPoint]
+    portfolio: Portfolio,
+    price_service: "PriceService",
+    start_date: date,
+    end_date: date,
+    brokers: Optional[List[str]] = None,
+    split_service: Optional[SplitService] = None
+) -> List[PortfolioHistoryPoint]
 ```
 
 Get historical performance of a portfolio over a date range.
@@ -3508,6 +3858,8 @@ remaining quantities only). If total_cost_basis is 0, percentage_return is set t
 - `end_date` - End date for performance tracking (inclusive)
 - `brokers` - Optional list of broker names to filter by. If provided, only trades
   from specified brokers are included in position calculations.
+- `split_service` - Optional SplitService instance. If not provided, a new instance
+  will be created. Useful for testing with mocked split data.
   
 
 **Returns**:
@@ -3528,11 +3880,13 @@ remaining quantities only). If total_cost_basis is 0, percentage_return is set t
 
 ```python
 def get_historical_allocations(
-        portfolio: Portfolio,
-        price_service: "PriceService",
-        start_date: date,
-        end_date: date,
-        brokers: Optional[List[str]] = None) -> List[Dict[Asset, Decimal]]
+    portfolio: Portfolio,
+    price_service: "PriceService",
+    start_date: date,
+    end_date: date,
+    brokers: Optional[List[str]] = None,
+    history_points: Optional[List[PortfolioHistoryPoint]] = None
+) -> List[Dict[Asset, Decimal]]
 ```
 
 Get historical percentage allocations of asset positions over a date range.
@@ -3542,7 +3896,8 @@ Returns a list of allocation dictionaries, one for each day from start_date to e
 Allocations are calculated as (asset position value / total portfolio market value) * 100.
 
 This function leverages `get_historical_performance()` to reuse batch price retrieval
-for efficiency.
+for efficiency. Callers can pass pre-computed history_points to avoid recalculating
+(e.g. when both performance and allocations are needed).
 
 **Arguments**:
 
@@ -3552,6 +3907,9 @@ for efficiency.
 - `end_date` - End date for allocation tracking (inclusive)
 - `brokers` - Optional list of broker names to filter by. If provided, only trades
   from specified brokers are included in allocation calculations.
+- `history_points` - Optional pre-computed history points from get_historical_performance.
+  When provided, allocations are computed from this list and no second
+  get_historical_performance call is made.
   
 
 **Returns**:
@@ -4617,6 +4975,26 @@ Store daily prices for a date range.
 - `native_prices_df` - Optional DataFrame with date index and native_price column
 - `native_currency` - Native currency code (default: "USD")
 
+<a id="wpm.pricing.historical_cache.HistoricalPriceCache.remove_cached_prices"></a>
+
+#### remove\_cached\_prices
+
+```python
+def remove_cached_prices(ticker: str, asset_type: str, start_date: date,
+                         end_date: date) -> None
+```
+
+Remove cached prices for a date range.
+
+Used to invalidate cache when splits occur or prices need to be refreshed.
+
+**Arguments**:
+
+- `ticker` - Asset ticker
+- `asset_type` - Asset type
+- `start_date` - Start date (inclusive)
+- `end_date` - End date (inclusive)
+
 <a id="wpm.pricing.historical_cache.HistoricalPriceCache.clear_asset"></a>
 
 #### clear\_asset
@@ -4641,6 +5019,148 @@ def clear_all() -> None
 ```
 
 Clear entire historical cache.
+
+<a id="wpm.pricing.splits"></a>
+
+# wpm.pricing.splits
+
+Stock split data retrieval and adjustment factor calculation.
+
+<a id="wpm.pricing.splits.compute_cumulative_split_factor_from_splits"></a>
+
+#### compute\_cumulative\_split\_factor\_from\_splits
+
+```python
+def compute_cumulative_split_factor_from_splits(
+        splits: pd.Series,
+        trade_date: date,
+        current_date: Optional[date] = None) -> Decimal
+```
+
+Compute cumulative split adjustment factor from an existing splits Series.
+
+Pure function: no I/O, no cache access. Use with pre-fetched split data to
+avoid repeated service/cache calls (e.g. one get_splits per ticker at import).
+
+The factor is the product of all split ratios for splits that occurred
+strictly after trade_date and up to current_date (inclusive).
+
+**Arguments**:
+
+- `splits` - pandas Series with date index and split ratio values (e.g. from
+  SplitService.get_splits). Can be unfiltered or pre-filtered by date.
+- `trade_date` - Date of the trade (splits after this date are included).
+- `current_date` - Optional end date; only splits on or before this date are
+  included. If None, all splits after trade_date are included.
+  
+
+**Returns**:
+
+  Decimal cumulative factor (default Decimal('1.0') if no relevant splits).
+
+<a id="wpm.pricing.splits.SplitService"></a>
+
+## SplitService Objects
+
+```python
+class SplitService()
+```
+
+Service for retrieving stock split data and calculating adjustment factors.
+
+<a id="wpm.pricing.splits.SplitService.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__()
+```
+
+Initialize SplitService with internal cache for split data.
+
+<a id="wpm.pricing.splits.SplitService.get_splits"></a>
+
+#### get\_splits
+
+```python
+def get_splits(tickers: List[str],
+               start_date: Optional[date] = None,
+               end_date: Optional[date] = None) -> Dict[str, pd.Series]
+```
+
+Get raw split data from yfinance for a batch of tickers.
+
+Retrieval (cache and yfinance) is done in one batch to avoid N+1 calls.
+Each requested ticker appears exactly once in the returned dict; on
+fetch error or no data, that ticker gets an empty Series.
+
+**Arguments**:
+
+- `tickers` - List of Stock/ETF ticker symbols
+- `start_date` - Optional start date to filter splits (inclusive)
+- `end_date` - Optional end date to filter splits (inclusive)
+  
+
+**Returns**:
+
+  Dict mapping each ticker to a pandas Series with date index and
+  split ratio values. Empty list returns {}.
+  
+
+**Notes**:
+
+  Split ratios are stored as-is from yfinance:
+  - Forward split (2:1) = 2.0
+  - Reverse split (1:2) = 0.5
+
+<a id="wpm.pricing.splits.SplitService.get_cumulative_split_factor"></a>
+
+#### get\_cumulative\_split\_factor
+
+```python
+def get_cumulative_split_factor(
+        ticker: str,
+        trade_date: date,
+        current_date: Optional[date] = None) -> Decimal
+```
+
+Calculate cumulative split adjustment factor for a trade.
+
+The factor represents the cumulative effect of all splits that occurred
+after the trade date and up to the current date.
+
+**Arguments**:
+
+- `ticker` - Stock/ETF ticker symbol
+- `trade_date` - Date of the trade (splits after this date are included)
+- `current_date` - Optional end date for split calculation (default: today).
+  For historical portfolios, use the portfolio's end_date.
+  
+
+**Returns**:
+
+  Decimal representing cumulative split factor:
+  - Factor > 1.0: Forward splits occurred (e.g., 2.0 for 2:1 split)
+  - Factor < 1.0: Reverse splits occurred (e.g., 0.5 for 1:2 reverse split)
+  - Factor = 1.0: No splits occurred (default)
+  
+
+**Notes**:
+
+  For crypto assets, always returns Decimal('1.0') as crypto doesn't have splits.
+  Caller should check asset type before calling this method.
+
+<a id="wpm.pricing.splits.SplitService.clear_cache"></a>
+
+#### clear\_cache
+
+```python
+def clear_cache() -> None
+```
+
+Clear the internal split data cache.
+
+Useful for testing or if split data needs to be refreshed.
 
 <a id="wpm.pricing.base"></a>
 

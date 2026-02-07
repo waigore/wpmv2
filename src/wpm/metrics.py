@@ -139,12 +139,13 @@ def breakdown_by_purchase_period(
             period_key = str(trade_date.year)
 
         breakdown[period_key]["trades"].append(trade)
-        breakdown[period_key]["total_quantity"] += trade.quantity
+        breakdown[period_key]["total_quantity"] += trade.adjusted_quantity
         breakdown[period_key]["total_cost_basis"] += trade.total_value
 
         logger.debug(
             f"Added trade to period {period_key}: {trade.asset.ticker} "
-            f"{trade.quantity} @ ${trade.price}"
+            f"{trade.adjusted_quantity} @ ${trade.adjusted_price:.2f} "
+            f"(original: {trade.quantity} @ ${trade.price:.2f}, factor: {trade.split_adjustment_factor})"
         )
 
     result = dict(breakdown)
@@ -175,12 +176,13 @@ def breakdown_by_broker(portfolio: Portfolio) -> Dict[str, Dict]:
     for trade in trades:
         broker = trade.broker
         breakdown[broker]["trades"].append(trade)
-        breakdown[broker]["total_quantity"][trade.asset.ticker] += trade.quantity
+        breakdown[broker]["total_quantity"][trade.asset.ticker] += trade.adjusted_quantity
         breakdown[broker]["total_cost_basis"] += trade.total_value
 
         logger.debug(
             f"Added trade to broker {broker}: {trade.asset.ticker} "
-            f"{trade.action} {trade.quantity} @ ${trade.price}"
+            f"{trade.action} {trade.adjusted_quantity} @ ${trade.adjusted_price:.2f} "
+            f"(original: {trade.quantity} @ ${trade.price:.2f}, factor: {trade.split_adjustment_factor})"
         )
 
     result = {broker: dict(metrics) for broker, metrics in breakdown.items()}

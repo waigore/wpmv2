@@ -5,9 +5,10 @@ from datetime import date, timedelta
 from typing import Dict, List, Optional
 
 from wpm.asset import AssetService
-from wpm.models import Asset
+from wpm.models import Asset, Trade
 from wpm.portfolio import (
     CompositePortfolio,
+    _adjust_trades_for_historical_date,
     _calculate_percentage_return_from_lots,
     _position_from_lots,
     fetch_price_map,
@@ -15,6 +16,7 @@ from wpm.portfolio import (
     get_historical_performance,
 )
 from wpm.pricing import PriceService
+from wpm.pricing.splits import SplitService
 
 from ..formatters import (
     format_currency,
@@ -94,7 +96,8 @@ def cmd_show_asset(
                 composite, price_service, start_date, end_date, brokers=brokers
             )
             allocations_list = get_historical_allocations(
-                composite, price_service, start_date, end_date, brokers=brokers
+                composite, price_service, start_date, end_date, brokers=brokers,
+                history_points=history_points,
             )
         except Exception as e:
             print(f"Error calculating historical performance: {e}")
@@ -110,20 +113,48 @@ def cmd_show_asset(
         if brokers is not None:
             all_trades = [t for t in all_trades if t.broker in brokers]
 
+        # Reuse price_service's SplitService so split data is already cached from get_historical_performance
+        split_service = getattr(price_service, "_split_service", None) or SplitService()
+        # Prefetch split data once (Principle 6); pass ticker_splits to _adjust_trades_for_historical_date
+        stock_etf_tickers = [
+            t.asset.ticker for t in all_trades
+            if t.asset.asset_type in ("Stock", "ETF")
+        ]
+        ticker_splits = (
+            split_service.get_splits(list(dict.fromkeys(stock_etf_tickers)))
+            if stock_etf_tickers else {}
+        )
+
+        # Cache adjusted trades by date to avoid recalculating for each history point
+        # This significantly improves performance when displaying many dates
+        adjusted_trades_cache: Dict[date, List[Trade]] = {}
+        
+        # Pre-calculate adjusted trades for all unique dates in history_points
+        unique_dates = sorted(set(hp.date for hp in history_points))
+        for unique_date in unique_dates:
+            # Filter trades up to this date
+            filtered_trades = [t for t in all_trades if t.date <= unique_date]
+            # Adjust trades for splits up to this historical date
+            adjusted_trades = _adjust_trades_for_historical_date(
+                filtered_trades, ticker_splits, unique_date
+            )
+            adjusted_trades_cache[unique_date] = adjusted_trades
+
         # Filter and display history points for this ticker
         for i, history_point in enumerate(history_points):
             position_value = history_point.asset_positions.get(ticker, 0.0)
             # Skip days where asset has no position
             if position_value > 0:
-                # Calculate asset-level percentage return for this date
-                filtered_trades = [t for t in all_trades if t.date <= history_point.date]
+                # Get pre-calculated adjusted trades for this date from cache
+                adjusted_trades = adjusted_trades_cache.get(history_point.date, [])
+                
                 asset_price = history_point.prices.get(ticker)
                 prices_dict = {ticker: asset_price} if asset_price is not None else {}
 
-                # Calculate percentage return for this asset
+                # Calculate percentage return for this asset using cached adjusted trades
                 asset_percentage_return = (
                     _calculate_percentage_return_from_lots(
-                        filtered_trades, prices_dict, ticker_filter=ticker
+                        adjusted_trades, prices_dict, ticker_filter=ticker
                     )
                     if asset_price is not None
                     else None

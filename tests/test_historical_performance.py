@@ -1,7 +1,9 @@
 """Tests for historical portfolio performance functionality."""
 
 import pytest
+import pandas as pd
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Dict, List
 from unittest.mock import Mock
 
@@ -12,6 +14,7 @@ from wpm.portfolio import (
     _calculate_percentage_return_from_lots,
     get_historical_performance,
 )
+from wpm.pricing.splits import SplitService
 
 
 def _create_price_dict(
@@ -686,3 +689,62 @@ class TestCalculatePercentageReturnFromLots:
         )
         expected_return = (30.0 / 810.0) * 100
         assert abs(percentage_return - expected_return) < 0.01
+
+
+class TestHistoricalPerformanceWithSplits:
+    """Tests for historical performance with split-adjusted trades."""
+
+    def test_historical_performance_with_split_adjustment(self):
+        """Test historical performance uses adjusted values correctly."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+
+        # Trade before 2:1 split: 10 shares @ $150
+        # Note: split_adjustment_factor will be recalculated for historical date
+        trade = Trade(
+            date=date(2020, 1, 1),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=Decimal('10.0'),
+            split_adjustment_factor=Decimal('1.0'),  # Will be recalculated
+        )
+
+        portfolio = SimplePortfolio("Test")
+        portfolio.add_trade(trade)
+
+        # Mock price service
+        price_service = Mock()
+
+        # Historical price after split: $100 (post-split price)
+        price_service.get_historical_prices.return_value = {
+            "GOOG": {
+                date(2021, 1, 1): 100.0
+            }
+        }
+
+        # Mock SplitService: prefetch returns 2:1 split data; pure function yields factor 2.0 for trade date, 1.0 for price scale
+        split_service = Mock(spec=SplitService)
+        goog_splits = pd.Series([2.0], index=[pd.Timestamp("2020-06-15")])
+        split_service.get_splits.return_value = {"GOOG": goog_splits}
+
+        # Calculate historical performance
+        history = get_historical_performance(
+            portfolio, price_service, date(2021, 1, 1), date(2021, 1, 1),
+            split_service=split_service
+        )
+
+        assert len(history) == 1
+        point = history[0]
+
+        # Position should be 20 shares (adjusted: 10 * 2)
+        # Market value = 20 * 100 = 2000 (price is post-split scale; no conversion for date after split)
+        assert point.quantities["GOOG"] == 20.0
+        assert point.asset_positions["GOOG"] == 2000.0
+
+        # Cost basis = 20 * 75 = 1500 (adjusted price: 150 / 2)
+        # Unrealized P/L = 2000 - 1500 = 500
+        # Percentage return = (500 / 1500) * 100 = 33.33%
+        assert point.percentage_return == pytest.approx(33.33, abs=0.1)

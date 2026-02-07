@@ -41,14 +41,18 @@ def _calculate_lots_from_trades_impl(trades: List[Trade]) -> Dict[Asset, List[Lo
         asset = trade.asset
 
         if trade.is_buy():
-            logger.debug(f"Processing buy: {trade.quantity} @ ${trade.price} from broker {trade.broker}")
-            # Create a new lot from the buy trade
+            logger.debug(
+                f"Processing buy: {trade.adjusted_quantity} @ ${trade.adjusted_price:.2f} "
+                f"(original: {trade.quantity} @ ${trade.price:.2f}, factor: {trade.split_adjustment_factor}) "
+                f"from broker {trade.broker}"
+            )
+            # Create a new lot from the buy trade using adjusted values
             lot = Lot(
                 purchase_date=trade.date,
-                purchase_price=trade.price,
-                original_quantity=trade.quantity,
-                remaining_quantity=trade.quantity,
-                cost_basis=float(trade.quantity) * trade.price,
+                purchase_price=trade.adjusted_price,
+                original_quantity=trade.adjusted_quantity,
+                remaining_quantity=trade.adjusted_quantity,
+                cost_basis=float(trade.adjusted_quantity) * trade.adjusted_price,
                 asset=asset,
                 broker=trade.broker,
                 matched_sells=[],
@@ -63,8 +67,12 @@ def _calculate_lots_from_trades_impl(trades: List[Trade]) -> Dict[Asset, List[Lo
             fifo_lots[lot_key].append(lot)
             lots_by_asset[asset].append(lot)
         else:
-            logger.debug(f"Processing sell: {trade.quantity} @ ${trade.price} from broker {trade.broker}")
-            remaining_sell_quantity = trade.quantity
+            logger.debug(
+                f"Processing sell: {trade.adjusted_quantity} @ ${trade.adjusted_price:.2f} "
+                f"(original: {trade.quantity} @ ${trade.price:.2f}, factor: {trade.split_adjustment_factor}) "
+                f"from broker {trade.broker}"
+            )
+            remaining_sell_quantity = trade.adjusted_quantity
 
             # Match sell only against lots from the same broker
             lot_key = (asset, trade.broker)

@@ -4,13 +4,14 @@ import logging
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import pandas as pd
 
 from wpm.currency import CurrencyService
 from wpm.models import Asset, Trade, ValidationError
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
+from wpm.pricing.splits import SplitService, compute_cumulative_split_factor_from_splits
 from wpm.utils import normalize_date, validate_asset_type
 
 logger = logging.getLogger(__name__)
@@ -131,8 +132,76 @@ def parse_trade_row(row: pd.Series, currency_service: CurrencyService = None) ->
         raise ValidationError(f"Error parsing trade row: {str(e)}") from e
 
 
+def adjust_trade_for_splits(
+    trade: Trade,
+    ticker_splits: Dict[str, pd.Series],
+    current_date: Optional[date] = None,
+) -> Trade:
+    """Adjust trade for stock splits by calculating and setting split adjustment factor.
+
+    Caller must supply pre-fetched ticker_splits and ensure the trade's ticker
+    is present; otherwise ValidationError is raised.
+
+    For stocks and ETFs, calculates cumulative split factor from splits that occurred
+    after the trade date. For crypto assets, sets factor to 1.0 (no adjustment).
+
+    Args:
+        trade: Trade object to adjust
+        ticker_splits: Required dict of ticker -> splits Series (from e.g. SplitService.get_splits).
+                      Must contain an entry for the trade's ticker.
+        current_date: Optional end date for split calculation (default: today).
+                     For historical portfolios, use the portfolio's end_date.
+
+    Returns:
+        Trade object with updated split_adjustment_factor (modified in-place)
+
+    Raises:
+        ValidationError: If ticker_splits is None or if the trade's ticker is not in ticker_splits.
+    """
+    if ticker_splits is None:
+        raise ValidationError("ticker_splits is required")
+
+    ticker = trade.asset.ticker
+    if ticker not in ticker_splits:
+        raise ValidationError(f"ticker_splits must contain an entry for ticker {ticker}")
+
+    # Crypto assets don't have splits - set factor to 1.0
+    if trade.asset.asset_type == "Crypto":
+        trade.split_adjustment_factor = Decimal('1.0')
+        logger.debug(f"Skipping split adjustment for crypto asset {ticker}")
+        return trade
+
+    try:
+        splits = ticker_splits[ticker]
+        factor = compute_cumulative_split_factor_from_splits(
+            splits, trade.date, current_date
+        )
+        trade.split_adjustment_factor = factor
+
+        if factor != Decimal('1.0'):
+            logger.info(
+                f"Adjusted trade {ticker} on {trade.date}: "
+                f"factor={factor}, original={trade.quantity}@{trade.price}, "
+                f"adjusted={trade.adjusted_quantity}@{trade.adjusted_price:.2f}"
+            )
+        else:
+            logger.debug(f"No split adjustment needed for {ticker} on {trade.date}")
+
+    except Exception as e:
+        logger.warning(
+            f"Failed to adjust trade {ticker} on {trade.date} for splits: {e}. "
+            f"Using default factor 1.0"
+        )
+        trade.split_adjustment_factor = Decimal('1.0')
+
+    return trade
+
+
 def import_trades_from_csv(
-    file_path: str, currency_service: CurrencyService = None, end_date: Optional[date] = None
+    file_path: str,
+    currency_service: CurrencyService = None,
+    end_date: Optional[date] = None,
+    split_service: Optional[SplitService] = None,
 ) -> List[Trade]:
     """Import trades from CSV file.
 
@@ -140,6 +209,8 @@ def import_trades_from_csv(
         file_path: Path to CSV file
         currency_service: CurrencyService instance for currency conversion (default: creates new instance)
         end_date: Optional end date (inclusive). If provided, only trades with date <= end_date are included
+        split_service: Optional SplitService instance for adjusting trades for stock splits.
+                      If provided, trades will be adjusted for splits that occurred after the trade date.
 
     Returns:
         List of Trade objects
@@ -163,6 +234,30 @@ def import_trades_from_csv(
     validate_csv_structure(df)
     logger.debug("CSV structure validation passed")
 
+    # Batch optimization: one get_splits for all Stock/ETF tickers; include all tickers so adjust_trade_for_splits has every trade's ticker
+    ticker_splits: Optional[Dict[str, pd.Series]] = None
+    if split_service is not None:
+        unique_all: Set[str] = set()
+        unique_stock_etf: Set[str] = set()
+        for idx, row in df.iterrows():
+            try:
+                ticker = str(row["Asset Name/Ticker"]).strip()
+                asset_type_str = str(row["Asset Type"]).strip()
+                asset_type = validate_asset_type(asset_type_str)
+                unique_all.add(ticker)
+                if asset_type in ("Stock", "ETF"):
+                    unique_stock_etf.add(ticker)
+            except Exception:
+                pass
+
+        ticker_splits = {}
+        if unique_stock_etf:
+            logger.debug(f"Prefetching split data for {len(unique_stock_etf)} unique tickers")
+            ticker_splits = split_service.get_splits(list(unique_stock_etf))
+        for t in unique_all:
+            if t not in ticker_splits:
+                ticker_splits[t] = pd.Series(dtype=float)
+
     trades: List[Trade] = []
     errors: List[str] = []
 
@@ -176,6 +271,10 @@ def import_trades_from_csv(
                     f"Skipping trade on {trade.date} (after end_date {end_date})"
                 )
                 continue
+
+            # Adjust for splits if split_service provided (ticker_splits includes all tickers)
+            if split_service is not None:
+                adjust_trade_for_splits(trade, ticker_splits, current_date=end_date)
             
             trades.append(trade)
         except ValidationError as e:
@@ -190,7 +289,6 @@ def import_trades_from_csv(
     logger.info(f"CSV import completed. Successfully imported {len(trades)} trades")
     if end_date is not None:
         logger.info(f"Filtered to {len(trades)} trades on or before {end_date}")
-
     if not trades and errors:
         raise ValidationError(
             f"No valid trades found in CSV. Errors:\n{error_summary}"
@@ -268,6 +366,9 @@ def import_csv_files(import_dir: Path, end_date: Optional[date] = None) -> Compo
     composite = CompositePortfolio("Composite", is_historical=is_historical)
     existing_names: Set[str] = set()
 
+    # Create SplitService for split adjustment
+    split_service = SplitService()
+
     for csv_file in csv_files:
         logger.info(f"Processing CSV file: {csv_file}")
 
@@ -275,8 +376,10 @@ def import_csv_files(import_dir: Path, end_date: Optional[date] = None) -> Compo
         portfolio_name = extract_portfolio_name(csv_file.name, existing_names)
         existing_names.add(portfolio_name)
 
-        # Import trades
-        trades = import_trades_from_csv(str(csv_file), end_date=end_date)
+        # Import trades with split adjustment
+        trades = import_trades_from_csv(
+            str(csv_file), end_date=end_date, split_service=split_service
+        )
 
         # Create portfolio and add trades
         portfolio = SimplePortfolio(portfolio_name, is_historical=is_historical)

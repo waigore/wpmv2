@@ -106,6 +106,78 @@ class TestTrade:
         )
         assert trade2.action == "Sell"
 
+    def test_trade_split_adjustment_factor_default(self):
+        """Test Trade defaults to split_adjustment_factor of 1.0."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=10.0,
+        )
+        
+        assert trade.split_adjustment_factor == Decimal('1.0')
+        assert trade.adjusted_quantity == Decimal('10.0')
+        assert trade.adjusted_price == 150.0
+
+    def test_trade_split_adjustment_properties(self):
+        """Test Trade split adjustment properties."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        trade = Trade(
+            date=date(2024, 1, 15),
+            asset=asset,
+            action="Buy",
+            broker="IBKR",
+            currency="USD",
+            price=150.0,
+            price_native=150.0,
+            quantity=Decimal('10.0'),
+            split_adjustment_factor=Decimal('2.0'),
+        )
+        
+        assert trade.adjusted_quantity == Decimal('20.0')
+        assert trade.adjusted_price == 75.0
+        assert trade.adjusted_price_native == 75.0
+        # Total value should remain unchanged
+        assert trade.total_value == 1500.0
+        assert float(trade.adjusted_quantity) * trade.adjusted_price == 1500.0
+
+    def test_trade_split_adjustment_factor_validation(self):
+        """Test validation of split_adjustment_factor."""
+        asset = Asset(ticker="GOOG", asset_type="Stock")
+        
+        # Negative factor should fail
+        with pytest.raises(ValidationError):
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+                split_adjustment_factor=Decimal('-1.0'),
+            )
+        
+        # Zero factor should fail
+        with pytest.raises(ValidationError):
+            Trade(
+                date=date(2024, 1, 15),
+                asset=asset,
+                action="Buy",
+                broker="IBKR",
+                currency="USD",
+                price=150.0,
+                price_native=150.0,
+                quantity=10.0,
+                split_adjustment_factor=Decimal('0.0'),
+            )
+
     def test_trade_total_value(self):
         """Test trade total value calculation."""
         asset = Asset(ticker="GOOG", asset_type="Stock")

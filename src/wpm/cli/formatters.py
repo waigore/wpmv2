@@ -235,7 +235,7 @@ def format_lot_line(lot: Lot, current_price: Optional[float]) -> str:
         for sell_trade, quantity_sold in sorted_sells:
             sell_date_str = sell_trade.date.strftime("%Y-%m-%d")
             qty_sold_str = format_quantity(quantity_sold)
-            sell_price_str = format_currency(sell_trade.price)
+            sell_price_str = format_currency(sell_trade.adjusted_price)
             lines.append(f"  Sold: {sell_date_str}, {qty_sold_str} @ {sell_price_str}")
     
     return "\n".join(lines)

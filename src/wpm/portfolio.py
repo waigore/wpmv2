@@ -1,13 +1,15 @@
 """Portfolio class implementation with aggregation logic."""
 
 import logging
+from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from wpm.cache_utils import LRUCache, trades_to_cache_key_with_filters
 from wpm.cost_basis import calculate_fifo_cost_basis, calculate_lots_from_trades
 from wpm.models import Asset, Lot, Portfolio, PortfolioHistoryPoint, Position, PortfolioError, Trade
+from wpm.pricing.splits import SplitService, compute_cumulative_split_factor_from_splits
 from wpm.utils import validate_asset_type
 
 if TYPE_CHECKING:
@@ -707,6 +709,7 @@ class SimplePortfolio(Portfolio):
                 price=trade.price,
                 price_native=trade.price_native,
                 quantity=trade.quantity,
+                split_adjustment_factor=trade.split_adjustment_factor,
             )
             cloned_portfolio.add_trade(cloned_trade)
 
@@ -1721,12 +1724,56 @@ def generate_historical_snapshots(
     )
 
     return snapshots
+
+
+def _adjust_trades_for_historical_date(
+    trades: List[Trade],
+    ticker_splits: Dict[str, Any],
+    historical_date: date,
+) -> List[Trade]:
+    """Adjust trades for a specific historical date based on splits up to that date.
+
+    Uses pre-fetched ticker_splits and compute_cumulative_split_factor_from_splits
+    (no per-trade cache/API calls). Caller must prefetch via SplitService.get_splits.
+
+    Args:
+        trades: List of trades to adjust
+        ticker_splits: Pre-fetched dict of ticker -> splits Series (from get_splits)
+        historical_date: The historical date to adjust trades for
+
+    Returns:
+        List of Trade objects with split_adjustment_factor adjusted for historical_date
+    """
+    adjusted_trades = []
+    for trade in trades:
+        if trade.asset.asset_type == "Crypto":
+            adjusted_trades.append(trade)
+            continue
+
+        splits = ticker_splits.get(trade.asset.ticker)
+        try:
+            factor = compute_cumulative_split_factor_from_splits(
+                splits, trade.date, current_date=historical_date
+            )
+            adjusted_trade = replace(trade, split_adjustment_factor=factor)
+            adjusted_trades.append(adjusted_trade)
+        except Exception as e:
+            logger.debug(
+                f"Failed to adjust trade {trade.asset.ticker} on {trade.date} "
+                f"for historical date {historical_date}: {e}. Using original factor."
+            )
+            adjusted_trades.append(trade)
+
+    return adjusted_trades
+
+
 def get_historical_performance(
     portfolio: Portfolio,
     price_service: "PriceService",
     start_date: date,
     end_date: date,
     brokers: Optional[List[str]] = None,
+    split_service: Optional[SplitService] = None,
 ) -> List[PortfolioHistoryPoint]:
     """Get historical performance of a portfolio over a date range.
 
@@ -1756,6 +1803,8 @@ def get_historical_performance(
         end_date: End date for performance tracking (inclusive)
         brokers: Optional list of broker names to filter by. If provided, only trades
             from specified brokers are included in position calculations.
+        split_service: Optional SplitService instance. If not provided, a new instance
+            will be created. Useful for testing with mocked split data.
 
     Returns:
         List of PortfolioHistoryPoint objects, one for each day from start_date to end_date.
@@ -1791,6 +1840,7 @@ def get_historical_performance(
 
     # Create a mapping of asset to ticker for quick lookup
     asset_to_ticker = {asset: asset.ticker for asset in all_assets}
+    ticker_to_asset_type = {asset.ticker: asset.asset_type for asset in all_assets}
 
     # Group assets by asset type for efficient batch price fetching
     assets_by_type: Dict[str, List[Asset]] = {}
@@ -1832,6 +1882,25 @@ def get_historical_performance(
                 f"Historical prices unavailable for {asset_type} assets from {start_date} to {end_date}: {e}"
             ) from e
 
+    # Create or reuse SplitService for adjusting trades for each historical date.
+    # Reuse price_service's SplitService when available so split data fetched during
+    # get_historical_prices (split check) is shared, avoiding duplicate yfinance calls.
+    # Only use _split_service when it is a real SplitService (not a test Mock).
+    if split_service is None and price_service is not None:
+        candidate = getattr(price_service, "_split_service", None)
+        if isinstance(candidate, SplitService):
+            split_service = candidate
+    if split_service is None:
+        split_service = SplitService()
+
+    # Prefetch split data once for all Stock/ETF tickers (Principle 6: no per-trade/per-date calls).
+    stock_etf_tickers = [
+        a.ticker for a in all_assets if a.asset_type in ("Stock", "ETF")
+    ]
+    ticker_splits: Dict[str, Any] = (
+        split_service.get_splits(stock_etf_tickers) if stock_etf_tickers else {}
+    )
+
     # Generate history points for each date in range
     history_points: List[PortfolioHistoryPoint] = []
     current_date = start_date
@@ -1842,9 +1911,15 @@ def get_historical_performance(
         # Note: broker filtering already applied to all_trades above
         filtered_trades = [t for t in all_trades if t.date <= current_date]
 
-        # Calculate positions from filtered trades using calculate_fifo_cost_basis
+        # Adjust trades for splits up to current_date (not import end_date)
+        # This ensures we compare adjusted trades with split-adjusted prices correctly
+        adjusted_trades = _adjust_trades_for_historical_date(
+            filtered_trades, ticker_splits, current_date
+        )
+
+        # Calculate positions from adjusted trades using calculate_fifo_cost_basis
         # This avoids creating portfolio snapshots
-        snapshot_positions = calculate_fifo_cost_basis(filtered_trades)
+        snapshot_positions = calculate_fifo_cost_basis(adjusted_trades)
 
         # Initialize asset positions dictionary with all assets from final portfolio
         # This ensures all assets are present even if not purchased by current_date
@@ -1884,6 +1959,17 @@ def get_historical_performance(
                         if available_dates:
                             most_recent_date = max(available_dates)
                             prices_by_ticker[ticker] = ticker_prices[most_recent_date]
+
+        # Convert Stock/ETF prices to "as of current_date" scale when showing pre-split dates.
+        # yfinance returns split-adjusted (post-split) prices; for dates before a split our
+        # quantity is pre-split, so we must use pre-split price: adjusted_price * factor_after_date.
+        for ticker in list(prices_by_ticker.keys()):
+            if ticker_to_asset_type.get(ticker) in ("Stock", "ETF"):
+                splits = ticker_splits.get(ticker)
+                factor = compute_cumulative_split_factor_from_splits(
+                    splits, current_date, current_date=None
+                )
+                prices_by_ticker[ticker] = prices_by_ticker[ticker] * float(factor)
 
         # Check if all required prices were retrieved (only for assets with positions)
         missing_prices = []
@@ -1934,8 +2020,9 @@ def get_historical_performance(
         # on a cloned CompositePortfolio.
 
         # Calculate percentage return based on lots (unrealized P/L / cost basis)
+        # Use adjusted_trades to ensure return calculation uses correct split adjustments
         percentage_return = _calculate_percentage_return_from_lots(
-            filtered_trades, prices_by_ticker, ticker_filter=None
+            adjusted_trades, prices_by_ticker, ticker_filter=None
         )
 
         # Create history point
@@ -1966,6 +2053,7 @@ def get_historical_allocations(
     start_date: date,
     end_date: date,
     brokers: Optional[List[str]] = None,
+    history_points: Optional[List[PortfolioHistoryPoint]] = None,
 ) -> List[Dict[Asset, Decimal]]:
     """Get historical percentage allocations of asset positions over a date range.
 
@@ -1974,7 +2062,8 @@ def get_historical_allocations(
     Allocations are calculated as (asset position value / total portfolio market value) * 100.
 
     This function leverages `get_historical_performance()` to reuse batch price retrieval
-    for efficiency.
+    for efficiency. Callers can pass pre-computed history_points to avoid recalculating
+    (e.g. when both performance and allocations are needed).
 
     Args:
         portfolio: Portfolio to analyze (SimplePortfolio or CompositePortfolio)
@@ -1983,6 +2072,9 @@ def get_historical_allocations(
         end_date: End date for allocation tracking (inclusive)
         brokers: Optional list of broker names to filter by. If provided, only trades
             from specified brokers are included in allocation calculations.
+        history_points: Optional pre-computed history points from get_historical_performance.
+            When provided, allocations are computed from this list and no second
+            get_historical_performance call is made.
 
     Returns:
         List of dictionaries, one per date, mapping Asset to Decimal percentage allocation
@@ -1996,8 +2088,11 @@ def get_historical_allocations(
         f"from {start_date} to {end_date}"
     )
 
-    # Get historical performance data (reuses batch price retrieval)
-    history_points = get_historical_performance(portfolio, price_service, start_date, end_date, brokers=brokers)
+    # Use pre-computed history points when provided to avoid duplicate work
+    if history_points is None:
+        history_points = get_historical_performance(
+            portfolio, price_service, start_date, end_date, brokers=brokers
+        )
 
     # Get final portfolio positions to establish ticker-to-Asset mapping
     final_positions = portfolio.get_positions()

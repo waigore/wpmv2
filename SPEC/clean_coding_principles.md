@@ -222,6 +222,26 @@ def test_specific_cache_scenario():
         # Test with specific cache state
 ```
 
+### 6. Minimize Cache and External Service Calls
+
+**Principle:** When adding or changing features that use any cache (price, currency, historical price, split data, etc.) or external service, minimize the number of calls. Repeated open/read/write of file-based caches (e.g. Parquet) or per-entity API calls in hot paths cause severe slowdowns.
+
+**Unacceptable:**
+- One call per trade, per lot, or per row when the same data could be fetched once per entity (e.g. per ticker) and reused in memory.
+- Loops that invoke a cache or service for every item when a batch or prefetch by entity is feasible.
+
+**Acceptable:**
+- Prefetch or batch by entity (e.g. unique tickers): fetch once per entity, store in a map or list, then use in-memory lookups for the rest of the flow.
+- Pure computation functions that take pre-fetched data (e.g. a splits Series) and avoid any cache/service access.
+
+**Examples:**
+- Split adjustment at import: prefetch split data once per ticker into a `ticker_splits` map; for each trade compute the factor from that map via a pure function. Do not call `get_cumulative_split_factor` (or equivalent) once per trade.
+- Historical prices: batch by ticker/asset type and date range; avoid per-date or per-trade cache reads when a single batched read is possible.
+
+**Enforcement:**
+- Code reviews must check hot paths (import, historical performance, show asset) for per-trade or per-lot cache/API usage when a per-entity batch is feasible.
+- Prefer APIs that accept or return batched data; use in-memory structures to avoid repeated cache/service calls.
+
 ## Integration with Specifications
 
 All module specifications should reference this document and explicitly state how the module adheres to these principles:
@@ -244,6 +264,7 @@ When reviewing code, verify:
 - [ ] `hasattr` is avoided unless absolutely necessary (with documented justification)
 - [ ] Interfaces are defined using abstract base classes, protocols, or explicit type checking
 - [ ] Tests use test-specific cache directories and never access production cache files
+- [ ] Hot paths do not perform per-trade/per-lot cache or API calls when a per-entity (e.g. per-ticker) batch or prefetch is feasible
 
 ## References
 

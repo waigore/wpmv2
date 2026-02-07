@@ -76,6 +76,7 @@ def trades_to_cache_key(trades: List[Trade]) -> tuple:
             t.broker,
             t.quantity,
             t.price,
+            t.split_adjustment_factor,
         )
         for t in sorted(trades, key=lambda t: (t.date, id(t)))
     )

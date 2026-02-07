@@ -509,7 +509,23 @@ class YahooFinanceRetriever(PriceRetriever):
             result_df = pd.DataFrame({"price": prices})
             result_df.index.name = "date"
 
+            # Normalize index to timezone-naive DatetimeIndex for consistent comparison
+            # yfinance may return timezone-aware timestamps, but we need timezone-naive
+            if result_df.index.tz is not None:
+                result_df.index = result_df.index.tz_localize(None)
+            
+            # Normalize to date-only (remove time component) for consistent date matching
+            # Convert to date and back to DatetimeIndex to ensure date-only comparison
+            def _normalize_index_to_date(d):
+                try:
+                    return d.date()
+                except AttributeError:
+                    return d
+
+            result_df.index = pd.to_datetime([_normalize_index_to_date(d) for d in result_df.index])
+
             # Forward fill to handle missing trading days
+            # Create date range (timezone-naive) for reindexing
             date_range = pd.date_range(start=start_date, end=end_date, freq="D")
             result_df = result_df.reindex(date_range, method="ffill")
 

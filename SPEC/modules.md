@@ -129,6 +129,7 @@
   - Raises PortfolioError if date range is invalid or outside portfolio's date range
   - Raises ValueError if historical prices cannot be retrieved for any required assets (per user requirement)
   - Daily frequency means one history point per calendar day, including weekends (markets may be closed but portfolio state is valid)
+  - `split_service` (Optional[SplitService]): Optional. When provided, implementation must prefetch split data once (e.g. one `SplitService.get_splits(all_stock_etf_tickers)`) and use `compute_cumulative_split_factor_from_splits` in all per-date and per-trade loops. No per-trade or per-date calls to `get_cumulative_split_factor` in the hot path (Principle 6).
 - `_calculate_percentage_return_from_lots(filtered_trades, prices_by_ticker, ticker_filter=None)`: Internal helper function to calculate percentage return from lots
   - `filtered_trades` (List[Trade], required): List of trades filtered up to a specific date
   - `prices_by_ticker` (Dict[str, float], required): Dictionary mapping ticker to price for that date
@@ -150,10 +151,18 @@
 - Handle missing or malformed data gracefully
 
 **Key Functions:**
-- `import_trades_from_csv(file_path, currency_service=None, end_date=None)`: Main import function
+- `import_trades_from_csv(file_path, currency_service=None, end_date=None, split_service=None)`: Main import function
   - `end_date` (Optional[date]): If provided, only trades with date <= end_date are included
+  - `split_service` (Optional[SplitService]): If provided, trades are adjusted for stock splits that occurred after the trade date
+  - **Split adjustment design:** Callers build `ticker_splits` (one batch `get_splits(list_of_tickers)` for Stock/ETF; add empty Series for Crypto/others so every trade's ticker is present) and pass it to `adjust_trade_for_splits`. No lazy fetch inside `adjust_trade_for_splits`.
 - `import_csv_files(import_dir, end_date=None)`: Import CSV files and create composite portfolio
   - `end_date` (Optional[date]): If provided, filters trades and creates historical portfolios with `is_historical=True`
+  - Automatically creates SplitService and applies split adjustments to all trades
+- `adjust_trade_for_splits(trade, ticker_splits, current_date=None)`: Adjust trade for stock splits
+  - **Required:** `ticker_splits` must be provided (dict of ticker → splits Series). Caller must have retrieved splits (e.g. via `SplitService.get_splits`) and must ensure the trade's ticker is present in `ticker_splits`; otherwise raises `ValidationError`.
+  - Calculates cumulative split factor via `compute_cumulative_split_factor_from_splits(ticker_splits[ticker], trade.date, current_date)` and updates trade's `split_adjustment_factor`
+  - For crypto assets, sets factor to 1.0 (no adjustment); caller still must include crypto tickers in `ticker_splits` (e.g. with empty Series)
+  - For historical portfolios, callers pass `end_date` as `current_date` for factor calculation
 - `validate_csv_structure(df)`: Validate CSV has required columns
 - `parse_trade_row(row)`: Convert CSV row to Trade object
 
@@ -197,12 +206,15 @@
   - Returns DataFrame with sheet data
   - Raises `ValidationError` if sheet empty or not found
 
-- `import_trades_from_sheet(spreadsheet_id, sheet_name, credentials_path=None, currency_service=None, end_date=None)`: Import trades from a single sheet tab
+- `import_trades_from_sheet(spreadsheet_id, sheet_name, credentials_path=None, currency_service=None, end_date=None, split_service=None)`: Import trades from a single sheet tab
   - Fetches sheet data, validates structure using `validate_csv_structure()`, parses trades using `parse_trade_row()`
   - `end_date`: If provided, only imports trades on or before this date
+  - `split_service`: Optional SplitService instance for adjusting trades for stock splits
+  - **Split adjustment design:** Same as CSV import: at most one split data access per ticker; prefetches into `ticker_splits` and uses `compute_cumulative_split_factor_from_splits` in the trade loop
   - Returns List of Trade objects
   - Raises `ValidationError` on structure errors or parsing failures
   - Logs validation errors but continues processing valid rows
+  - Automatically applies split adjustments if split_service provided
 
 - `list_sheet_names(spreadsheet_id, credentials_path=None)`: Return all sheet (tab) names in spreadsheet
   - Uses Sheets API to fetch spreadsheet metadata
@@ -214,6 +226,7 @@
   - Pre-validates all sheets before importing any data
   - Creates one SimplePortfolio per sheet, aggregates into CompositePortfolio
   - `end_date`: If provided, only imports trades on or before this date, and marks portfolios as historical (`is_historical=True`)
+  - Automatically creates SplitService and applies split adjustments to all trades
   - Returns CompositePortfolio containing all imported sheets as sub-portfolios
   - Raises `ValidationError` if any sheet fails validation or parsing
 
@@ -244,16 +257,18 @@
 **Key Functions:**
 - `calculate_lots_from_trades(trades)`: Calculate lots from trades using FIFO
   - Processes trades chronologically
-  - Creates lots from buy trades
+  - Creates lots from buy trades using **adjusted values** (`trade.adjusted_quantity`, `trade.adjusted_price`)
   - Matches sell trades to lots using FIFO (earliest lots first) with broker matching: sells only match against buys from the same broker
+  - Sell trades use adjusted quantities for matching
   - Sell trades must match against buy lots from the same broker. If a sell trade cannot find a matching buy lot from the same broker, a ValidationError is raised.
   - Returns dictionary mapping Asset to list of Lot objects
   - Uses LRU caching (manual cache with OrderedDict, max size 128)
-  - Cache key: hashable tuple of trade identifiers (date, asset, action, quantity, price)
+  - Cache key: hashable tuple of trade identifiers (date, asset, action, quantity, price, split_adjustment_factor)
 - `calculate_fifo_cost_basis(trades)`: Calculate positions using FIFO
   - Now derives positions from lots internally
-  - Aggregates lots into positions: quantity = sum of remaining_quantity, cost_basis = sum of purchase_price * remaining_quantity
+  - Aggregates lots into positions: quantity = sum of remaining_quantity (adjusted), cost_basis = sum of purchase_price (adjusted) * remaining_quantity
   - Maintains same signature and behavior for backward compatibility
+  - **Note**: Lots use adjusted trade values, ensuring positions reflect split-adjusted quantities and prices
 
 **Artefacts:**
 - Lot objects with purchase records and matched sells
@@ -394,6 +409,48 @@
   - Historical price retrieval for crypto was moved to yfinance due to CoinGecko free tier limitations (365 days)
 - `get_metadata(ticker, asset_type)`: Get metadata for an asset
   - Raises NotImplementedError - CoinGecko does not support metadata retrieval
+
+### wpm/pricing/splits.py
+
+**Responsibilities:**
+- Retrieve stock split data from yfinance
+- Calculate cumulative split adjustment factors for trades
+- Cache split data to minimize API calls (splits don't change, cache indefinitely)
+- Support historical portfolio split calculations using end_date
+
+**Key Functions:**
+- `compute_cumulative_split_factor_from_splits(splits, trade_date, current_date=None)`: Pure function to compute cumulative split factor from an existing splits Series (no I/O, no cache access). Importers use this with pre-fetched split data to minimize cache/service calls (one `get_splits` per ticker at import). Callers in hot paths (e.g. `get_historical_performance`) must use batch `get_splits` + this pure function; `get_cumulative_split_factor` is for one-off use only.
+
+**Key Classes:**
+- `SplitService`: Service for retrieving split data and calculating adjustment factors
+
+**Key Methods:**
+- `get_splits(tickers, start_date=None, end_date=None)`: Get raw split data from yfinance for a batch of tickers
+  - Accepts a list of ticker symbols; retrieval (cache and yfinance) is done in one batch to avoid N+1 calls
+  - Returns Dict[str, pd.Series] mapping each ticker to a pandas Series with date index and split ratio values
+  - Caches split data internally; empty list returns {}; on fetch error or no data for a ticker, that ticker gets an empty Series
+- `get_cumulative_split_factor(ticker, trade_date, current_date=None)`: Calculate cumulative split adjustment factor
+  - Calls `get_splits` then `compute_cumulative_split_factor_from_splits` internally
+  - Filters splits that occurred strictly after trade_date and up to current_date
+  - Calculates cumulative factor as product of all relevant split ratios
+  - Returns Decimal (default Decimal('1.0') if no splits)
+  - For crypto assets, caller should check asset type first (crypto doesn't have splits)
+  - For historical portfolios, use portfolio's end_date as current_date
+- `clear_cache()`: Clear internal split data cache (useful for testing)
+
+**Split Factor Calculation:**
+- Forward split (2:1): Factor = 2.0 (quantity doubles, price halves)
+- Reverse split (1:2): Factor = 0.5 (quantity halves, price doubles)
+- Multiple splits: Factor = product of all split ratios
+- Example: Trade before 2:1 split then 3:1 split → Factor = 6.0
+
+**Error Handling:**
+- Returns Decimal('1.0') with warning if yfinance API fails
+- Logs warnings but doesn't raise exceptions (lenient error handling)
+
+**Artefacts:**
+- Split data cache (internal, in-memory)
+- Cumulative split factors for trade adjustment
 
 ### wpm/pricing/cache.py
 

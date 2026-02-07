@@ -6,6 +6,7 @@ from wpm.pricing.coingecko import CoinGeckoRetriever
 from wpm.pricing.historical_cache import HistoricalPriceCache
 from wpm.pricing.rate_limiter import RateLimiter
 from wpm.pricing.service import PriceService
+from wpm.pricing.splits import SplitService
 from wpm.pricing.yahoo import YahooFinanceRetriever
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "PriceCache",
     "HistoricalPriceCache",
     "PriceService",
+    "SplitService",
     "CacheValidity",
     "CacheValidityStatus",
 ]

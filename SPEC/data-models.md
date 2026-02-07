@@ -37,15 +37,38 @@ Represents a single buy or sell transaction.
 - `price_native` (float, required): Price per unit in native currency (if currency is USD, this equals price)
   - Validation: Positive number, greater than 0
   - Must equal `price` when `currency` is "USD"
-- `quantity` (float, required): Number of units traded
-  - Validation: Positive number, greater than 0
+- `quantity` (Decimal, required): Number of units traded (original, pre-split adjusted)
+  - Validation: Positive Decimal, greater than 0
+- `split_adjustment_factor` (Decimal, required): Cumulative stock split adjustment factor
+  - Default: Decimal('1.0') (no adjustment)
+  - Validation: Positive Decimal, greater than 0
+  - Represents cumulative effect of all splits that occurred after the trade date
+  - Factor > 1.0: Forward splits occurred (e.g., 2.0 for 2:1 split)
+  - Factor < 1.0: Reverse splits occurred (e.g., 0.5 for 1:2 reverse split)
+  - For crypto assets, always 1.0 (crypto doesn't have splits)
 
 **Computed Properties:**
 - `total_value`: `price * quantity` (total cost for buys, total proceeds for sells)
+  - Uses original values to preserve cost basis accuracy
+  - Note: `adjusted_quantity * adjusted_price = quantity * price` (cost basis unchanged)
+- `adjusted_quantity`: `quantity * split_adjustment_factor` (Decimal)
+  - Returns quantity adjusted for stock splits
+  - Used in lot calculations and position aggregations
+- `adjusted_price`: `price / split_adjustment_factor` (float)
+  - Returns price adjusted for stock splits
+  - Used in lot calculations to match post-split price scale
+- `adjusted_price_native`: `price_native / split_adjustment_factor` (float)
+  - Returns native price adjusted for stock splits
 
 **Methods:**
 - `is_buy()`: Returns True if action is "Buy"
 - `is_sell()`: Returns True if action is "Sell"
+
+**Note on Split Adjustment:**
+- Trades are adjusted for splits during import (via `adjust_trade_for_splits()`). Callers supply a pre-fetched `ticker_splits` map; factors are computed in memory.
+- Lots and positions use adjusted values (`adjusted_quantity`, `adjusted_price`)
+- This ensures accurate portfolio calculations, especially for historical performance
+- Original values are preserved for auditing and cost basis accuracy
 
 ## Position
 

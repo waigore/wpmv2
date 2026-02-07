@@ -695,3 +695,110 @@ class TestImportCSVFiles:
                 assert len(trades) == 1
                 assert trades[0].date == date(2024, 1, 15)
 
+
+class TestImportWithSplitAdjustment:
+    """Tests for split adjustment during import."""
+
+    @patch("wpm.importer.CurrencyService")
+    def test_import_with_split_adjustment(self, mock_currency_service_class):
+        """Test that trades are adjusted for splits during import."""
+        mock_service = Mock()
+        mock_service.convert_to_usd.return_value = 150.0
+        mock_currency_service_class.return_value = mock_service
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(
+                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Price,Currency,Quantity\n"
+                "2020-01-01,GOOG,Stock,Buy,IBKR,150.0,USD,10.0\n"
+            )
+            temp_path = f.name
+
+        try:
+            import pandas as pd
+            from wpm.pricing.splits import SplitService
+
+            split_service = SplitService()
+            # Import uses ticker_splits + compute_cumulative_split_factor_from_splits (one get_splits per ticker)
+            # Mock get_splits to return a 2:1 split so factor is 2.0
+            split_series = pd.Series(
+                [2.0],
+                index=[pd.Timestamp("2020-07-01")],
+            )
+            with patch.object(
+                split_service, "get_splits", return_value={"GOOG": split_series}
+            ):
+                trades = import_trades_from_csv(temp_path, split_service=split_service)
+
+            assert len(trades) == 1
+            trade = trades[0]
+            assert trade.split_adjustment_factor == Decimal("2.0")
+            assert trade.adjusted_quantity == Decimal("20.0")
+            assert trade.adjusted_price == 75.0
+        finally:
+            os.unlink(temp_path)
+
+    @patch("wpm.importer.CurrencyService")
+    def test_import_split_adjustment_one_get_splits_per_ticker(self, mock_currency_service_class):
+        """Import must not call get_cumulative_split_factor; at most one get_splits per ticker."""
+        mock_service = Mock()
+        mock_service.convert_to_usd.return_value = 100.0
+        mock_currency_service_class.return_value = mock_service
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(
+                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Price,Currency,Quantity\n"
+                "2020-01-01,AAPL,Stock,Buy,IBKR,100.0,USD,5.0\n"
+                "2020-02-01,AAPL,Stock,Buy,IBKR,110.0,USD,3.0\n"
+                "2020-03-01,AAPL,Stock,Sell,IBKR,120.0,USD,2.0\n"
+            )
+            temp_path = f.name
+
+        try:
+            from wpm.pricing.splits import SplitService
+
+            split_service = SplitService()
+            with patch.object(
+                split_service, "get_cumulative_split_factor"
+            ) as mock_get_factor:
+                with patch.object(split_service, "get_splits") as mock_get_splits:
+                    mock_get_splits.return_value = {"AAPL": pd.Series(dtype=float)}
+                    trades = import_trades_from_csv(temp_path, split_service=split_service)
+                # Import path uses ticker_splits; get_cumulative_split_factor must not be called
+                mock_get_factor.assert_not_called()
+                # get_splits called once with list of unique tickers
+                assert mock_get_splits.call_count == 1
+                mock_get_splits.assert_called_once_with(["AAPL"])
+            assert len(trades) == 3
+        finally:
+            os.unlink(temp_path)
+
+    @patch("wpm.importer.CurrencyService")
+    def test_import_crypto_no_split_adjustment(self, mock_currency_service_class):
+        """Test that crypto trades are not adjusted for splits."""
+        mock_service = Mock()
+        mock_service.convert_to_usd.return_value = 50000.0
+        mock_currency_service_class.return_value = mock_service
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(
+                "Date,Asset Name/Ticker,Asset Type,Action,Broker,Price,Currency,Quantity\n"
+                "2020-01-01,BTC-USD,Crypto,Buy,IBKR,50000.0,USD,0.1\n"
+            )
+            temp_path = f.name
+
+        try:
+            from wpm.pricing.splits import SplitService
+            
+            split_service = SplitService()
+            trades = import_trades_from_csv(temp_path, split_service=split_service)
+            
+            assert len(trades) == 1
+            trade = trades[0]
+            
+            # Crypto should have factor of 1.0 (no adjustment)
+            assert trade.split_adjustment_factor == Decimal('1.0')
+            assert trade.adjusted_quantity == trade.quantity
+            assert trade.adjusted_price == trade.price
+        finally:
+            os.unlink(temp_path)
+

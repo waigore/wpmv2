@@ -13,6 +13,7 @@ from wpm.pricing.cache import PriceCache
 from wpm.pricing.coingecko import CoinGeckoRetriever
 from wpm.pricing.historical_cache import HistoricalPriceCache
 from wpm.pricing.rate_limiter import RateLimiter
+from wpm.pricing.splits import SplitService
 from wpm.pricing.yahoo import YahooFinanceRetriever
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class PriceService:
         self.currency_service = currency_service or CurrencyService()
         self._stock_retriever = YahooFinanceRetriever(self.currency_service)
         self._crypto_retriever = CoinGeckoRetriever()
+        self._split_service = SplitService()
 
     def get_retriever(self, asset_type: str) -> PriceRetriever:
         """Get appropriate price retriever for asset type.
@@ -323,6 +325,30 @@ class PriceService:
         # Result structure: Dict[ticker, Dict[date, price]]
         prices: Dict[str, Dict[date, float]] = {}
         uncached_tickers: List[str] = []
+
+        # Check for splits in the date range and invalidate cache if needed
+        # This ensures we don't use stale pre-split prices from cache.
+        # Reuse instance-level SplitService; one batch get_splits for all tickers.
+        split_service = self._split_service
+        if asset_type in ("Stock", "ETF") and tickers:
+            try:
+                all_splits = split_service.get_splits(
+                    tickers, start_date=start_date, end_date=end_date
+                )
+                for ticker in tickers:
+                    splits = all_splits.get(ticker, pd.Series(dtype=float))
+                    if not splits.empty:
+                        split_dates = [ts.date() for ts in splits.index]
+                        earliest_split_date = min(split_dates)
+                        logger.info(
+                            f"Split detected for {ticker} on {earliest_split_date}, "
+                            f"invalidating cache for dates >= {earliest_split_date}"
+                        )
+                        self.historical_cache.remove_cached_prices(
+                            ticker, asset_type, earliest_split_date, end_date
+                        )
+            except Exception as e:
+                logger.debug(f"Failed to check splits for tickers: {e}")
 
         # Check historical cache for all tickers first
         for ticker in tickers:
