@@ -1767,6 +1767,247 @@ def _adjust_trades_for_historical_date(
     return adjusted_trades
 
 
+def _get_split_segment_boundaries(
+    ticker_splits: Dict[str, Any],
+    start_date: date,
+    end_date: date,
+) -> List[Tuple[date, date]]:
+    """Return segment boundaries for the date range using split dates across all tickers.
+
+    Segments are (segment_start, segment_end] such that the split adjustment factor
+    for any trade is constant within a segment. Used to cache adjusted trades per
+    segment instead of per day.
+
+    Args:
+        ticker_splits: Pre-fetched dict of ticker -> splits Series (from get_splits).
+        start_date: Start of the range (inclusive).
+        end_date: End of the range (inclusive).
+
+    Returns:
+        List of (segment_start, segment_end) covering [start_date, end_date].
+        If no splits fall in (start_date, end_date], returns [(start_date, end_date)].
+    """
+    if not isinstance(ticker_splits, dict):
+        return [(start_date, end_date)]
+    split_dates_set: set = set()
+    for series in ticker_splits.values():
+        if series is None or (hasattr(series, "empty") and series.empty):
+            continue
+        for ts in series.index:
+            d = ts.date() if hasattr(ts, "date") and callable(getattr(ts, "date")) else ts
+            if start_date < d <= end_date:
+                split_dates_set.add(d)
+    sorted_dates = sorted(split_dates_set)
+    if not sorted_dates:
+        return [(start_date, end_date)]
+    boundaries: List[Tuple[date, date]] = []
+    # Segment before first split: [start_date, d1 - 1 day]; factor as of d1-1 (no split yet)
+    day_before_first = sorted_dates[0] - timedelta(days=1)
+    if day_before_first >= start_date:
+        boundaries.append((start_date, day_before_first))
+    for i in range(len(sorted_dates) - 1):
+        day_before_next = sorted_dates[i + 1] - timedelta(days=1)
+        boundaries.append((sorted_dates[i], day_before_next))
+    # Last segment: [dk, end_date]; factor as of end_date (includes split on dk)
+    boundaries.append((sorted_dates[-1], end_date))
+    return boundaries
+
+
+def _build_split_adjusted_trades_cache(
+    all_trades: List[Trade],
+    ticker_splits: Dict[str, Any],
+    segment_boundaries: List[Tuple[date, date]],
+) -> List[List[Trade]]:
+    """Build cache of adjusted trades per segment.
+
+    For each segment, all_trades are adjusted for splits up to segment_end.
+    Caller can then filter by historical_date (t.date <= historical_date) for lookup.
+
+    Args:
+        all_trades: Full list of trades (e.g. after broker filter).
+        ticker_splits: Pre-fetched dict of ticker -> splits Series.
+        segment_boundaries: From _get_split_segment_boundaries.
+
+    Returns:
+        List of lists; cache[i] = all_trades adjusted for segment i (segment_end).
+    """
+    cache: List[List[Trade]] = []
+    for _segment_start, segment_end in segment_boundaries:
+        adjusted = _adjust_trades_for_historical_date(
+            all_trades, ticker_splits, segment_end
+        )
+        cache.append(adjusted)
+    return cache
+
+
+def _get_adjusted_trades_for_historical_date(
+    historical_date: date,
+    segment_boundaries: List[Tuple[date, date]],
+    adjusted_cache: List[List[Trade]],
+) -> List[Trade]:
+    """Return adjusted trades for a historical date using the segment cache.
+
+    Finds the segment containing historical_date, then filters cached adjusted
+    trades to those with t.date <= historical_date.
+
+    Args:
+        historical_date: The date as-of which we need adjusted trades.
+        segment_boundaries: From _get_split_segment_boundaries.
+        adjusted_cache: From _build_split_adjusted_trades_cache.
+
+    Returns:
+        List of trades with split_adjustment_factor correct for historical_date,
+        filtered to trades on or before historical_date.
+    """
+    segment_idx = None
+    for i, (seg_start, seg_end) in enumerate(segment_boundaries):
+        if seg_start <= historical_date <= seg_end:
+            segment_idx = i
+            break
+    if segment_idx is None:
+        # Fallback: use first or last segment if date is at boundary
+        if historical_date <= segment_boundaries[0][0]:
+            segment_idx = 0
+        else:
+            segment_idx = len(adjusted_cache) - 1
+    adjusted_all = adjusted_cache[segment_idx]
+    return [t for t in adjusted_all if t.date <= historical_date]
+
+
+def _resolve_prices_for_date(
+    current_date: date,
+    all_assets: List[Asset],
+    snapshot_positions: Dict[Asset, Position],
+    all_prices_by_type: Dict[str, Dict[str, Dict[date, float]]],
+    asset_to_ticker: Dict[Asset, str],
+) -> Dict[str, float]:
+    """Build prices_by_ticker for current_date from pre-fetched price data.
+
+    Only resolves prices for assets that have a position on this date.
+    Uses current_date if available, else most recent date <= current_date.
+
+    Args:
+        current_date: The date to resolve prices for.
+        all_assets: All assets in the portfolio.
+        snapshot_positions: Positions from FIFO for this date.
+        all_prices_by_type: Batch-fetched prices by asset type and ticker.
+        asset_to_ticker: Mapping from Asset to ticker string.
+
+    Returns:
+        Dict mapping ticker to price (only for assets with positions).
+    """
+    prices_by_ticker: Dict[str, float] = {}
+    for asset in all_assets:
+        if asset in snapshot_positions and snapshot_positions[asset].quantity > 0:
+            asset_type = asset.asset_type
+            ticker = asset_to_ticker[asset]
+            if ticker in prices_by_ticker:
+                continue
+            if asset_type not in all_prices_by_type:
+                continue
+            type_prices = all_prices_by_type[asset_type]
+            if ticker in type_prices:
+                ticker_prices = type_prices[ticker]
+                if current_date in ticker_prices:
+                    prices_by_ticker[ticker] = ticker_prices[current_date]
+                else:
+                    available_dates = [d for d in ticker_prices.keys() if d <= current_date]
+                    if available_dates:
+                        most_recent_date = max(available_dates)
+                        prices_by_ticker[ticker] = ticker_prices[most_recent_date]
+    return prices_by_ticker
+
+
+def _scale_prices_to_historical_date(
+    prices_by_ticker: Dict[str, float],
+    ticker_splits: Dict[str, Any],
+    current_date: date,
+    ticker_to_asset_type: Dict[str, str],
+) -> None:
+    """Scale Stock/ETF prices to pre-split when the date is before a split.
+
+    Price sources return post-split-adjusted (back-adjusted) prices for all dates.
+    For dates before a split our quantity is pre-split, so we need pre-split price:
+    pre_split_price = post_split_price * factor (factor is new/old, e.g. 0.05 for 20:1 reverse).
+    """
+    for ticker in list(prices_by_ticker.keys()):
+        if ticker_to_asset_type.get(ticker) in ("Stock", "ETF"):
+            splits = ticker_splits.get(ticker)
+            factor = compute_cumulative_split_factor_from_splits(
+                splits, current_date, current_date=None
+            )
+            f = float(factor)
+            if f == 0:
+                f = 1.0
+            # pre_split = post_split * factor (e.g. 9.86 * 0.05 = 0.49 for 20:1 reverse)
+            prices_by_ticker[ticker] = prices_by_ticker[ticker] * f
+
+
+def _build_history_point(
+    current_date: date,
+    snapshot_positions: Dict[Asset, Position],
+    prices_by_ticker: Dict[str, float],
+    all_assets: List[Asset],
+    asset_to_ticker: Dict[Asset, str],
+    adjusted_trades: List[Trade],
+) -> PortfolioHistoryPoint:
+    """Build one PortfolioHistoryPoint for current_date.
+
+    Checks that all assets with positions have prices (raises ValueError if not),
+    computes total_market_value, asset_positions, quantities, asset_prices,
+    and percentage_return from lots; then constructs and returns the point.
+    """
+    missing_prices = []
+    for asset in all_assets:
+        if asset in snapshot_positions and snapshot_positions[asset].quantity > 0:
+            ticker = asset_to_ticker[asset]
+            if ticker not in prices_by_ticker:
+                missing_prices.append(ticker)
+    if missing_prices:
+        raise ValueError(
+            f"Historical prices unavailable for tickers on {current_date}: {', '.join(missing_prices)}"
+        )
+
+    total_market_value = 0.0
+    asset_positions: Dict[str, float] = {
+        asset_to_ticker[asset]: 0.0 for asset in all_assets
+    }
+    asset_prices: Dict[str, float] = {}
+    quantities: Dict[str, float] = {
+        asset_to_ticker[asset]: 0.0 for asset in all_assets
+    }
+
+    for asset in all_assets:
+        ticker = asset_to_ticker[asset]
+        position = snapshot_positions.get(asset)
+        if position is not None and position.quantity > 0:
+            price = prices_by_ticker.get(ticker)
+            if price is None:
+                continue
+            position_value = float(position.quantity) * price
+            asset_positions[ticker] = position_value
+            asset_prices[ticker] = price
+            quantities[ticker] = float(position.quantity)
+            total_market_value += position_value
+        else:
+            asset_positions[ticker] = 0.0
+            quantities[ticker] = 0.0
+            if ticker in prices_by_ticker:
+                asset_prices[ticker] = prices_by_ticker[ticker]
+
+    percentage_return = _calculate_percentage_return_from_lots(
+        adjusted_trades, prices_by_ticker, ticker_filter=None
+    )
+    return PortfolioHistoryPoint(
+        date=current_date,
+        total_market_value=total_market_value,
+        asset_positions=asset_positions.copy(),
+        prices=asset_prices.copy(),
+        quantities=quantities.copy(),
+        percentage_return=percentage_return,
+    )
+
+
 def get_historical_performance(
     portfolio: Portfolio,
     price_service: "PriceService",
@@ -1898,142 +2139,42 @@ def get_historical_performance(
         split_service.get_splits(stock_etf_tickers) if stock_etf_tickers else {}
     )
 
+    # Split-segment cache: adjust all trades once per segment, then lookup by historical date
+    segment_boundaries = _get_split_segment_boundaries(
+        ticker_splits, start_date, end_date
+    )
+    adjusted_cache = _build_split_adjusted_trades_cache(
+        all_trades, ticker_splits, segment_boundaries
+    )
+
     # Generate history points for each date in range
     history_points: List[PortfolioHistoryPoint] = []
     current_date = start_date
 
     while current_date <= end_date:
-        # Filter trades directly by date (instead of cloning portfolio)
-        # Only include trades up to and including current_date
-        # Note: broker filtering already applied to all_trades above
-        filtered_trades = [t for t in all_trades if t.date <= current_date]
-
-        # Adjust trades for splits up to current_date (not import end_date)
-        # This ensures we compare adjusted trades with split-adjusted prices correctly
-        adjusted_trades = _adjust_trades_for_historical_date(
-            filtered_trades, ticker_splits, current_date
+        filtered_trades = _get_adjusted_trades_for_historical_date(
+            current_date, segment_boundaries, adjusted_cache
         )
-
-        # Calculate positions from adjusted trades using calculate_fifo_cost_basis
-        # This avoids creating portfolio snapshots
-        snapshot_positions = calculate_fifo_cost_basis(adjusted_trades)
-
-        # Initialize asset positions dictionary with all assets from final portfolio
-        # This ensures all assets are present even if not purchased by current_date
-        asset_positions: Dict[str, float] = {
-            asset_to_ticker[asset]: 0.0 for asset in all_assets
-        }
-
-        # Look up prices from pre-fetched data
-        prices_by_ticker: Dict[str, float] = {}
-
-        # Look up prices for all assets with positions on current_date
-        # Iterate through assets with positions directly to ensure we get prices for all of them
-        for asset in all_assets:
-            if asset in snapshot_positions and snapshot_positions[asset].quantity > 0:
-                asset_type = asset.asset_type
-                ticker = asset_to_ticker[asset]
-                
-                # Skip if we already have a price for this ticker (in case of duplicates)
-                if ticker in prices_by_ticker:
-                    continue
-                
-                # Get prices for this asset type from pre-fetched data
-                if asset_type not in all_prices_by_type:
-                    continue
-
-                type_prices = all_prices_by_type[asset_type]
-                
-                if ticker in type_prices:
-                    ticker_prices = type_prices[ticker]
-
-                    # Find price for current_date (or most recent available up to current_date)
-                    if current_date in ticker_prices:
-                        prices_by_ticker[ticker] = ticker_prices[current_date]
-                    else:
-                        # Find most recent date <= current_date
-                        available_dates = [d for d in ticker_prices.keys() if d <= current_date]
-                        if available_dates:
-                            most_recent_date = max(available_dates)
-                            prices_by_ticker[ticker] = ticker_prices[most_recent_date]
-
-        # Convert Stock/ETF prices to "as of current_date" scale when showing pre-split dates.
-        # yfinance returns split-adjusted (post-split) prices; for dates before a split our
-        # quantity is pre-split, so we must use pre-split price: adjusted_price * factor_after_date.
-        for ticker in list(prices_by_ticker.keys()):
-            if ticker_to_asset_type.get(ticker) in ("Stock", "ETF"):
-                splits = ticker_splits.get(ticker)
-                factor = compute_cumulative_split_factor_from_splits(
-                    splits, current_date, current_date=None
-                )
-                prices_by_ticker[ticker] = prices_by_ticker[ticker] * float(factor)
-
-        # Check if all required prices were retrieved (only for assets with positions)
-        missing_prices = []
-        for asset in all_assets:
-            # Only require prices for assets that have positions on this date
-            if asset in snapshot_positions and snapshot_positions[asset].quantity > 0:
-                ticker = asset_to_ticker[asset]
-                if ticker not in prices_by_ticker:
-                    missing_prices.append(ticker)
-
-        if missing_prices:
-            raise ValueError(
-                f"Historical prices unavailable for tickers on {current_date}: {', '.join(missing_prices)}"
-            )
-
-        # Calculate asset positions: quantity * price for each asset
-        total_market_value = 0.0
-        asset_prices: Dict[str, float] = {}
-        quantities: Dict[str, float] = {
-            asset_to_ticker[asset]: 0.0 for asset in all_assets
-        }
-
-        for asset in all_assets:
-            ticker = asset_to_ticker[asset]
-            position = snapshot_positions.get(asset)
-
-            if position is not None and position.quantity > 0:
-                # Asset has a position in the snapshot
-                price = prices_by_ticker.get(ticker)
-                if price is None:
-                    continue
-                position_value = float(position.quantity) * price
-                asset_positions[ticker] = position_value
-                asset_prices[ticker] = price
-                quantities[ticker] = float(position.quantity)
-                total_market_value += position_value
-            else:
-                # Asset not yet purchased or fully sold - position already set to 0.0
-                asset_positions[ticker] = 0.0
-                quantities[ticker] = 0.0
-                # Include price even if position is 0 (for consistency, use price from prices_by_ticker if available)
-                if ticker in prices_by_ticker:
-                    asset_prices[ticker] = prices_by_ticker[ticker]
-
-        # For composite portfolios, calculate_fifo_cost_basis correctly merges positions
-        # for the same asset across all trades (from all sub-portfolios), since it groups
-        # by Asset (ticker + asset_type). This is functionally equivalent to get_positions()
-        # on a cloned CompositePortfolio.
-
-        # Calculate percentage return based on lots (unrealized P/L / cost basis)
-        # Use adjusted_trades to ensure return calculation uses correct split adjustments
-        percentage_return = _calculate_percentage_return_from_lots(
-            adjusted_trades, prices_by_ticker, ticker_filter=None
+        snapshot_positions = calculate_fifo_cost_basis(filtered_trades)
+        prices_by_ticker = _resolve_prices_for_date(
+            current_date,
+            all_assets,
+            snapshot_positions,
+            all_prices_by_type,
+            asset_to_ticker,
         )
-
-        # Create history point
-        history_point = PortfolioHistoryPoint(
-            date=current_date,
-            total_market_value=total_market_value,
-            asset_positions=asset_positions.copy(),
-            prices=asset_prices.copy(),
-            quantities=quantities.copy(),
-            percentage_return=percentage_return,
+        _scale_prices_to_historical_date(
+            prices_by_ticker, ticker_splits, current_date, ticker_to_asset_type
+        )
+        history_point = _build_history_point(
+            current_date,
+            snapshot_positions,
+            prices_by_ticker,
+            all_assets,
+            asset_to_ticker,
+            filtered_trades,
         )
         history_points.append(history_point)
-
-        # Move to next day
         current_date += timedelta(days=1)
 
     logger.info(

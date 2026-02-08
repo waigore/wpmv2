@@ -130,6 +130,8 @@
   - Raises ValueError if historical prices cannot be retrieved for any required assets (per user requirement)
   - Daily frequency means one history point per calendar day, including weekends (markets may be closed but portfolio state is valid)
   - `split_service` (Optional[SplitService]): Optional. When provided, implementation must prefetch split data once (e.g. one `SplitService.get_splits(all_stock_etf_tickers)`) and use `compute_cumulative_split_factor_from_splits` in all per-date and per-trade loops. No per-trade or per-date calls to `get_cumulative_split_factor` in the hot path (Principle 6).
+  - **Split-segment cache:** Segment boundaries are derived from all split dates in `[start_date, end_date]` across tickers. For each segment, adjusted trades (all_trades with factors for that segment) are computed once and cached. For each historical date, the implementation finds the segment containing that date and filters the cached list to `t.date <= historical_date`. No per-day or per-trade split factor calls in the hot path beyond the initial cache build.
+  - Implementation uses helpers: `_get_split_segment_boundaries`, `_build_split_adjusted_trades_cache`, `_get_adjusted_trades_for_historical_date`, `_resolve_prices_for_date`, `_scale_prices_to_historical_date`, `_build_history_point`; `_adjust_trades_for_historical_date` is used during cache build only.
 - `_calculate_percentage_return_from_lots(filtered_trades, prices_by_ticker, ticker_filter=None)`: Internal helper function to calculate percentage return from lots
   - `filtered_trades` (List[Trade], required): List of trades filtered up to a specific date
   - `prices_by_ticker` (Dict[str, float], required): Dictionary mapping ticker to price for that date

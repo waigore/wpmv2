@@ -664,6 +664,96 @@ class TestHistoricalPerformanceWithSplits:
         # Percentage return = (500 / 1500) * 100 = 33.33%
         assert point.percentage_return == pytest.approx(33.33, abs=0.1)
 
+    def test_asst_20_1_reverse_split_feb6_end_date(self):
+        """Historical performance for ASST with 20:1 reverse split on Feb 6, end_date Feb 6.
+
+        Trades from Asset Trades - Stocks IBKR.csv lines 2-15 (14 ASST buys through 2026-02-04).
+        20:1 reverse split on 2026-02-06 (ratio new/old = 0.05). Asserts last history point
+        has correct post-split quantity, market value, cost basis, and percentage return.
+        """
+        asset = Asset(ticker="ASST", asset_type="Stock")
+        # 14 ASST buys from CSV lines 2-15 (Date, Price, Quantity)
+        asst_trades = [
+            (date(2025, 11, 19), 1.11, Decimal("92")),
+            (date(2025, 11, 19), 1.1, Decimal("200")),
+            (date(2025, 11, 19), 1.1, Decimal("0.7274")),
+            (date(2025, 11, 28), 1.16, Decimal("1")),
+            (date(2025, 11, 28), 1.15, Decimal("173")),
+            (date(2025, 11, 28), 1.15, Decimal("0.2156")),
+            (date(2025, 12, 5), 0.95, Decimal("0.9655")),
+            (date(2025, 12, 5), 0.95, Decimal("105")),
+            (date(2026, 1, 13), 1.07, Decimal("324.6511")),
+            (date(2026, 1, 13), 1.09, Decimal("91.7477")),
+            (date(2026, 1, 17), 0.967, Decimal("103.4122")),
+            (date(2026, 1, 22), 0.9223, Decimal("287.3765")),
+            (date(2026, 1, 28), 0.8218, Decimal("90.5191")),
+            (date(2026, 2, 4), 0.5997, Decimal("166.7569")),
+        ]
+        portfolio = SimplePortfolio("ASST Test")
+        for d, price, qty in asst_trades:
+            portfolio.add_trade(
+                Trade(
+                    date=d,
+                    asset=asset,
+                    action="Buy",
+                    broker="IBKR",
+                    currency="USD",
+                    price=float(price),
+                    price_native=float(price),
+                    quantity=qty,
+                )
+            )
+        # Pre-split total quantity and cost basis (for assertions)
+        total_qty_pre = sum(qty for _d, _p, qty in asst_trades)
+        total_cost = sum(float(p) * float(qty) for _d, p, qty in asst_trades)
+        # 20:1 reverse: post-split quantity = pre / 20
+        expected_post_qty = float(total_qty_pre) / 20.0
+
+        split_service = Mock(spec=SplitService)
+        asst_splits = pd.Series([0.05], index=[pd.Timestamp("2026-02-06")])
+        split_service.get_splits.return_value = {"ASST": asst_splits}
+
+        start_date = date(2026, 2, 4)
+        end_date = date(2026, 2, 6)
+        # Mock returns post-split-adjusted prices; we scale to pre-split for dates before split (x factor)
+        post_split_price_feb6 = 11.91
+        price_service = Mock()
+        price_service.get_historical_prices.return_value = {
+            "ASST": {
+                date(2026, 2, 4): post_split_price_feb6,
+                date(2026, 2, 5): post_split_price_feb6,
+                date(2026, 2, 6): post_split_price_feb6,
+            }
+        }
+
+        history = get_historical_performance(
+            portfolio, price_service, start_date, end_date, split_service=split_service
+        )
+
+        assert len(history) == 3
+        point_feb6 = history[2]
+        assert point_feb6.date == end_date
+
+        # Post-split quantity on Feb 6
+        assert point_feb6.quantities["ASST"] == pytest.approx(expected_post_qty, abs=0.01)
+        # Price on Feb 6 is post-split (no scaling when no splits after date)
+        assert point_feb6.prices["ASST"] == post_split_price_feb6
+        # Market value = post_qty * post_price
+        expected_mv = expected_post_qty * post_split_price_feb6
+        assert point_feb6.asset_positions["ASST"] == pytest.approx(expected_mv, abs=0.01)
+        assert point_feb6.total_market_value == pytest.approx(expected_mv, abs=0.01)
+        expected_return_pct = (expected_mv - total_cost) / total_cost * 100.0
+        assert point_feb6.percentage_return == pytest.approx(expected_return_pct, abs=0.5)
+
+        # Pre-split date (Feb 4): quantity pre-split, price scaled to pre-split (post_split * 0.05)
+        point_feb4 = history[0]
+        assert point_feb4.quantities["ASST"] == pytest.approx(float(total_qty_pre), abs=0.01)
+        expected_pre_split_price = post_split_price_feb6 * 0.05  # factor new/old for 20:1 reverse
+        assert point_feb4.prices["ASST"] == pytest.approx(expected_pre_split_price, abs=0.01)
+        assert point_feb4.asset_positions["ASST"] == pytest.approx(
+            float(total_qty_pre) * expected_pre_split_price, abs=0.01
+        )
+
 
 class TestMultipleSplits:
     """Tests for multiple splits over time."""
