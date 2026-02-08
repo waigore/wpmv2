@@ -297,6 +297,55 @@ def import_trades_from_csv(
     return trades
 
 
+def _collect_all_stock_etf_tickers(
+    import_dir: Path, end_date: Optional[date] = None
+) -> Set[str]:
+    """Collect all unique Stock/ETF tickers from CSV files in import_dir.
+
+    Scans all CSV files, validates structure, and collects tickers where
+    asset_type is Stock or ETF. If end_date is provided, only includes tickers
+    from trades on or before end_date.
+
+    Args:
+        import_dir: Directory containing CSV files
+        end_date: Optional end date; if provided, only trades with date <= end_date
+                  are considered when collecting tickers
+
+    Returns:
+        Set of unique Stock/ETF ticker symbols
+    """
+    csv_files = sorted(import_dir.glob("*.csv"))
+    if not csv_files:
+        return set()
+
+    all_tickers: Set[str] = set()
+    for csv_file in csv_files:
+        try:
+            df = pd.read_csv(str(csv_file))
+        except Exception:
+            continue
+        try:
+            validate_csv_structure(df)
+        except ValidationError:
+            continue
+
+        for idx, row in df.iterrows():
+            try:
+                trade_date_str = str(row["Date"])
+                trade_date = normalize_date(trade_date_str)
+                if end_date is not None and trade_date > end_date:
+                    continue
+                ticker = str(row["Asset Name/Ticker"]).strip()
+                asset_type_str = str(row["Asset Type"]).strip()
+                asset_type = validate_asset_type(asset_type_str)
+                if asset_type in ("Stock", "ETF"):
+                    all_tickers.add(ticker)
+            except Exception:
+                pass
+
+    return all_tickers
+
+
 def extract_portfolio_name(filename: str, existing_names: Set[str]) -> str:
     """Extract and normalize portfolio name from CSV filename.
 
@@ -335,13 +384,23 @@ def extract_portfolio_name(filename: str, existing_names: Set[str]) -> str:
     return name
 
 
-def import_csv_files(import_dir: Path, end_date: Optional[date] = None) -> CompositePortfolio:
+def import_csv_files(
+    import_dir: Path,
+    end_date: Optional[date] = None,
+    split_service: Optional[SplitService] = None,
+) -> CompositePortfolio:
     """Import CSV files and create composite portfolio.
+
+    Public API used by CLI and downstream applications. Collects all Stock/ETF
+    tickers from CSVs, calls ensure_splits_loaded once, then processes each file.
+    Callers may pass an optional split_service to share with PriceService.
 
     Args:
         import_dir: Directory containing CSV files
         end_date: Optional end date (inclusive). If provided, only trades with date <= end_date are included,
                   and all created portfolios will have is_historical=True
+        split_service: Optional SplitService instance. If provided, shares split cache
+                      with caller (e.g. PriceService). If None, creates one internally.
 
     Returns:
         CompositePortfolio containing all imported sub-portfolios
@@ -362,12 +421,15 @@ def import_csv_files(import_dir: Path, end_date: Optional[date] = None) -> Compo
 
     logger.info(f"Found {len(csv_files)} CSV file(s)")
 
+    if split_service is None:
+        split_service = SplitService()
+
+    all_tickers = _collect_all_stock_etf_tickers(import_dir, end_date)
+    split_service.ensure_splits_loaded(list(all_tickers))
+
     is_historical = end_date is not None
     composite = CompositePortfolio("Composite", is_historical=is_historical)
     existing_names: Set[str] = set()
-
-    # Create SplitService for split adjustment
-    split_service = SplitService()
 
     for csv_file in csv_files:
         logger.info(f"Processing CSV file: {csv_file}")

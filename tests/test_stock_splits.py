@@ -1,9 +1,11 @@
 """Tests for stock split support functionality."""
 
+import os
 import pytest
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import Mock, patch
 import pandas as pd
 
@@ -108,17 +110,17 @@ class TestComputeCumulativeSplitFactorFromSplits:
 class TestSplitService:
     """Tests for SplitService."""
 
-    def test_get_splits_no_splits(self):
+    def test_get_splits_no_splits(self, tmp_path):
         """Test getting splits when no splits exist."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         with _patch_tickers({"GOOG": pd.Series(dtype=float)}):
             result = service.get_splits(["GOOG"])
         assert "GOOG" in result
         assert result["GOOG"].empty
 
-    def test_get_splits_with_splits(self):
+    def test_get_splits_with_splits(self, tmp_path):
         """Test getting splits when splits exist."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         split_data = pd.Series(
             [2.0],
             index=[pd.Timestamp('2020-06-15')],
@@ -130,9 +132,9 @@ class TestSplitService:
         assert len(result["GOOG"]) == 1
         assert result["GOOG"].iloc[0] == 2.0
 
-    def test_get_splits_batch_multiple_tickers(self):
+    def test_get_splits_batch_multiple_tickers(self, tmp_path):
         """Test get_splits returns one dict for multiple tickers (batch)."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         goog_splits = pd.Series([2.0], index=[pd.Timestamp('2020-06-15')])
         aapl_splits = pd.Series(dtype=float)
         with _patch_tickers({"GOOG": goog_splits, "AAPL": aapl_splits}) as mock_tickers:
@@ -142,16 +144,16 @@ class TestSplitService:
         assert len(result["GOOG"]) == 1
         assert result["AAPL"].empty
 
-    def test_get_cumulative_split_factor_no_splits(self):
+    def test_get_cumulative_split_factor_no_splits(self, tmp_path):
         """Test cumulative factor when no splits occurred."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         with _patch_tickers({"GOOG": pd.Series(dtype=float)}):
             factor = service.get_cumulative_split_factor("GOOG", date(2020, 1, 1))
         assert factor == Decimal('1.0')
 
-    def test_get_cumulative_split_factor_single_forward_split(self):
+    def test_get_cumulative_split_factor_single_forward_split(self, tmp_path):
         """Test cumulative factor with single forward split."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         split_data = pd.Series(
             [2.0],
             index=[pd.Timestamp('2020-06-15')],
@@ -162,9 +164,9 @@ class TestSplitService:
             factor = service.get_cumulative_split_factor("GOOG", date(2020, 7, 1))
             assert factor == Decimal('1.0')
 
-    def test_get_cumulative_split_factor_multiple_splits(self):
+    def test_get_cumulative_split_factor_multiple_splits(self, tmp_path):
         """Test cumulative factor with multiple splits."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         split_data = pd.Series(
             [2.0, 3.0],
             index=[pd.Timestamp('2020-06-15'), pd.Timestamp('2021-01-01')],
@@ -177,9 +179,9 @@ class TestSplitService:
             factor = service.get_cumulative_split_factor("GOOG", date(2021, 2, 1))
             assert factor == Decimal('1.0')
 
-    def test_get_cumulative_split_factor_reverse_split(self):
+    def test_get_cumulative_split_factor_reverse_split(self, tmp_path):
         """Test cumulative factor with reverse split."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         split_data = pd.Series(
             [0.5],
             index=[pd.Timestamp('2020-06-15')],
@@ -190,9 +192,9 @@ class TestSplitService:
             factor = service.get_cumulative_split_factor("GOOG", date(2020, 7, 1))
             assert factor == Decimal('1.0')
 
-    def test_get_cumulative_split_factor_mixed_splits(self):
+    def test_get_cumulative_split_factor_mixed_splits(self, tmp_path):
         """Test cumulative factor with forward and reverse splits."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         split_data = pd.Series(
             [2.0, 0.5],
             index=[pd.Timestamp('2020-06-15'), pd.Timestamp('2021-01-01')],
@@ -201,9 +203,9 @@ class TestSplitService:
             factor = service.get_cumulative_split_factor("GOOG", date(2020, 1, 1))
             assert factor == Decimal('1.0')
 
-    def test_get_cumulative_split_factor_with_current_date(self):
+    def test_get_cumulative_split_factor_with_current_date(self, tmp_path):
         """Test cumulative factor with current_date parameter."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         split_data = pd.Series(
             [2.0, 3.0],
             index=[pd.Timestamp('2020-06-15'), pd.Timestamp('2021-01-01')],
@@ -214,17 +216,17 @@ class TestSplitService:
             )
             assert factor == Decimal('2.0')
 
-    def test_get_cumulative_split_factor_error_handling(self):
+    def test_get_cumulative_split_factor_error_handling(self, tmp_path):
         """Test error handling when batch fetch fails."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         with patch('wpm.pricing.splits.yf.Tickers') as mock_tickers_class:
             mock_tickers_class.side_effect = Exception("API Error")
             factor = service.get_cumulative_split_factor("GOOG", date(2020, 1, 1))
         assert factor == Decimal('1.0')
 
-    def test_split_cache(self):
+    def test_split_cache(self, tmp_path):
         """Test that splits are cached (one batch fetch, then cache)."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         split_data = pd.Series(
             [2.0],
             index=[pd.Timestamp('2020-06-15')],
@@ -235,9 +237,80 @@ class TestSplitService:
         assert mock_tickers_class.call_count == 1
         assert result1["GOOG"].equals(result2["GOOG"])
 
-    def test_timezone_aware_splits(self):
+    def test_ensure_splits_loaded_then_get_splits_uses_memory_only(self, tmp_path):
+        """ensure_splits_loaded populates cache; subsequent get_splits use memory only."""
+        cache_file = tmp_path / "split_cache.parquet"
+        service = SplitService(cache_file=cache_file)
+        split_data = pd.Series(
+            [2.0],
+            index=[pd.Timestamp('2020-06-15')],
+        )
+        with _patch_tickers({"GOOG": split_data}) as mock_tickers_class:
+            service.ensure_splits_loaded(["GOOG"])
+            result1 = service.get_splits(["GOOG"])
+            result2 = service.get_splits(["GOOG"])
+        # One yfinance call for ensure_splits_loaded; get_splits use in-memory cache
+        assert mock_tickers_class.call_count == 1
+        assert result1["GOOG"].equals(result2["GOOG"])
+        assert len(result1["GOOG"]) == 1
+
+    def test_file_cache_validity_same_day_mtime(self, tmp_path):
+        """File cache is valid when mtime is on same calendar day."""
+        cache_file = tmp_path / "split_cache.parquet"
+        service = SplitService(cache_file=cache_file)
+        split_data = pd.Series([2.0], index=[pd.Timestamp('2020-06-15')])
+        with _patch_tickers({"GOOG": split_data}) as mock_tickers_class:
+            service.ensure_splits_loaded(["GOOG"])
+        assert mock_tickers_class.call_count == 1
+        assert cache_file.exists()
+
+        # New service instance, same-day cache should be valid -> load from file
+        service2 = SplitService(cache_file=cache_file)
+        with _patch_tickers({"GOOG": split_data}) as mock_tickers_class2:
+            service2.ensure_splits_loaded(["GOOG"])
+        # Should load from file, not fetch from yfinance
+        assert mock_tickers_class2.call_count == 0
+
+    def test_file_cache_invalid_prior_day_mtime(self, tmp_path):
+        """File cache is invalid when mtime is from a prior day; triggers refresh."""
+        cache_file = tmp_path / "split_cache.parquet"
+        service = SplitService(cache_file=cache_file)
+        split_data = pd.Series([2.0], index=[pd.Timestamp('2020-06-15')])
+        with _patch_tickers({"GOOG": split_data}) as mock_tickers_class:
+            service.ensure_splits_loaded(["GOOG"])
+        assert mock_tickers_class.call_count == 1
+        assert cache_file.exists()
+
+        # Set mtime to yesterday
+        yesterday = datetime.now() - timedelta(days=1)
+        os.utime(cache_file, (yesterday.timestamp(), yesterday.timestamp()))
+
+        # New service instance; prior-day cache invalid -> fetch from yfinance
+        service2 = SplitService(cache_file=cache_file)
+        with _patch_tickers({"GOOG": split_data}) as mock_tickers_class2:
+            service2.ensure_splits_loaded(["GOOG"])
+        assert mock_tickers_class2.call_count == 1
+
+    def test_missing_ticker_triggers_refresh(self, tmp_path):
+        """When requested ticker is not in cache, triggers fetch."""
+        cache_file = tmp_path / "split_cache.parquet"
+        service = SplitService(cache_file=cache_file)
+        goog_splits = pd.Series([2.0], index=[pd.Timestamp('2020-06-15')])
+        aapl_splits = pd.Series(dtype=float)
+        with _patch_tickers({"GOOG": goog_splits}) as mock_tickers_class:
+            service.ensure_splits_loaded(["GOOG"])
+        assert mock_tickers_class.call_count == 1
+
+        # Request AAPL which is not in cache -> triggers refresh
+        with _patch_tickers({"GOOG": goog_splits, "AAPL": aapl_splits}) as mock_tickers_class2:
+            result = service.get_splits(["GOOG", "AAPL"])
+        assert mock_tickers_class2.call_count == 1
+        assert "GOOG" in result
+        assert "AAPL" in result
+
+    def test_timezone_aware_splits(self, tmp_path):
         """Test that timezone-aware timestamps from yfinance are handled correctly."""
-        service = SplitService()
+        service = SplitService(cache_file=tmp_path / "splits.parquet")
         split_data = pd.Series(
             [0.05],
             index=[pd.Timestamp('2026-02-06 00:00:00-05:00')],

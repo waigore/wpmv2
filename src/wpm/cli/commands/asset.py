@@ -114,7 +114,7 @@ def cmd_show_asset(
             all_trades = [t for t in all_trades if t.broker in brokers]
 
         # Reuse price_service's SplitService so split data is already cached from get_historical_performance
-        split_service = getattr(price_service, "_split_service", None) or SplitService()
+        split_service = price_service.get_split_service()
         # Prefetch split data once (Principle 6); pass ticker_splits to _adjust_trades_for_historical_date
         stock_etf_tickers = [
             t.asset.ticker for t in all_trades

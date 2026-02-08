@@ -17,7 +17,7 @@ from wpm.importer import adjust_trade_for_splits, parse_trade_row, validate_csv_
 from wpm.models import Trade, ValidationError
 from wpm.portfolio import CompositePortfolio, SimplePortfolio
 from wpm.pricing.splits import SplitService
-from wpm.utils import validate_asset_type
+from wpm.utils import normalize_date, validate_asset_type
 
 try:
     from google.oauth2 import service_account
@@ -421,12 +421,57 @@ def list_sheet_names(spreadsheet_id: str, credentials_path: Optional[str] = None
     return sheet_names
 
 
+def _collect_all_stock_etf_tickers_from_sheets(
+    service,
+    spreadsheet_id: str,
+    sheet_names: List[str],
+    end_date: Optional[date] = None,
+) -> Set[str]:
+    """Collect all unique Stock/ETF tickers from sheets.
+
+    Args:
+        service: Google Sheets API service
+        spreadsheet_id: Spreadsheet ID
+        sheet_names: List of sheet names to scan
+        end_date: If provided, only include tickers from trades on or before end_date
+
+    Returns:
+        Set of unique Stock/ETF ticker symbols
+    """
+    all_tickers: Set[str] = set()
+    for sheet_name in sheet_names:
+        try:
+            df = sheet_to_dataframe(service, spreadsheet_id, sheet_name)
+            validate_csv_structure(df)
+        except (ValidationError, Exception):
+            continue
+
+        for idx, row in df.iterrows():
+            try:
+                trade_date_str = str(row["Date"])
+                trade_date = normalize_date(trade_date_str)
+                if end_date is not None and trade_date > end_date:
+                    continue
+                ticker = str(row["Asset Name/Ticker"]).strip()
+                asset_type_str = str(row["Asset Type"]).strip()
+                asset_type = validate_asset_type(asset_type_str)
+                if asset_type in ("Stock", "ETF"):
+                    all_tickers.add(ticker)
+            except Exception:
+                pass
+    return all_tickers
+
+
 def import_sheets_workbook(
     spreadsheet_id: str,
     credentials_path: Optional[str] = None,
     end_date: Optional[date] = None,
+    split_service: Optional[SplitService] = None,
 ) -> CompositePortfolio:
     """Import ALL sheets as sub-portfolios, aggregate into CompositePortfolio.
+
+    Public API; accepts optional split_service. Internally pre-collects tickers
+    and calls ensure_splits_loaded once.
 
     Fail-Fast Behavior:
     - ALL sheets in the spreadsheet are imported (no filtering option)
@@ -439,6 +484,8 @@ def import_sheets_workbook(
         credentials_path: Path to service account JSON key file (optional)
         end_date: If provided, only import trades on or before this date,
                  and mark portfolios as historical
+        split_service: Optional SplitService instance. If provided, shares split
+                      cache with caller (e.g. PriceService).
 
     Returns:
         CompositePortfolio containing all imported sheets as sub-portfolios
@@ -471,11 +518,18 @@ def import_sheets_workbook(
             logger.error(f"Pre-validation failed for sheet: {sheet_name}")
             raise
 
+    if split_service is None:
+        split_service = SplitService()
+
+    all_tickers = _collect_all_stock_etf_tickers_from_sheets(
+        service, spreadsheet_id, sheet_names, end_date
+    )
+    split_service.ensure_splits_loaded(list(all_tickers))
+
     # All sheets validated, now import
     is_historical = end_date is not None
     composite = CompositePortfolio("Composite", is_historical=is_historical)
     currency_service = CurrencyService()
-    split_service = SplitService()
 
     for sheet_name in sheet_names:
         logger.info(f"Processing sheet: {sheet_name}")

@@ -141,7 +141,8 @@ class TestPriceServiceHistorical:
             mock_stock_retriever.get_historical_prices.return_value = {"GOOG": prices_df}
             mock_stock_retriever._detect_currency.return_value = "USD"
             service._stock_retriever = mock_stock_retriever
-            
+            service._retrievers["Stock"] = service._retrievers["ETF"] = mock_stock_retriever
+
             # Get historical price (calls get_historical_prices with [ticker])
             price = service.get_historical_price("GOOG", "Stock", date(2024, 1, 15))
             assert price == 150.0
@@ -179,7 +180,8 @@ class TestPriceServiceHistorical:
             }
             mock_stock_retriever._detect_currency.return_value = "USD"
             service._stock_retriever = mock_stock_retriever
-            
+            service._retrievers["Stock"] = service._retrievers["ETF"] = mock_stock_retriever
+
             # Get historical prices
             prices = service.get_historical_prices(
                 ["GOOG", "AAPL"], "Stock", date(2024, 1, 15), date(2024, 1, 20)
@@ -216,7 +218,8 @@ class TestPriceServiceHistorical:
             mock_stock_retriever.get_historical_prices.return_value = {"GOOG": prices_df}
             mock_stock_retriever._detect_currency.return_value = "USD"
             service._stock_retriever = mock_stock_retriever
-            
+            service._retrievers["Stock"] = service._retrievers["ETF"] = mock_stock_retriever
+
             # Call with cached_prices_only=False (default)
             prices = service.get_historical_prices(
                 ["GOOG"], "Stock", date(2024, 1, 15), date(2024, 1, 20),
@@ -358,7 +361,8 @@ class TestPriceServiceHistorical:
                     "GOOG": prices_post_split
                 }
                 service._stock_retriever = mock_stock_retriever
-                
+                service._retrievers["Stock"] = service._retrievers["ETF"] = mock_stock_retriever
+
                 # Mock detect_currency to return USD (so no conversion happens)
                 with patch.object(service, 'detect_currency', return_value='USD'):
                     # Request prices including split date (2024-01-06)

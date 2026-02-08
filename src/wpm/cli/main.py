@@ -1,17 +1,27 @@
 """Main entry point for WPM CLI."""
 
+import cProfile
+import io
 import logging
+import pstats
 import sys
 from datetime import date
 from pathlib import Path
 from typing import Dict, Optional
 
+from wpm.config import Config
 from wpm.currency import CurrencyService
 from wpm.importer import import_csv_files
 from wpm.models import Asset, Portfolio, ValidationError
 from wpm.pricing import PriceService
+from wpm.pricing.splits import SplitService
 from wpm.reference.portfolio import create_reference_portfolio
 from wpm.reference.strategy import BuyAndHoldStrategy
+from wpm.sheets_importer import (
+    import_sheets_workbook,
+    resolve_spreadsheet_id,
+    ValidationError as SheetsValidationError,
+)
 from wpm.utils import normalize_date
 
 from .commands.portfolio import fetch_prices_for_portfolio
@@ -23,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 IMPORT_DIR = Path("import")
+PROFILE_STATS_LINES = 40
 
 
 def _create_reference_portfolios(composite: Portfolio, price_service: PriceService) -> Dict[str, Portfolio]:
@@ -81,13 +92,6 @@ def _create_reference_portfolios(composite: Portfolio, price_service: PriceServi
 
 def _handle_import_sheets(args) -> None:
     """Handle 'import-sheets' command."""
-    from wpm.config import Config
-    from wpm.sheets_importer import (
-        import_sheets_workbook,
-        resolve_spreadsheet_id,
-        ValidationError as SheetsValidationError,
-    )
-
     # Check credentials configuration (required)
     if not Config.GOOGLE_SHEETS_CREDENTIALS_PATH:
         print(
@@ -132,15 +136,17 @@ def _handle_import_sheets(args) -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Import ALL sheets from the spreadsheet (fail-fast: any error stops entire import)
+    # Import ALL sheets (shared SplitService for single cache load/fetch)
+    split_service = SplitService()
     try:
         composite = import_sheets_workbook(
             spreadsheet_id=spreadsheet_id,
             credentials_path=Config.GOOGLE_SHEETS_CREDENTIALS_PATH,
             end_date=end_date,
+            split_service=split_service,
         )
         print(
-            f"Successfully imported {len(composite.sub_portfolios)} sheet(s) from Google Sheets"
+            f"Successfully imported {len(composite.get_sub_portfolios())} sheet(s) from Google Sheets"
         )
         if end_date:
             print(f"Historical portfolio (end_date: {end_date})")
@@ -148,8 +154,8 @@ def _handle_import_sheets(args) -> None:
         print(f"Import failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Fetch prices (same as CSV import)
-    price_service = PriceService()
+    # Fetch prices (share SplitService to avoid duplicate split fetches)
+    price_service = PriceService(split_service=split_service)
     fetch_prices_for_portfolio(composite, price_service)
 
     # Create reference portfolios (same as CSV import)
@@ -159,14 +165,8 @@ def _handle_import_sheets(args) -> None:
     run_interactive_mode(composite, price_service, reference_portfolios)
 
 
-def main() -> None:
-    """Main entry point for wpm CLI."""
-    # Initialize CLI-specific logging (directs logs to logs/wpmcli.log, suppresses stdout/stderr)
-    setup_cli_logging()
-
-    # Parse arguments
-    args = parse_args()
-
+def _run_command(args) -> None:
+    """Execute the CLI command based on parsed args."""
     if args.command == "import":
         # Parse end_date if provided
         end_date: Optional[date] = None
@@ -181,9 +181,12 @@ def main() -> None:
                 logger.error(f"Invalid end-date format: {str(e)}")
                 sys.exit(1)
 
-        # Import CSV files
+        # Import CSV files (shared SplitService for single cache load/fetch)
+        split_service = SplitService()
         try:
-            composite = import_csv_files(IMPORT_DIR, end_date=end_date)
+            composite = import_csv_files(
+                IMPORT_DIR, end_date=end_date, split_service=split_service
+            )
             if end_date is not None:
                 print(f"Successfully created historical portfolio (end_date: {end_date})")
         except ValueError as e:
@@ -195,8 +198,8 @@ def main() -> None:
             logger.error(str(e), exc_info=True)
             sys.exit(1)
 
-        # Fetch prices for all assets
-        price_service = PriceService()
+        # Fetch prices for all assets (share SplitService to avoid duplicate split fetches)
+        price_service = PriceService(split_service=split_service)
         fetch_prices_for_portfolio(composite, price_service)
 
         # Create reference portfolios for baseline comparison
@@ -211,3 +214,32 @@ def main() -> None:
     else:
         print(f"Unknown command: {args.command}", file=sys.stderr)
         sys.exit(1)
+
+
+def _print_profile_stats(profiler: cProfile.Profile) -> None:
+    """Print cProfile stats summary to stderr."""
+    stream = io.StringIO()
+    ps = pstats.Stats(profiler, stream=stream)
+    ps.sort_stats("cumulative")
+    ps.print_stats(PROFILE_STATS_LINES)
+    print("\n--- cProfile (top {}) ---\n{}".format(PROFILE_STATS_LINES, stream.getvalue()), file=sys.stderr)
+
+
+def main() -> None:
+    """Main entry point for wpm CLI."""
+    # Initialize CLI-specific logging (directs logs to logs/wpmcli.log, suppresses stdout/stderr)
+    setup_cli_logging()
+
+    # Parse arguments
+    args = parse_args()
+
+    if args.profile:
+        profiler = cProfile.Profile()
+        profiler.enable()
+        try:
+            _run_command(args)
+        finally:
+            profiler.disable()
+            _print_profile_stats(profiler)
+    else:
+        _run_command(args)

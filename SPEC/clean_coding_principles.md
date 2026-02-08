@@ -236,6 +236,7 @@ def test_specific_cache_scenario():
 
 **Examples:**
 - Split adjustment at import: prefetch split data once per ticker into a `ticker_splits` map; for each trade compute the factor from that map via a pure function. Do not call `get_cumulative_split_factor` (or equivalent) once per trade.
+- Split cache: file-based Parquet cache with daily validity (mtime same calendar day). Use a shared SplitService instance for importer and PriceService. Call `ensure_splits_loaded(all_tickers)` once at import start; subsequent `get_splits` uses in-memory cache—at most one file load or yfinance fetch per import run.
 - Historical prices: batch by ticker/asset type and date range; avoid per-date or per-trade cache reads when a single batched read is possible.
 
 **Enforcement:**

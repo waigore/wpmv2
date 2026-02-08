@@ -2,9 +2,38 @@
 
 import argparse
 from datetime import date
-from typing import List, Optional
+from typing import Callable, List, Optional, TypeVar
 
 from wpm.utils import normalize_date
+
+T = TypeVar("T")
+
+
+def _parse_flag_value(
+    args: List[str],
+    flag: str,
+    parse_value: Callable[[str], T],
+) -> tuple[Optional[T], List[str]]:
+    """Parse a single --flag value from args; return (parsed value or None, remaining args).
+
+    If the flag is found and the next token parses successfully, consume both and return
+    the parsed value. On parse error (ValueError), keep the flag in remaining args.
+    """
+    value: Optional[T] = None
+    remaining: List[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == flag and i + 1 < len(args):
+            try:
+                value = parse_value(args[i + 1])
+                i += 2
+            except ValueError:
+                remaining.append(args[i])
+                i += 1
+        else:
+            remaining.append(args[i])
+            i += 1
+    return value, remaining
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,8 +56,24 @@ def parse_args() -> argparse.Namespace:
         help="End date (YYYY-MM-DD) for historical portfolio import. "
              "Only trades on or before this date will be included.",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Enable cProfile and print performance stats at exit. "
+             "Useful for identifying bottlenecks in import and show asset flows.",
+    )
 
     return parser.parse_args()
+
+
+def _parse_brokers_value(s: str) -> Optional[List[str]]:
+    """Parse --brokers value: strip outer quotes, split by comma, strip each; return None if empty."""
+    if s.startswith('"') and s.endswith('"'):
+        s = s[1:-1]
+    elif s.startswith("'") and s.endswith("'"):
+        s = s[1:-1]
+    brokers = [broker.strip() for broker in s.split(",") if broker.strip()]
+    return brokers if brokers else None
 
 
 def parse_up_to_date(args: List[str]) -> tuple[Optional[date], List[str]]:
@@ -40,22 +85,7 @@ def parse_up_to_date(args: List[str]) -> tuple[Optional[date], List[str]]:
     Returns:
         Tuple of (up_to_date or None, remaining args without --up-to flag and date)
     """
-    up_to_date = None
-    remaining_args = []
-    i = 0
-    while i < len(args):
-        if args[i] == "--up-to" and i + 1 < len(args):
-            try:
-                up_to_date = normalize_date(args[i + 1])
-                i += 2  # Skip both --up-to and the date
-            except ValueError:
-                # Invalid date format, keep the --up-to flag in remaining args
-                remaining_args.append(args[i])
-                i += 1
-        else:
-            remaining_args.append(args[i])
-            i += 1
-    return up_to_date, remaining_args
+    return _parse_flag_value(args, "--up-to", normalize_date)
 
 
 def parse_from_date(args: List[str]) -> tuple[Optional[date], List[str]]:
@@ -67,22 +97,7 @@ def parse_from_date(args: List[str]) -> tuple[Optional[date], List[str]]:
     Returns:
         Tuple of (from_date or None, remaining args without --from flag and date)
     """
-    from_date = None
-    remaining_args = []
-    i = 0
-    while i < len(args):
-        if args[i] == "--from" and i + 1 < len(args):
-            try:
-                from_date = normalize_date(args[i + 1])
-                i += 2  # Skip both --from and the date
-            except ValueError:
-                # Invalid date format, keep the --from flag in remaining args
-                remaining_args.append(args[i])
-                i += 1
-        else:
-            remaining_args.append(args[i])
-            i += 1
-    return from_date, remaining_args
+    return _parse_flag_value(args, "--from", normalize_date)
 
 
 def parse_brokers(args: List[str]) -> tuple[Optional[List[str]], List[str]]:
@@ -94,24 +109,4 @@ def parse_brokers(args: List[str]) -> tuple[Optional[List[str]], List[str]]:
     Returns:
         Tuple of (brokers list or None, remaining args without --brokers flag and value)
     """
-    brokers = None
-    remaining_args = []
-    i = 0
-    while i < len(args):
-        if args[i] == "--brokers" and i + 1 < len(args):
-            brokers_str = args[i + 1]
-            # Strip outer quotes if present (handles "broker1,broker2" format)
-            if brokers_str.startswith('"') and brokers_str.endswith('"'):
-                brokers_str = brokers_str[1:-1]
-            elif brokers_str.startswith("'") and brokers_str.endswith("'"):
-                brokers_str = brokers_str[1:-1]
-            # Split by comma and strip whitespace from each broker name
-            brokers = [broker.strip() for broker in brokers_str.split(",") if broker.strip()]
-            # If empty list after stripping, set to None
-            if not brokers:
-                brokers = None
-            i += 2  # Skip both --brokers and the value
-        else:
-            remaining_args.append(args[i])
-            i += 1
-    return brokers, remaining_args
+    return _parse_flag_value(args, "--brokers", _parse_brokers_value)

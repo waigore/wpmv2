@@ -1885,11 +1885,8 @@ def get_historical_performance(
     # Create or reuse SplitService for adjusting trades for each historical date.
     # Reuse price_service's SplitService when available so split data fetched during
     # get_historical_prices (split check) is shared, avoiding duplicate yfinance calls.
-    # Only use _split_service when it is a real SplitService (not a test Mock).
     if split_service is None and price_service is not None:
-        candidate = getattr(price_service, "_split_service", None)
-        if isinstance(candidate, SplitService):
-            split_service = candidate
+        split_service = price_service.get_split_service()
     if split_service is None:
         split_service = SplitService()
 

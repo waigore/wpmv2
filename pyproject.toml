@@ -82,6 +82,16 @@ precision = 0
 skip_covered = false
 skip_empty = false
 
+[[tool.pydoc-markdown.loaders]]
+type = "python"
+search_path = ["src"]
+packages = ["wpm"]
+
+[tool.pydoc-markdown.renderer]
+type = "markdown"
+filename = "src/wpm/docs/api.md"
+render_toc = true
+
 [dependency-groups]
 dev = [
     "pydoc-markdown>=4.8.2",

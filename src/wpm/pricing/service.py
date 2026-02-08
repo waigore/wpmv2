@@ -22,19 +22,13 @@ logger = logging.getLogger(__name__)
 class PriceService:
     """Service that orchestrates price retrieval with caching and rate limiting."""
 
-    # Mapping of asset types to retriever instances
-    _RETRIEVER_MAP: Dict[str, str] = {
-        "Stock": "_stock_retriever",
-        "ETF": "_stock_retriever",
-        "Crypto": "_crypto_retriever",
-    }
-
     def __init__(
         self,
         cache_file: Optional[Path] = None,
         historical_cache_file: Optional[Path] = None,
         rate_limit_per_minute: int = 60,
         currency_service: CurrencyService = None,
+        split_service: Optional[SplitService] = None,
     ):
         """Initialize price service.
 
@@ -43,6 +37,8 @@ class PriceService:
             historical_cache_file: Path to historical cache file (default: Config.HISTORICAL_CACHE_FILE)
             rate_limit_per_minute: Rate limit for API calls per minute
             currency_service: CurrencyService instance (default: creates new instance)
+            split_service: Optional SplitService instance to share with importer.
+                          If provided, uses shared split cache (avoids duplicate fetches).
         """
         self.cache = PriceCache(cache_file)
         self.historical_cache = HistoricalPriceCache(historical_cache_file)
@@ -50,7 +46,12 @@ class PriceService:
         self.currency_service = currency_service or CurrencyService()
         self._stock_retriever = YahooFinanceRetriever(self.currency_service)
         self._crypto_retriever = CoinGeckoRetriever()
-        self._split_service = SplitService()
+        self._split_service = split_service or SplitService()
+        self._retrievers: Dict[str, PriceRetriever] = {
+            "Stock": self._stock_retriever,
+            "ETF": self._stock_retriever,
+            "Crypto": self._crypto_retriever,
+        }
 
     def get_retriever(self, asset_type: str) -> PriceRetriever:
         """Get appropriate price retriever for asset type.
@@ -64,11 +65,18 @@ class PriceService:
         Raises:
             ValueError: If asset type is not supported
         """
-        retriever_attr = self._RETRIEVER_MAP.get(asset_type)
-        if retriever_attr is None:
+        retriever = self._retrievers.get(asset_type)
+        if retriever is None:
             raise ValueError(f"Unsupported asset type: {asset_type}")
+        return retriever
 
-        return getattr(self, retriever_attr)
+    def get_split_service(self) -> SplitService:
+        """Return the SplitService instance used by this PriceService.
+
+        Callers may use this to share split data (e.g. avoid duplicate fetches
+        when computing historical performance or show-asset flows).
+        """
+        return self._split_service
 
     def get_stock_retriever(self) -> PriceRetriever:
         """Get the stock/ETF retriever instance.

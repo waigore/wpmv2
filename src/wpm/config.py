@@ -5,8 +5,8 @@ This module handles all application configuration following these principles:
 - Storage configuration (cache directories, file paths) defined as class variables
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -29,6 +29,7 @@ class Config:
     CURRENCY_CACHE_VALIDITY_MINUTES = 1440  # 24 hours
     HISTORICAL_CACHE_FILE = CACHE_DIR / "historical_price_cache.parquet"
     ASSET_METADATA_CACHE_FILE = CACHE_DIR / "asset_metadata_cache.parquet"
+    SPLIT_CACHE_FILE = CACHE_DIR / "split_cache.parquet"
     
     # Sensitive configuration (loaded from .env file via os.getenv)
     COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")  # Optional - None if not set

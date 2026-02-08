@@ -155,9 +155,10 @@
   - `end_date` (Optional[date]): If provided, only trades with date <= end_date are included
   - `split_service` (Optional[SplitService]): If provided, trades are adjusted for stock splits that occurred after the trade date
   - **Split adjustment design:** Callers build `ticker_splits` (one batch `get_splits(list_of_tickers)` for Stock/ETF; add empty Series for Crypto/others so every trade's ticker is present) and pass it to `adjust_trade_for_splits`. No lazy fetch inside `adjust_trade_for_splits`.
-- `import_csv_files(import_dir, end_date=None)`: Import CSV files and create composite portfolio
+- `import_csv_files(import_dir, end_date=None, split_service=None)`: Import CSV files and create composite portfolio
   - `end_date` (Optional[date]): If provided, filters trades and creates historical portfolios with `is_historical=True`
-  - Automatically creates SplitService and applies split adjustments to all trades
+  - `split_service` (Optional[SplitService]): Optional shared instance. If None, creates SplitService internally.
+  - **Public API**: Used by CLI and downstream applications. Internally collects all Stock/ETF tickers from CSVs and calls `ensure_splits_loaded(all_tickers)` once before processing. Callers need not orchestrate ticker collection.
 - `adjust_trade_for_splits(trade, ticker_splits, current_date=None)`: Adjust trade for stock splits
   - **Required:** `ticker_splits` must be provided (dict of ticker → splits Series). Caller must have retrieved splits (e.g. via `SplitService.get_splits`) and must ensure the trade's ticker is present in `ticker_splits`; otherwise raises `ValidationError`.
   - Calculates cumulative split factor via `compute_cumulative_split_factor_from_splits(ticker_splits[ticker], trade.date, current_date)` and updates trade's `split_adjustment_factor`
@@ -221,12 +222,13 @@
   - Returns list of sheet names
   - Raises `ValidationError` if API call fails
 
-- `import_sheets_workbook(spreadsheet_id, credentials_path=None, end_date=None)`: Import ALL sheets as sub-portfolios, aggregate into CompositePortfolio
+- `import_sheets_workbook(spreadsheet_id, credentials_path=None, end_date=None, split_service=None)`: Import ALL sheets as sub-portfolios, aggregate into CompositePortfolio
   - **Fail-Fast Behavior**: ALL sheets are imported (no filtering option). If ANY sheet fails validation or parsing, the ENTIRE operation fails. No partial portfolios are created on error.
   - Pre-validates all sheets before importing any data
   - Creates one SimplePortfolio per sheet, aggregates into CompositePortfolio
   - `end_date`: If provided, only imports trades on or before this date, and marks portfolios as historical (`is_historical=True`)
-  - Automatically creates SplitService and applies split adjustments to all trades
+  - `split_service` (Optional[SplitService]): Optional shared instance. If None, creates SplitService internally.
+  - **Public API**: Internally pre-collects all Stock/ETF tickers from sheets and calls `ensure_splits_loaded(all_tickers)` once before the import loop.
   - Returns CompositePortfolio containing all imported sheets as sub-portfolios
   - Raises `ValidationError` if any sheet fails validation or parsing
 
@@ -298,6 +300,7 @@
    - `CURRENCY_CACHE_FILE`: Default currency cache file path (`CACHE_DIR / "currency_cache.parquet"`)
    - `CURRENCY_CACHE_VALIDITY_MINUTES`: Currency cache validity threshold in minutes (default: 1440, i.e., 24 hours)
    - `HISTORICAL_CACHE_FILE`: Default historical price cache file path (`CACHE_DIR / "historical_price_cache.parquet"`)
+   - `SPLIT_CACHE_FILE`: Default split cache file path (`CACHE_DIR / "split_cache.parquet"`). File-based Parquet cache for stock split data; validity is daily (mtime same calendar day).
 
 **Usage:**
 - Other modules import `Config` class and access configuration via class attributes
@@ -415,8 +418,9 @@
 **Responsibilities:**
 - Retrieve stock split data from yfinance
 - Calculate cumulative split adjustment factors for trades
-- Cache split data to minimize API calls (splits don't change, cache indefinitely)
+- Cache split data in a file-based Parquet cache to minimize API calls (validity: same calendar day)
 - Support historical portfolio split calculations using end_date
+- Support shared instance across importer and PriceService for single load/fetch per import run
 
 **Key Functions:**
 - `compute_cumulative_split_factor_from_splits(splits, trade_date, current_date=None)`: Pure function to compute cumulative split factor from an existing splits Series (no I/O, no cache access). Importers use this with pre-fetched split data to minimize cache/service calls (one `get_splits` per ticker at import). Callers in hot paths (e.g. `get_historical_performance`) must use batch `get_splits` + this pure function; `get_cumulative_split_factor` is for one-off use only.
@@ -425,10 +429,13 @@
 - `SplitService`: Service for retrieving split data and calculating adjustment factors
 
 **Key Methods:**
-- `get_splits(tickers, start_date=None, end_date=None)`: Get raw split data from yfinance for a batch of tickers
-  - Accepts a list of ticker symbols; retrieval (cache and yfinance) is done in one batch to avoid N+1 calls
+- `__init__(cache_file=None)`: Initialize with optional cache file (default: `Config.SPLIT_CACHE_FILE`). In-memory `_split_cache` holds loaded/fetched data.
+- `ensure_splits_loaded(tickers)`: Call once at import start with all Stock/ETF tickers. If tickers empty, return. Valid cache: file exists, mtime same calendar day, all tickers present. If valid: load from file if needed and return. If invalid or missing tickers: batch fetch from yfinance, update cache, save to Parquet. Guarantees at most one file load or yfinance fetch per run.
+- `get_splits(tickers, start_date=None, end_date=None)`: Get raw split data
+  - If all tickers in in-memory cache: return from cache with date filtering
+  - If any ticker missing: fetch and cache (fallback for callers that don't use `ensure_splits_loaded`)
   - Returns Dict[str, pd.Series] mapping each ticker to a pandas Series with date index and split ratio values
-  - Caches split data internally; empty list returns {}; on fetch error or no data for a ticker, that ticker gets an empty Series
+  - Empty list returns {}; on fetch error or no data for a ticker, that ticker gets an empty Series
 - `get_cumulative_split_factor(ticker, trade_date, current_date=None)`: Calculate cumulative split adjustment factor
   - Calls `get_splits` then `compute_cumulative_split_factor_from_splits` internally
   - Filters splits that occurred strictly after trade_date and up to current_date
@@ -448,8 +455,13 @@
 - Returns Decimal('1.0') with warning if yfinance API fails
 - Logs warnings but doesn't raise exceptions (lenient error handling)
 
+**File Cache:**
+- Parquet schema: ticker, split_date, split_ratio. Validity: same calendar day as file mtime; all requested tickers present.
+- `_load_from_file()` / `_save_to_file()`: load Parquet to Dict[ticker, pd.Series]; save in-memory cache to long-format Parquet.
+
 **Artefacts:**
-- Split data cache (internal, in-memory)
+- File-based Parquet split cache (default `Config.SPLIT_CACHE_FILE`)
+- In-memory split cache for fast lookups after load/fetch
 - Cumulative split factors for trade adjustment
 
 ### wpm/pricing/cache.py
@@ -544,6 +556,7 @@
 - `PriceService`: Service that orchestrates price retrieval with caching and rate limiting
 
 **Key Methods:**
+- `__init__(..., split_service=None)`: If `split_service` provided, use it; otherwise create `SplitService()`. Sharing a single SplitService with the importer avoids duplicate split fetches.
 - `get_retriever(asset_type)`: Get appropriate price retriever for asset type
   - Returns PriceRetriever instance for the specified asset type
   - Raises ValueError if asset type is not supported

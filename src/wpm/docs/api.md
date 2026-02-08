@@ -209,6 +209,7 @@
   * [PriceService](#wpm.pricing.service.PriceService)
     * [\_\_init\_\_](#wpm.pricing.service.PriceService.__init__)
     * [get\_retriever](#wpm.pricing.service.PriceService.get_retriever)
+    * [get\_split\_service](#wpm.pricing.service.PriceService.get_split_service)
     * [get\_stock\_retriever](#wpm.pricing.service.PriceService.get_stock_retriever)
     * [detect\_currency](#wpm.pricing.service.PriceService.detect_currency)
     * [get\_price](#wpm.pricing.service.PriceService.get_price)
@@ -260,6 +261,7 @@
   * [compute\_cumulative\_split\_factor\_from\_splits](#wpm.pricing.splits.compute_cumulative_split_factor_from_splits)
   * [SplitService](#wpm.pricing.splits.SplitService)
     * [\_\_init\_\_](#wpm.pricing.splits.SplitService.__init__)
+    * [ensure\_splits\_loaded](#wpm.pricing.splits.SplitService.ensure_splits_loaded)
     * [get\_splits](#wpm.pricing.splits.SplitService.get_splits)
     * [get\_cumulative\_split\_factor](#wpm.pricing.splits.SplitService.get_cumulative_split_factor)
     * [clear\_cache](#wpm.pricing.splits.SplitService.clear_cache)
@@ -683,17 +685,25 @@ Extract and normalize portfolio name from CSV filename.
 #### import\_csv\_files
 
 ```python
-def import_csv_files(import_dir: Path,
-                     end_date: Optional[date] = None) -> CompositePortfolio
+def import_csv_files(
+        import_dir: Path,
+        end_date: Optional[date] = None,
+        split_service: Optional[SplitService] = None) -> CompositePortfolio
 ```
 
 Import CSV files and create composite portfolio.
+
+Public API used by CLI and downstream applications. Collects all Stock/ETF
+tickers from CSVs, calls ensure_splits_loaded once, then processes each file.
+Callers may pass an optional split_service to share with PriceService.
 
 **Arguments**:
 
 - `import_dir` - Directory containing CSV files
 - `end_date` - Optional end date (inclusive). If provided, only trades with date <= end_date are included,
   and all created portfolios will have is_historical=True
+- `split_service` - Optional SplitService instance. If provided, shares split cache
+  with caller (e.g. PriceService). If None, creates one internally.
   
 
 **Returns**:
@@ -1741,10 +1751,14 @@ Return all sheet (tab) names in spreadsheet.
 def import_sheets_workbook(
         spreadsheet_id: str,
         credentials_path: Optional[str] = None,
-        end_date: Optional[date] = None) -> CompositePortfolio
+        end_date: Optional[date] = None,
+        split_service: Optional[SplitService] = None) -> CompositePortfolio
 ```
 
 Import ALL sheets as sub-portfolios, aggregate into CompositePortfolio.
+
+Public API; accepts optional split_service. Internally pre-collects tickers
+and calls ensure_splits_loaded once.
 
 Fail-Fast Behavior:
 - ALL sheets in the spreadsheet are imported (no filtering option)
@@ -1758,6 +1772,8 @@ the ENTIRE operation fails
 - `credentials_path` - Path to service account JSON key file (optional)
 - `end_date` - If provided, only import trades on or before this date,
   and mark portfolios as historical
+- `split_service` - Optional SplitService instance. If provided, shares split
+  cache with caller (e.g. PriceService).
   
 
 **Returns**:
@@ -4149,7 +4165,8 @@ Service that orchestrates price retrieval with caching and rate limiting.
 def __init__(cache_file: Optional[Path] = None,
              historical_cache_file: Optional[Path] = None,
              rate_limit_per_minute: int = 60,
-             currency_service: CurrencyService = None)
+             currency_service: CurrencyService = None,
+             split_service: Optional[SplitService] = None)
 ```
 
 Initialize price service.
@@ -4160,6 +4177,8 @@ Initialize price service.
 - `historical_cache_file` - Path to historical cache file (default: Config.HISTORICAL_CACHE_FILE)
 - `rate_limit_per_minute` - Rate limit for API calls per minute
 - `currency_service` - CurrencyService instance (default: creates new instance)
+- `split_service` - Optional SplitService instance to share with importer.
+  If provided, uses shared split cache (avoids duplicate fetches).
 
 <a id="wpm.pricing.service.PriceService.get_retriever"></a>
 
@@ -4184,6 +4203,19 @@ Get appropriate price retriever for asset type.
 **Raises**:
 
 - `ValueError` - If asset type is not supported
+
+<a id="wpm.pricing.service.PriceService.get_split_service"></a>
+
+#### get\_split\_service
+
+```python
+def get_split_service() -> SplitService
+```
+
+Return the SplitService instance used by this PriceService.
+
+Callers may use this to share split data (e.g. avoid duplicate fetches
+when computing historical performance or show-asset flows).
 
 <a id="wpm.pricing.service.PriceService.get_stock_retriever"></a>
 
@@ -5068,15 +5100,44 @@ class SplitService()
 
 Service for retrieving stock split data and calculating adjustment factors.
 
+Uses a file-based Parquet cache with daily validity. Cache is valid when:
+- File mtime is on the same calendar day as now
+- All requested tickers are present in the cache
+
+If cache is invalid or any ticker is missing, a full batch fetch from yfinance
+is performed and the cache is refreshed.
+
 <a id="wpm.pricing.splits.SplitService.__init__"></a>
 
 #### \_\_init\_\_
 
 ```python
-def __init__()
+def __init__(cache_file: Optional[Path] = None)
 ```
 
-Initialize SplitService with internal cache for split data.
+Initialize SplitService with file-based cache.
+
+**Arguments**:
+
+- `cache_file` - Path to Parquet cache file (default: Config.SPLIT_CACHE_FILE)
+
+<a id="wpm.pricing.splits.SplitService.ensure_splits_loaded"></a>
+
+#### ensure\_splits\_loaded
+
+```python
+def ensure_splits_loaded(tickers: List[str]) -> None
+```
+
+Ensure split data is loaded for all tickers.
+
+Call once at import start. At most one file load or yfinance fetch per run.
+If cache is valid and has all tickers, loads from file. Otherwise batch
+fetches from yfinance and saves to file.
+
+**Arguments**:
+
+- `tickers` - List of Stock/ETF ticker symbols
 
 <a id="wpm.pricing.splits.SplitService.get_splits"></a>
 
@@ -5088,11 +5149,10 @@ def get_splits(tickers: List[str],
                end_date: Optional[date] = None) -> Dict[str, pd.Series]
 ```
 
-Get raw split data from yfinance for a batch of tickers.
+Get raw split data for a batch of tickers.
 
-Retrieval (cache and yfinance) is done in one batch to avoid N+1 calls.
-Each requested ticker appears exactly once in the returned dict; on
-fetch error or no data, that ticker gets an empty Series.
+Uses in-memory cache if all tickers are present. If any ticker is missing,
+triggers a refresh (batch fetch from yfinance, update cache, save file).
 
 **Arguments**:
 
@@ -5105,13 +5165,6 @@ fetch error or no data, that ticker gets an empty Series.
 
   Dict mapping each ticker to a pandas Series with date index and
   split ratio values. Empty list returns {}.
-  
-
-**Notes**:
-
-  Split ratios are stored as-is from yfinance:
-  - Forward split (2:1) = 2.0
-  - Reverse split (1:2) = 0.5
 
 <a id="wpm.pricing.splits.SplitService.get_cumulative_split_factor"></a>
 

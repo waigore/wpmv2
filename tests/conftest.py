@@ -76,6 +76,7 @@ def test_cache_isolation(tmp_path_factory):
     original_currency_cache_file = Config.CURRENCY_CACHE_FILE
     original_historical_cache_file = Config.HISTORICAL_CACHE_FILE
     original_asset_metadata_cache_file = Config.ASSET_METADATA_CACHE_FILE
+    original_split_cache_file = Config.SPLIT_CACHE_FILE
     
     # Override Config class variables to use test cache directory
     Config.CACHE_DIR = test_cache_dir
@@ -83,6 +84,7 @@ def test_cache_isolation(tmp_path_factory):
     Config.CURRENCY_CACHE_FILE = test_cache_dir / "currency_cache.parquet"
     Config.HISTORICAL_CACHE_FILE = test_cache_dir / "historical_price_cache.parquet"
     Config.ASSET_METADATA_CACHE_FILE = test_cache_dir / "asset_metadata_cache.parquet"
+    Config.SPLIT_CACHE_FILE = test_cache_dir / "split_cache.parquet"
     
     # Yield control to tests - cleanup happens automatically via tmp_path_factory
     yield
@@ -93,6 +95,7 @@ def test_cache_isolation(tmp_path_factory):
     Config.CURRENCY_CACHE_FILE = original_currency_cache_file
     Config.HISTORICAL_CACHE_FILE = original_historical_cache_file
     Config.ASSET_METADATA_CACHE_FILE = original_asset_metadata_cache_file
+    Config.SPLIT_CACHE_FILE = original_split_cache_file
     
     # Note: tmp_path_factory automatically cleans up the temporary directory
     # after all tests in the session complete
